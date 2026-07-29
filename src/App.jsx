@@ -1,16 +1,22 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useI18n } from './lib/i18n'
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import ItemCard from './components/ItemCard'
 import ItemForm from './components/ItemForm'
 import ConfirmDialog from './components/ConfirmDialog'
 import Toast from './components/Toast'
+import SettingsView from './components/SettingsView'
+import CategoryManager from './components/CategoryManager'
+import LocationManager from './components/LocationManager'
 import {
   fetchAllItems,
   searchItems,
   fetchByCategory,
   fetchByCategoryAndKeyword,
   fetchCategoryCounts,
+  fetchCategories,
+  fetchLocations,
   createItem,
   updateItem,
   adjustQuantity,
@@ -19,15 +25,23 @@ import {
   importJSON,
   exportCSV,
   saveFile,
-  openFile
+  openFile,
+  setSettings,
+  setDataDir,
+  resetDataDir,
+  pickFolder
 } from './lib/api'
 
 export default function App() {
+  const { t, lang, setLang } = useI18n()
+  const [view, setView] = useState('items') // items | settings | categories | locations
   const [items, setItems] = useState([])
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
   const [activeCategory, setActiveCategory] = useState('')
   const [counts, setCounts] = useState({})
+  const [categories, setCategories] = useState([])
+  const [locations, setLocations] = useState([])
   const [formOpen, setFormOpen] = useState(false)
   const [editingItem, setEditingItem] = useState(null)
   const [confirm, setConfirm] = useState({ open: false, id: null, name: '' })
@@ -38,11 +52,26 @@ export default function App() {
     setToast({ message, type, id: Date.now() })
   }, [])
 
-  // 关键词防抖
   useEffect(() => {
-    const t = setTimeout(() => setKeyword(keywordInput.trim()), 250)
-    return () => clearTimeout(t)
+    const tm = setTimeout(() => setKeyword(keywordInput.trim()), 250)
+    return () => clearTimeout(tm)
   }, [keywordInput])
+
+  const refreshCategories = useCallback(async () => {
+    try {
+      setCategories(await fetchCategories())
+    } catch (e) {
+      /* ignore */
+    }
+  }, [])
+
+  const refreshLocations = useCallback(async () => {
+    try {
+      setLocations(await fetchLocations())
+    } catch (e) {
+      /* ignore */
+    }
+  }, [])
 
   const refreshCounts = useCallback(async () => {
     try {
@@ -51,7 +80,7 @@ export default function App() {
       rows.forEach((r) => (m[r.category] = r.count))
       setCounts(m)
     } catch (e) {
-      // 忽略计数错误
+      /* ignore */
     }
   }, [])
 
@@ -70,26 +99,38 @@ export default function App() {
       }
       setItems(rows)
     } catch (e) {
-      showToast('加载失败：' + e.message, 'error')
+      showToast(t('toast_loadFail', { msg: e.message }), 'error')
     } finally {
       setLoading(false)
     }
-  }, [keyword, activeCategory, showToast])
+  }, [keyword, activeCategory, showToast, t])
 
   useEffect(() => {
-    reload()
-  }, [reload])
+    refreshCategories()
+    refreshLocations()
+  }, [refreshCategories, refreshLocations])
+
+  useEffect(() => {
+    if (view === 'items') reload()
+  }, [reload, view])
   useEffect(() => {
     refreshCounts()
   }, [refreshCounts])
 
-  // 统计（基于当前视图）
+  // 菜单快捷键：用 ref 持有最新处理器，避免陈旧闭包
+  const handlersRef = useRef({ imp: () => {}, ej: () => {}, ec: () => {} })
+  useEffect(() => {
+    const api = window.lingguang
+    api.menu.onImport(() => handlersRef.current.imp())
+    api.menu.onExportJson(() => handlersRef.current.ej())
+    api.menu.onExportCsv(() => handlersRef.current.ec())
+  }, [])
+
   const total = items.length
   const lowStock = items.filter((it) => it.min_quantity > 0 && it.quantity <= it.min_quantity).length
   const expiringSoon = items.filter((it) => {
     if (!it.expiry_date) return false
-    const days = Math.ceil((it.expiry_date - Date.now()) / 86400000)
-    return days <= 7
+    return Math.ceil((it.expiry_date - Date.now()) / 86400000) <= 7
   }).length
 
   const handleOpenNew = () => {
@@ -105,22 +146,21 @@ export default function App() {
     try {
       if (editingItem) {
         await updateItem(editingItem.id, data)
-        showToast('已更新「' + (data.name || '物品') + '」')
+        showToast(t('toast_updated', { name: data.name || '—' }))
       } else {
         await createItem(data)
-        showToast('已添加「' + (data.name || '物品') + '」')
+        showToast(t('toast_added', { name: data.name || '—' }))
       }
       setFormOpen(false)
       setEditingItem(null)
       await reload()
       await refreshCounts()
     } catch (e) {
-      showToast('保存失败：' + e.message, 'error')
+      showToast(t('toast_saveFail', { msg: e.message }), 'error')
     }
   }
 
   const handleAdjust = async (id, delta) => {
-    // 乐观更新本地数量，保持顺序不跳动
     setItems((prev) =>
       prev.map((it) =>
         it.id === id ? { ...it, quantity: Math.max(0, it.quantity + delta), updated_at: Date.now() } : it
@@ -129,24 +169,22 @@ export default function App() {
     try {
       await adjustQuantity(id, delta)
     } catch (e) {
-      showToast('更新数量失败', 'error')
+      showToast(t('toast_qtyFail'), 'error')
       reload()
     }
   }
 
-  const handleAskDelete = (item) => {
-    setConfirm({ open: true, id: item.id, name: item.name || '该物品' })
-  }
+  const handleAskDelete = (item) => setConfirm({ open: true, id: item.id, name: item.name || '—' })
   const handleConfirmDelete = async () => {
     const { id, name } = confirm
     setConfirm({ open: false, id: null, name: '' })
     try {
       await deleteItem(id)
-      showToast('已删除「' + name + '」')
+      showToast(t('toast_deleted', { name }))
       await reload()
       await refreshCounts()
     } catch (e) {
-      showToast('删除失败：' + e.message, 'error')
+      showToast(t('toast_deleteFail', { msg: e.message }), 'error')
     }
   }
 
@@ -158,9 +196,9 @@ export default function App() {
         defaultName: `inventory-${new Date().toISOString().slice(0, 10)}.json`,
         filters: [{ name: 'JSON', extensions: ['json'] }]
       })
-      if (!res.canceled) showToast('已导出 JSON')
+      if (!res.canceled) showToast(t('toast_exported'))
     } catch (e) {
-      showToast('导出失败：' + e.message, 'error')
+      showToast(t('toast_exportFail', { msg: e.message }), 'error')
     }
   }
 
@@ -172,9 +210,9 @@ export default function App() {
         defaultName: `inventory-${new Date().toISOString().slice(0, 10)}.csv`,
         filters: [{ name: 'CSV', extensions: ['csv'] }]
       })
-      if (!res.canceled) showToast('已导出 CSV')
+      if (!res.canceled) showToast(t('toast_exported'))
     } catch (e) {
-      showToast('导出失败：' + e.message, 'error')
+      showToast(t('toast_exportFail', { msg: e.message }), 'error')
     }
   }
 
@@ -183,20 +221,106 @@ export default function App() {
       const res = await openFile({ filters: [{ name: 'JSON', extensions: ['json'] }] })
       if (res.canceled) return
       const { imported } = await importJSON(res.content)
-      showToast(`已导入 ${imported} 条物品`)
+      showToast(t('toast_imported', { n: imported }))
       await reload()
       await refreshCounts()
+      await refreshCategories()
     } catch (e) {
-      showToast('导入失败，请检查文件格式：' + e.message, 'error')
+      showToast(t('toast_importFail', { msg: e.message }), 'error')
     }
+  }
+
+  // 设置页：切换语言
+  const handleChangeLang = async (l) => {
+    await setSettings({ language: l })
+    setLang(l)
+    showToast(t('toast_langChanged'))
+  }
+
+  // 设置页：切换数据目录
+  const handleChangeDataDir = async () => {
+    const res = await pickFolder()
+    if (res.canceled) return
+    const r = await setDataDir(res.path)
+    if (r.ok) {
+      showToast(t('toast_dataDirChanged'))
+      setTimeout(() => location.reload(), 800)
+    } else {
+      showToast(t('toast_dataDirFail', { msg: r.error }), 'error')
+    }
+  }
+  const handleResetDataDir = async () => {
+    await resetDataDir()
+    showToast(t('toast_dataDirChanged'))
+    setTimeout(() => location.reload(), 800)
+  }
+
+  // 分类/位置管理变更后刷新
+  const handleCatsChanged = async () => {
+    await refreshCategories()
+    await refreshCounts()
+  }
+  const handleLocsChanged = async () => {
+    await refreshLocations()
+  }
+
+  // 同步菜单处理器引用（每渲染更新，避免陈旧闭包）
+  handlersRef.current.imp = handleImportJSON
+  handlersRef.current.ej = handleExportJSON
+  handlersRef.current.ec = handleExportCSV
+
+  // ---- 渲染 ----
+  if (view === 'settings') {
+    return (
+      <SettingsView
+        onBack={() => setView('items')}
+        onChangeLang={handleChangeLang}
+        onChangeDataDir={handleChangeDataDir}
+        onResetDataDir={handleResetDataDir}
+        onManageCategories={() => setView('categories')}
+        onManageLocations={() => setView('locations')}
+        onExportJSON={handleExportJSON}
+        onExportCSV={handleExportCSV}
+        onImport={handleImportJSON}
+      />
+    )
+  }
+  if (view === 'categories') {
+    return (
+      <CategoryManager
+        categories={categories}
+        counts={counts}
+        lang={lang}
+        onBack={() => setView('settings')}
+        onChanged={handleCatsChanged}
+        showToast={showToast}
+      />
+    )
+  }
+  if (view === 'locations') {
+    return (
+      <LocationManager
+        locations={locations}
+        lang={lang}
+        onBack={() => setView('settings')}
+        onChanged={handleLocsChanged}
+        showToast={showToast}
+      />
+    )
   }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-stone-100">
       <Sidebar
         activeCategory={activeCategory}
-        onSelect={setActiveCategory}
+        onSelectCategory={(c) => {
+          setActiveCategory(c)
+          setView('items')
+        }}
         counts={counts}
+        categories={categories}
+        lang={lang}
+        onOpenSettings={() => setView('settings')}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar
@@ -210,10 +334,12 @@ export default function App() {
           lowStock={lowStock}
           expiringSoon={expiringSoon}
           activeCategory={activeCategory}
+          categories={categories}
+          lang={lang}
         />
         <main className="flex-1 overflow-y-auto p-6">
           {loading && items.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-stone-400">加载中…</div>
+            <div className="flex h-full items-center justify-center text-stone-400">{t('loading')}</div>
           ) : items.length === 0 ? (
             <EmptyState onAdd={handleOpenNew} hasFilter={!!keyword || !!activeCategory} />
           ) : (
@@ -222,6 +348,8 @@ export default function App() {
                 <ItemCard
                   key={it.id}
                   item={it}
+                  categories={categories}
+                  lang={lang}
                   onAdjust={handleAdjust}
                   onEdit={handleOpenEdit}
                   onDelete={handleAskDelete}
@@ -233,38 +361,45 @@ export default function App() {
       </div>
 
       {formOpen && (
-        <ItemForm initial={editingItem} onSave={handleSave} onClose={() => setFormOpen(false)} />
+        <ItemForm
+          initial={editingItem}
+          categories={categories}
+          locations={locations}
+          lang={lang}
+          onSave={handleSave}
+          onClose={() => setFormOpen(false)}
+        />
       )}
       <ConfirmDialog
         open={confirm.open}
-        title="删除物品"
-        message={`确定要删除「${confirm.name}」吗？此操作不可撤销。`}
+        title={t('confirm_deleteTitle')}
+        message={t('confirm_deleteMsg', { name: confirm.name })}
         onConfirm={handleConfirmDelete}
         onCancel={() => setConfirm({ open: false, id: null, name: '' })}
       />
       <Toast toast={toast} onDone={() => setToast(null)} />
     </div>
   )
-}
 
-function EmptyState({ onAdd, hasFilter }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center text-center">
-      <div className="mb-4 text-6xl">{hasFilter ? '🔍' : '🏠'}</div>
-      <p className="mb-1 text-lg font-medium text-stone-600">
-        {hasFilter ? '没有找到匹配的物品' : '还没有物品'}
-      </p>
-      <p className="mb-6 text-sm text-stone-400">
-        {hasFilter ? '试试换个关键词或分类' : '点击下方按钮，添加你的第一件家庭物品'}
-      </p>
-      {!hasFilter && (
-        <button
-          onClick={onAdd}
-          className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
-        >
-          + 添加物品
-        </button>
-      )}
-    </div>
-  )
+  function EmptyState({ onAdd, hasFilter }) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center text-center">
+        <div className="mb-4 text-6xl">{hasFilter ? '🔍' : '🏠'}</div>
+        <p className="mb-1 text-lg font-medium text-stone-600">
+          {hasFilter ? t('empty_noMatch') : t('empty_noItems')}
+        </p>
+        <p className="mb-6 text-sm text-stone-400">
+          {hasFilter ? t('empty_tryFilter') : t('empty_addFirst')}
+        </p>
+        {!hasFilter && (
+          <button
+            onClick={onAdd}
+            className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+          >
+            + {t('btn_add')}
+          </button>
+        )}
+      </div>
+    )
+  }
 }

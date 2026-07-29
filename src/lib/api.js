@@ -5,12 +5,11 @@ export function uid() {
   return (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) + Math.random().toString(16).slice(2)
 }
 
-// 查询全部物品（按更新时间倒序）
+// ===== 物品 =====
 export function fetchAllItems() {
   return api.db.query({ sql: 'SELECT * FROM items ORDER BY updated_at DESC' })
 }
 
-// 关键词搜索（名称/编号/房间/位置）
 export function searchItems(keyword) {
   const like = `%${keyword}%`
   return api.db.query({
@@ -21,7 +20,6 @@ export function searchItems(keyword) {
   })
 }
 
-// 按分类查询
 export function fetchByCategory(category) {
   return api.db.query({
     sql: 'SELECT * FROM items WHERE category = ? ORDER BY updated_at DESC',
@@ -29,7 +27,6 @@ export function fetchByCategory(category) {
   })
 }
 
-// 分类 + 关键词组合查询
 export function fetchByCategoryAndKeyword(category, keyword) {
   const like = `%${keyword}%`
   return api.db.query({
@@ -40,14 +37,12 @@ export function fetchByCategoryAndKeyword(category, keyword) {
   })
 }
 
-// 各分类计数
 export function fetchCategoryCounts() {
   return api.db.query({
     sql: 'SELECT category, COUNT(*) as count FROM items GROUP BY category'
   })
 }
 
-// 新增物品
 export async function createItem(item) {
   const now = Date.now()
   const row = {
@@ -74,7 +69,6 @@ export async function createItem(item) {
   return row
 }
 
-// 更新物品
 export async function updateItem(id, patch) {
   const now = Date.now()
   const rows = await api.db.query({ sql: 'SELECT * FROM items WHERE id = ?', binds: [id] })
@@ -98,7 +92,6 @@ export async function updateItem(id, patch) {
   return next
 }
 
-// 数量快速增减（delta 为正负整数）
 export async function adjustQuantity(id, delta) {
   await api.db.execute({
     sql: 'UPDATE items SET quantity = quantity + ?, updated_at = ? WHERE id = ?',
@@ -106,9 +99,101 @@ export async function adjustQuantity(id, delta) {
   })
 }
 
-// 删除物品
 export async function deleteItem(id) {
   await api.db.execute({ sql: 'DELETE FROM items WHERE id = ?', binds: [id] })
+}
+
+// ===== 分类（动态）=====
+export async function fetchCategories() {
+  return api.categories.list()
+}
+
+export async function createCategory({ key, name, name_en, icon }) {
+  return api.categories.create({ key, name, name_en, icon })
+}
+
+export async function updateCategory(id, patch) {
+  return api.categories.update(id, patch)
+}
+
+export async function deleteCategory(id) {
+  return api.categories.delete(id)
+}
+
+// 根据语言取分类显示名
+export function categoryDisplayName(cat, lang) {
+  if (!cat) return ''
+  if (lang === 'en' && cat.name_en) return cat.name_en
+  return cat.name || cat.name_en || cat.key
+}
+
+// ===== 位置树 =====
+export async function fetchLocations() {
+  return api.locations.list()
+}
+
+export async function createLocation({ name, parentId }) {
+  return api.locations.create({ name, parentId })
+}
+
+export async function updateLocation(id, patch) {
+  return api.locations.update(id, patch)
+}
+
+export async function deleteLocation(id) {
+  return api.locations.delete(id)
+}
+
+// 把扁平列表构建为树
+export function buildLocationTree(list) {
+  const map = {}
+  list.forEach((l) => {
+    map[l.id] = { ...l, children: [] }
+  })
+  const roots = []
+  list.forEach((l) => {
+    const node = map[l.id]
+    if (l.parent_id && map[l.parent_id]) {
+      map[l.parent_id].children.push(node)
+    } else {
+      roots.push(node)
+    }
+  })
+  return roots
+}
+
+// 取某节点的完整路径名（祖先 > ... > 节点）
+export function locationPath(list, id) {
+  if (!id) return null
+  const map = {}
+  list.forEach((l) => (map[l.id] = l))
+  const names = []
+  let cur = map[id]
+  let guard = 0
+  while (cur && guard < 50) {
+    names.unshift(cur.name)
+    cur = cur.parent_id ? map[cur.parent_id] : null
+    guard++
+  }
+  return names.length ? names : null
+}
+
+// 取路径根（房间）与叶子（位置）
+export function locationParts(list, id) {
+  const path = locationPath(list, id)
+  if (!path) return { room: '', position: '', location: '' }
+  return {
+    room: path[0] || '',
+    position: path[path.length - 1] || '',
+    location: path.join(' > ')
+  }
+}
+
+// 每个位置下的物品计数
+export function fetchLocationItemCounts() {
+  return api.db.query({
+    sql: "SELECT position as name, COUNT(*) as count FROM items WHERE position != '' GROUP BY position"
+  })
 }
 
 // ===== 导入导出 =====
@@ -124,12 +209,31 @@ export async function exportCSV() {
   return api.sync.exportCSV()
 }
 
-// 文件保存对话框
 export async function saveFile({ content, defaultName, filters }) {
   return api.file.save({ content, defaultName, filters })
 }
 
-// 文件打开对话框
 export async function openFile({ filters }) {
   return api.file.open({ filters })
+}
+
+// ===== 设置 =====
+export async function getSettings() {
+  return api.settings.get()
+}
+
+export async function setSettings(patch) {
+  return api.settings.set(patch)
+}
+
+export async function setDataDir(dir) {
+  return api.settings.setDataDir(dir)
+}
+
+export async function resetDataDir() {
+  return api.settings.resetDataDir()
+}
+
+export async function pickFolder() {
+  return api.dialog.pickFolder()
 }

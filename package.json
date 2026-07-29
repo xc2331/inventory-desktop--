@@ -47,7 +47,7 @@
       "buildResources": "build"
     },
     "win": {
-      "target": "nsis",
+      "target": "portable",
       "signAndEditExecutable": false
     },
     "mac": {

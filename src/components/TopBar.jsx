@@ -1,4 +1,5 @@
-import { CATEGORIES } from '../lib/categories'
+import { useI18n } from '../lib/i18n'
+import { categoryDisplayName } from '../lib/api'
 
 export default function TopBar({
   keyword,
@@ -10,32 +11,33 @@ export default function TopBar({
   total,
   lowStock,
   expiringSoon,
-  activeCategory
+  activeCategory,
+  categories,
+  lang
 }) {
-  const cat = CATEGORIES.find((c) => c.key === activeCategory)
+  const { t } = useI18n()
+  const cat = categories.find((c) => c.key === activeCategory)
 
   return (
     <header className="flex flex-col gap-3 border-b border-stone-200 bg-white px-6 py-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-stone-800">
+        <h1 className="flex items-center gap-2 text-lg font-semibold text-stone-800">
           {cat ? (
-            <span className="flex items-center gap-2">
-              <span>{cat.icon}</span> {cat.label}
-            </span>
+            <>
+              <span>{cat.icon || '🏷️'}</span> {categoryDisplayName(cat, lang)}
+            </>
           ) : (
-            '全部物品'
+            t('nav_all')
           )}
         </h1>
 
-        <div className="relative flex-1 max-w-md">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400">
-            🔍
-          </span>
+        <div className="relative max-w-md flex-1">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400">🔍</span>
           <input
             type="text"
             value={keyword}
             onChange={(e) => onKeywordChange(e.target.value)}
-            placeholder="搜索名称 / 编号 / 位置"
+            placeholder={t('search_placeholder')}
             className="w-full rounded-lg border border-stone-200 bg-stone-50 py-2 pl-9 pr-3 text-sm text-stone-700 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
           />
         </div>
@@ -45,24 +47,24 @@ export default function TopBar({
             onClick={onImport}
             className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-600 transition hover:bg-stone-50"
           >
-            导入
+            {t('btn_import')}
           </button>
-          <div className="relative group">
+          <div className="group relative">
             <button className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-600 transition hover:bg-stone-50">
-              导出 ▾
+              {t('btn_export')} ▾
             </button>
-            <div className="absolute right-0 top-full z-20 mt-1 hidden w-32 rounded-lg border border-stone-200 bg-white py-1 shadow-lg group-hover:block">
+            <div className="absolute right-0 top-full z-20 mt-1 hidden w-36 rounded-lg border border-stone-200 bg-white py-1 shadow-lg group-hover:block">
               <button
                 onClick={onExportJSON}
                 className="block w-full px-4 py-2 text-left text-sm text-stone-600 hover:bg-stone-50"
               >
-                导出 JSON
+                {t('export_json')}
               </button>
               <button
                 onClick={onExportCSV}
                 className="block w-full px-4 py-2 text-left text-sm text-stone-600 hover:bg-stone-50"
               >
-                导出 CSV
+                {t('export_csv')}
               </button>
             </div>
           </div>
@@ -70,15 +72,19 @@ export default function TopBar({
             onClick={onAdd}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
           >
-            + 添加物品
+            + {t('btn_add')}
           </button>
         </div>
       </div>
 
       <div className="flex items-center gap-2 text-xs">
-        <StatChip label="物品" value={total} tone="neutral" />
-        <StatChip label="库存不足" value={lowStock} tone={lowStock > 0 ? 'danger' : 'neutral'} />
-        <StatChip label="即将过期" value={expiringSoon} tone={expiringSoon > 0 ? 'warn' : 'neutral'} />
+        <StatChip label={t('stat_items')} value={total} tone="neutral" />
+        <StatChip label={t('stat_lowStock')} value={lowStock} tone={lowStock > 0 ? 'danger' : 'neutral'} />
+        <StatChip
+          label={t('stat_expiringSoon')}
+          value={expiringSoon}
+          tone={expiringSoon > 0 ? 'warn' : 'neutral'}
+        />
       </div>
     </header>
   )

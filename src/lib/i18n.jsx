@@ -1,0 +1,248 @@
+// 国际化：中/英双语词典 + React Context
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+
+const DICT = {
+  zh: {
+    appTitle: '家庭物资管家',
+    appSubtitle: 'Family Inventory',
+    nav_all: '全部物品',
+    nav_categories: '分类',
+    nav_locations: '位置',
+    nav_settings: '设置',
+    sidebar_localBackup: '数据本地存储 · 启动自动备份',
+    search_placeholder: '搜索名称 / 编号 / 位置',
+    btn_add: '添加物品',
+    btn_import: '导入',
+    btn_export: '导出',
+    export_json: '导出 JSON',
+    export_csv: '导出 CSV',
+    stat_items: '物品',
+    stat_lowStock: '库存不足',
+    stat_expiringSoon: '即将过期',
+    empty_noItems: '还没有物品',
+    empty_addFirst: '点击下方按钮，添加你的第一件家庭物品',
+    empty_noMatch: '没有找到匹配的物品',
+    empty_tryFilter: '试试换个关键词或分类',
+    card_lowStock: '库存不足',
+    card_min: '最低',
+    card_expired: '已过期',
+    card_expireIn: '{n} 天后过期',
+    form_addTitle: '添加物品',
+    form_editTitle: '编辑物品',
+    f_name: '物品名称',
+    f_category: '分类',
+    f_itemNo: '编号',
+    f_room: '房间',
+    f_position: '位置',
+    f_location: '详细位置',
+    f_quantity: '数量',
+    f_minQuantity: '最低库存',
+    f_expiry: '过期日期',
+    f_photo: '图片地址',
+    f_selectCategory: '请选择',
+    f_pickLocation: '选择存放位置',
+    f_orManual: '或手动输入',
+    err_nameRequired: '请输入物品名称',
+    btn_cancel: '取消',
+    btn_save: '保存',
+    btn_delete: '删除',
+    confirm_deleteTitle: '删除物品',
+    confirm_deleteMsg: '确定要删除「{name}」吗？此操作不可撤销。',
+    toast_added: '已添加「{name}」',
+    toast_updated: '已更新「{name}」',
+    toast_deleted: '已删除「{name}」',
+    toast_exported: '已导出',
+    toast_imported: '已导入 {n} 条物品',
+    toast_exportFail: '导出失败：{msg}',
+    toast_importFail: '导入失败，请检查文件格式：{msg}',
+    toast_saveFail: '保存失败：{msg}',
+    toast_deleteFail: '删除失败：{msg}',
+    toast_loadFail: '加载失败：{msg}',
+    toast_qtyFail: '更新数量失败',
+    toast_renamed: '已重命名',
+    toast_addedCat: '已添加分类',
+    toast_addedLoc: '已添加位置',
+    toast_deletedCat: '已删除分类',
+    toast_deletedLoc: '已删除位置',
+    toast_dataDirChanged: '数据目录已切换，即将刷新…',
+    toast_dataDirFail: '切换数据目录失败：{msg}',
+    toast_langChanged: '语言已切换',
+    loading: '加载中…',
+    settings_title: '设置',
+    settings_language: '界面语言',
+    settings_language_zh: '简体中文',
+    settings_language_en: 'English',
+    settings_dataDir: '数据目录',
+    settings_dataDir_desc: '物品数据库存放位置。可指向 U 盘或同步盘实现便携/多机同步。',
+    settings_dataDir_default: '默认（系统应用数据目录）',
+    settings_btn_changeDir: '更改目录…',
+    settings_btn_resetDir: '恢复默认',
+    settings_dataManage: '数据管理',
+    settings_manageCategories: '管理物品分类',
+    settings_manageCategories_desc: '新增、重命名、删除分类。删除后该分类物品归入「其他」。',
+    settings_manageLocations: '管理存放位置',
+    settings_manageLocations_desc: '维护房间 / 位置 的父子层级，用于物品表单选择。',
+    cat_title: '物品分类管理',
+    cat_addNew: '添加分类',
+    cat_key: '标识 key',
+    cat_name: '中文名称',
+    cat_name_en: '英文名称',
+    cat_icon: '图标',
+    cat_count: '物品数',
+    cat_rename: '重命名',
+    loc_title: '存放位置管理',
+    loc_addRoot: '添加根位置',
+    loc_addChild: '添加子位置',
+    loc_rename: '重命名',
+    loc_empty: '还没有位置，点击「添加根位置」开始',
+    loc_itemCount: '{n} 件物品',
+    back: '返回',
+    close: '关闭'
+  },
+  en: {
+    appTitle: 'Family Inventory',
+    appSubtitle: '家庭物资管家',
+    nav_all: 'All Items',
+    nav_categories: 'Categories',
+    nav_locations: 'Locations',
+    nav_settings: 'Settings',
+    sidebar_localBackup: 'Local storage · auto-backup on launch',
+    search_placeholder: 'Search name / no. / location',
+    btn_add: 'Add Item',
+    btn_import: 'Import',
+    btn_export: 'Export',
+    export_json: 'Export JSON',
+    export_csv: 'Export CSV',
+    stat_items: 'Items',
+    stat_lowStock: 'Low stock',
+    stat_expiringSoon: 'Expiring',
+    empty_noItems: 'No items yet',
+    empty_addFirst: 'Click below to add your first household item',
+    empty_noMatch: 'No matching items',
+    empty_tryFilter: 'Try a different keyword or category',
+    card_lowStock: 'Low stock',
+    card_min: 'Min',
+    card_expired: 'Expired',
+    card_expireIn: 'Expires in {n}d',
+    form_addTitle: 'Add Item',
+    form_editTitle: 'Edit Item',
+    f_name: 'Name',
+    f_category: 'Category',
+    f_itemNo: 'Item No.',
+    f_room: 'Room',
+    f_position: 'Position',
+    f_location: 'Location',
+    f_quantity: 'Quantity',
+    f_minQuantity: 'Min stock',
+    f_expiry: 'Expiry date',
+    f_photo: 'Photo URL',
+    f_selectCategory: 'Select',
+    f_pickLocation: 'Pick location',
+    f_orManual: 'or enter manually',
+    err_nameRequired: 'Please enter a name',
+    btn_cancel: 'Cancel',
+    btn_save: 'Save',
+    btn_delete: 'Delete',
+    confirm_deleteTitle: 'Delete Item',
+    confirm_deleteMsg: 'Delete "{name}"? This cannot be undone.',
+    toast_added: 'Added "{name}"',
+    toast_updated: 'Updated "{name}"',
+    toast_deleted: 'Deleted "{name}"',
+    toast_exported: 'Exported',
+    toast_imported: 'Imported {n} items',
+    toast_exportFail: 'Export failed: {msg}',
+    toast_importFail: 'Import failed, check file format: {msg}',
+    toast_saveFail: 'Save failed: {msg}',
+    toast_deleteFail: 'Delete failed: {msg}',
+    toast_loadFail: 'Load failed: {msg}',
+    toast_qtyFail: 'Failed to update quantity',
+    toast_renamed: 'Renamed',
+    toast_addedCat: 'Category added',
+    toast_addedLoc: 'Location added',
+    toast_deletedCat: 'Category deleted',
+    toast_deletedLoc: 'Location deleted',
+    toast_dataDirChanged: 'Data directory changed, refreshing…',
+    toast_dataDirFail: 'Failed to change data dir: {msg}',
+    toast_langChanged: 'Language changed',
+    loading: 'Loading…',
+    settings_title: 'Settings',
+    settings_language: 'Interface language',
+    settings_language_zh: '简体中文',
+    settings_language_en: 'English',
+    settings_dataDir: 'Data directory',
+    settings_dataDir_desc: 'Where the item database is stored. Point to a USB drive or sync folder for portability.',
+    settings_dataDir_default: 'Default (system app data)',
+    settings_btn_changeDir: 'Change…',
+    settings_btn_resetDir: 'Reset to default',
+    settings_dataManage: 'Data management',
+    settings_manageCategories: 'Manage categories',
+    settings_manageCategories_desc: 'Add, rename or delete categories. Items of a deleted category move to "Other".',
+    settings_manageLocations: 'Manage locations',
+    settings_manageLocations_desc: 'Maintain the room / position parent-child hierarchy for the item form.',
+    cat_title: 'Category Management',
+    cat_addNew: 'Add category',
+    cat_key: 'Key',
+    cat_name: 'Chinese name',
+    cat_name_en: 'English name',
+    cat_icon: 'Icon',
+    cat_count: 'Items',
+    cat_rename: 'Rename',
+    cat_key_placeholder: 'English key, e.g. electronic',
+    cat_name_placeholder: 'Category name',
+    cat_name_en_placeholder: 'English name (optional)',
+    confirm_deleteCatTitle: 'Delete Category',
+    confirm_deleteCat: 'Delete category "{name}"? Items will move to "Other".',
+    confirm_deleteLocTitle: 'Delete Location',
+    confirm_deleteLoc: 'Delete location "{name}"? All sub-locations will also be deleted.',
+    loc_name_placeholder: 'Location name',
+    loc_title: 'Location Management',
+    loc_addRoot: 'Add root',
+    loc_addChild: 'Add child',
+    loc_rename: 'Rename',
+    loc_empty: 'No locations yet. Click "Add root" to start.',
+    loc_itemCount: '{n} items',
+    back: 'Back',
+    close: 'Close'
+  }
+}
+
+const I18nContext = createContext({ lang: 'zh', t: (k) => k })
+
+export function I18nProvider({ initialLang = 'zh', children }) {
+  const [lang, setLangState] = useState(initialLang)
+
+  const setLang = useCallback((l) => {
+    setLangState(l)
+  }, [])
+
+  const t = useCallback(
+    (key, params) => {
+      const dict = DICT[lang] || DICT.zh
+      let s = dict[key] ?? DICT.zh[key] ?? key
+      if (params) {
+        for (const k of Object.keys(params)) {
+          s = s.replace(new RegExp(`\\{${k}\\}`, 'g'), params[k])
+        }
+      }
+      return s
+    },
+    [lang]
+  )
+
+  // 同步 <html lang> 与标题
+  useEffect(() => {
+    document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN'
+    document.title = lang === 'en' ? 'Family Inventory' : '家庭物资管家'
+  }, [lang])
+
+  return <I18nContext.Provider value={{ lang, setLang, t }}>{children}</I18nContext.Provider>
+}
+
+export function useI18n() {
+  return useContext(I18nContext)
+}
+
+export const LANGS = [
+  { code: 'zh', label: '简体中文' },
+  { code: 'en', label: 'English' }
+]

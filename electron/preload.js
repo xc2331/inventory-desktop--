@@ -3,24 +3,45 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('lingguang', {
   db: {
-    // 通用查询，返回行数组
     query: ({ sql, binds }) => ipcRenderer.invoke('db:query', { sql, binds }),
-    // 通用执行，返回 { changes, lastInsertRowid }
     execute: ({ sql, binds }) => ipcRenderer.invoke('db:execute', { sql, binds })
   },
   sync: {
-    // 导出完整 JSON 字符串（与手机端结构兼容）
     exportData: () => ipcRenderer.invoke('sync:exportData'),
-    // 导入并覆盖数据
     importData: (jsonString) => ipcRenderer.invoke('sync:importData', jsonString),
-    // 导出 CSV 字符串
     exportCSV: () => ipcRenderer.invoke('sync:exportCSV')
   },
   file: {
-    // 保存文件对话框（写入内容），返回 { canceled, filePath }
     save: ({ content, defaultName, filters }) =>
       ipcRenderer.invoke('file:save', { content, defaultName, filters }),
-    // 打开文件对话框，返回 { canceled, filePath, content }
     open: ({ filters }) => ipcRenderer.invoke('file:open', { filters })
+  },
+  settings: {
+    get: () => ipcRenderer.invoke('settings:get'),
+    set: (patch) => ipcRenderer.invoke('settings:set', patch),
+    setDataDir: (dir) => ipcRenderer.invoke('settings:setDataDir', dir),
+    resetDataDir: () => ipcRenderer.invoke('settings:resetDataDir')
+  },
+  dialog: {
+    pickFolder: () => ipcRenderer.invoke('dialog:pickFolder')
+  },
+  categories: {
+    list: () => ipcRenderer.invoke('categories:list'),
+    create: ({ key, name, name_en, icon }) =>
+      ipcRenderer.invoke('categories:create', { key, name, name_en, icon }),
+    update: (id, patch) => ipcRenderer.invoke('categories:update', { id, patch }),
+    delete: (id) => ipcRenderer.invoke('categories:delete', { id }),
+    reorder: (ids) => ipcRenderer.invoke('categories:reorder', { ids })
+  },
+  locations: {
+    list: () => ipcRenderer.invoke('locations:list'),
+    create: ({ name, parentId }) => ipcRenderer.invoke('locations:create', { name, parentId }),
+    update: (id, patch) => ipcRenderer.invoke('locations:update', { id, patch }),
+    delete: (id) => ipcRenderer.invoke('locations:delete', { id })
+  },
+  menu: {
+    onImport: (cb) => ipcRenderer.on('menu:import', cb),
+    onExportJson: (cb) => ipcRenderer.on('menu:export-json', cb),
+    onExportCsv: (cb) => ipcRenderer.on('menu:export-csv', cb)
   }
 })
