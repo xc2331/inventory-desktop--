@@ -46,7 +46,7 @@
       "**/node_modules/better-sqlite3/**"
     ],
     "directories": {
-      "output": "release-v4b",
+      "output": "release-v4c",
       "buildResources": "build"
     },
     "icon": "build/icon.ico",
