@@ -1,0 +1,61 @@
+{
+  "name": "family-inventory",
+  "version": "1.0.0",
+  "description": "家庭物资管家桌面版 - Family Inventory Desktop (Electron)",
+  "main": "electron/main.js",
+  "author": "xc2331",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env DEV=true electron .\"",
+    "build": "vite build",
+    "build:win": "vite build && electron-builder --win",
+    "build:mac": "vite build && electron-builder --mac",
+    "build:linux": "vite build && electron-builder --linux",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^31.7.7",
+    "electron-builder": "^25.1.8",
+    "electron-rebuild": "^3.2.9",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "vite": "^5.4.11",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.xc2331.family-inventory",
+    "productName": "Family Inventory",
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility"
+    }
+  }
+}
