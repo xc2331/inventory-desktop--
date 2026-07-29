@@ -2,19 +2,17 @@ import { useState } from 'react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName } from '../lib/api'
 import { expiryStatus } from '../lib/utils'
+import ImageLightbox from './ImageLightbox'
 
 function normalizePhotoUrl(photo) {
   if (!photo) return ''
   const trimmed = photo.trim()
   if (!trimmed) return ''
-  // 已经是协议 URL：直接返回
   if (/^(data:|https?:|file:)/i.test(trimmed)) return trimmed
-  // Windows / Unix 绝对路径 -> file://
   if (/^[a-z]:[\\/]/i.test(trimmed) || trimmed.startsWith('/')) {
     const withSlash = trimmed.replace(/\\/g, '/')
     return withSlash.startsWith('/') ? 'file://' + withSlash : 'file:///' + withSlash
   }
-  // 相对路径也尝试用 file 协议（Electron 本地场景）
   return 'file:///' + trimmed.replace(/\\/g, '/')
 }
 
@@ -34,6 +32,8 @@ export default function ItemCard({
   const expiry = expiryStatus(item.expiry_date)
   const lowStock = item.min_quantity > 0 && item.quantity <= item.min_quantity
   const [imgErr, setImgErr] = useState(false)
+  const [imgRatio, setImgRatio] = useState(4 / 3)
+  const [lightbox, setLightbox] = useState(false)
 
   const locationText = [item.room, item.position, item.location]
     .filter((x, i, a) => x && a.indexOf(x) === i)
@@ -42,16 +42,32 @@ export default function ItemCard({
   const photoUrl = normalizePhotoUrl(item.photo)
   const hasPhoto = photoUrl && !imgErr
 
+  const handleImgLoad = (e) => {
+    const { naturalWidth: w, naturalHeight: h } = e.target
+    if (w && h) {
+      // 限制比例范围：最宽 16:9，最高 3:4，避免极端比例破坏布局
+      const ratio = Math.max(9 / 16, Math.min(16 / 9, w / h))
+      setImgRatio(ratio)
+    }
+  }
+
   return (
     <div
       className={`group flex flex-col overflow-hidden rounded-xl border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
         selected ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-stone-200'
       }`}
     >
-      {/* 图片区 */}
-      <div className="relative h-28 w-full bg-stone-100">
+      {/* 图片区：按图片比例自适应 */}
+      <div
+        className="relative w-full cursor-zoom-in bg-stone-100"
+        style={{ aspectRatio: `${imgRatio} / 1`, maxHeight: '260px' }}
+        onClick={() => hasPhoto && setLightbox(true)}
+      >
         {bulkMode && (
-          <label className="absolute left-2 top-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur">
+          <label
+            className="absolute left-2 top-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur"
+            onClick={(e) => e.stopPropagation()}
+          >
             <input
               type="checkbox"
               checked={selected}
@@ -65,8 +81,9 @@ export default function ItemCard({
           <img
             src={photoUrl}
             alt={item.name}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-contain"
             onError={() => setImgErr(true)}
+            onLoad={handleImgLoad}
             draggable={false}
             referrerPolicy="no-referrer"
             crossOrigin="anonymous"
@@ -86,14 +103,20 @@ export default function ItemCard({
         {/* 操作按钮 */}
         <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-white/90 p-1 opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100">
           <button
-            onClick={() => onEdit(item)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit(item)
+            }}
             title={t('form_editTitle')}
             className="rounded-md p-1 text-stone-500 transition hover:bg-stone-100 hover:text-stone-700"
           >
             ✏️
           </button>
           <button
-            onClick={() => onDelete(item)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(item)
+            }}
             title={t('btn_delete')}
             className="rounded-md p-1 text-stone-500 transition hover:bg-rose-50 hover:text-rose-600"
           >
@@ -163,6 +186,8 @@ export default function ItemCard({
           </div>
         )}
       </div>
+
+      {lightbox && <ImageLightbox src={photoUrl} alt={item.name} onClose={() => setLightbox(false)} />}
     </div>
   )
 }
