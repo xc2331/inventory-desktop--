@@ -6,6 +6,13 @@ const crypto = require('crypto')
 const Database = require('better-sqlite3')
 const { ApiServer } = require('./api-server')
 
+// 确保 Windows 任务栏正确显示应用图标与分组
+app.setAppUserModelId(app.getName())
+
+const ICON_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, 'app.asar', 'build', 'icon.ico')
+  : path.join(__dirname, '..', 'build', 'icon.ico')
+
 let mainWindow = null
 let db = null
 let apiServer = null
@@ -267,7 +274,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     title: '家庭物资管家',
-    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
+    icon: ICON_PATH,
     backgroundColor: isDarkTheme ? '#0f172a' : '#f8fafc',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Search, PackageOpen, Plus, Loader2, Package, AlertTriangle, CalendarClock } from 'lucide-react'
+import { Search, PackageOpen, Plus, Loader2, Package, AlertTriangle, CalendarClock, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useI18n } from './lib/i18n'
 import { EASE } from './lib/motion'
 import { cn } from './lib/cn'
@@ -492,8 +492,6 @@ export default function App() {
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar
-          collapsed={sidebarCollapsed}
-          onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
           keyword={keywordInput}
           onKeywordChange={setKeywordInput}
           onAdd={handleOpenNew}
@@ -510,9 +508,16 @@ export default function App() {
             else setBulkMode(true)
           }}
         />
-        <main className="flex flex-1 flex-col overflow-y-auto p-6">
-          {/* 统计条 */}
-          <div className="mb-4 flex items-center gap-2">
+        <main className="relative flex flex-1 flex-col overflow-y-auto p-6">
+          {/* 侧边栏切换：放在物品主内容区左侧，替代 TopBar 左侧按钮 */}
+          <div className="mb-4 flex items-center gap-3">
+            <button
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              title={sidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-text-secondary shadow-xs transition-smooth hover:bg-surface-hover hover:text-text-primary"
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            </button>
             <StatChip icon={Package} label={t('stat_items')} value={total} tone="neutral" />
             <StatChip icon={AlertTriangle} label={t('stat_lowStock')} value={lowStock} tone={lowStock > 0 ? 'danger' : 'neutral'} />
             <StatChip icon={CalendarClock} label={t('stat_expiringSoon')} value={expiringSoon} tone={expiringSoon > 0 ? 'warn' : 'neutral'} />

@@ -40,13 +40,14 @@
     "productName": "Family Inventory",
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "build/**/*"
     ],
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**"
     ],
     "directories": {
-      "output": "release-v4d",
+      "output": "release-v4e",
       "buildResources": "build"
     },
     "icon": "build/icon.ico",

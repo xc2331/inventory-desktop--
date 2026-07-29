@@ -5,8 +5,6 @@ import { cn } from '../lib/cn'
 import {
   Search,
   Plus,
-  PanelLeftClose,
-  PanelLeftOpen,
   Download,
   Upload,
   FileJson,
@@ -15,13 +13,12 @@ import {
   Square,
   ChevronDown,
   Package,
-  MapPin
+  MapPin,
+  X
 } from 'lucide-react'
 import { getCategoryIcon } from '../lib/categoryIcons'
 
 export default function TopBar({
-  collapsed,
-  onToggleSidebar,
   keyword,
   onKeywordChange,
   onAdd,
@@ -67,16 +64,8 @@ export default function TopBar({
 
   return (
     <header className="glass z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
-      {/* 左侧：收起侧边栏 + 当前视图标题 */}
-      <button
-        onClick={onToggleSidebar}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-secondary"
-        title={collapsed ? t('nav_categories') : t('close')}
-      >
-        {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-      </button>
-
-      <h1 className="flex min-w-0 max-w-[180px] items-center gap-1.5 text-sm font-semibold tracking-tight text-text-primary">
+      {/* 左侧：当前视图标题 */}
+      <h1 className="flex min-w-0 max-w-[200px] items-center gap-1.5 text-sm font-semibold tracking-tight text-text-primary">
         {titleContent()}
       </h1>
 
@@ -98,7 +87,7 @@ export default function TopBar({
             onClick={() => onKeywordChange('')}
             className="absolute right-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-text-tertiary transition hover:bg-surface-hover hover:text-text-secondary"
           >
-            ×
+            <X size={12} strokeWidth={2.5} />
           </button>
         )}
       </div>
