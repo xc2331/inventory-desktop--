@@ -87,13 +87,15 @@ export default function TopBar({
           </div>
           <button
             onClick={onToggleBulk}
+            title={bulkMode ? t('bulk_select') + '（已开启）' : t('bulk_select')}
             className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
               bulkMode
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'
+                ? 'border-emerald-300 bg-emerald-100 text-emerald-800 shadow-sm'
+                : 'border-stone-200 bg-white text-stone-600 shadow-sm hover:bg-stone-50'
             }`}
           >
-            {bulkMode ? '✓ ' + t('bulk_select') : t('bulk_select')}
+            <span className="mr-1">{bulkMode ? '☑' : '☐'}</span>
+            {t('bulk_select')}
           </button>
           <button
             onClick={onAdd}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName, buildLocationTree } from '../lib/api'
 
@@ -86,6 +86,7 @@ export default function Sidebar({
               key={node.id}
               node={node}
               depth={0}
+              parentPath={[]}
               activeLocation={activeLocation}
               onSelectLocation={onSelectLocation}
               locationCounts={locationCounts}
@@ -105,25 +106,37 @@ export default function Sidebar({
   )
 }
 
-function LocationNode({ node, depth, activeLocation, onSelectLocation, locationCounts }) {
+function LocationNode({ node, depth, parentPath, activeLocation, onSelectLocation, locationCounts }) {
   const [open, setOpen] = useState(depth < 1)
   const hasChildren = node.children && node.children.length > 0
-  const path = [...activeLocation.slice(0, depth), node.name]
+
+  // 节点的真实路径：基于父路径 + 当前节点名，绝不能用 activeLocation 推导
+  const path = [...parentPath, node.name]
   const pathKey = path.join(' > ')
-  const isActive = activeLocation.length > depth && activeLocation[depth] === node.name && activeLocation.join(' > ').startsWith(pathKey)
+
+  const activeKey = activeLocation.join(' > ')
+  const isOnActivePath = activeKey.startsWith(pathKey)
+  const isActive = isOnActivePath && activeLocation.length >= path.length
+  const isSelected = activeLocation.length === path.length && isActive
   const count = locationCounts[pathKey] || 0
+
+  // 当当前节点位于选中路径上时，自动展开
+  useEffect(() => {
+    if (isActive && hasChildren) setOpen(true)
+  }, [isActive, hasChildren])
 
   return (
     <div>
       <div
         className={`group mb-1 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-sm transition ${
-          isActive ? 'bg-emerald-50 font-medium text-emerald-700' : 'text-stone-600 hover:bg-stone-50'
+          isSelected ? 'bg-emerald-50 font-medium text-emerald-700' : 'text-stone-600 hover:bg-stone-50'
         }`}
         style={{ paddingLeft: `${depth * 14 + 12}px` }}
       >
         <button
-          onClick={() => onSelectLocation(isActive ? [] : path)}
+          onClick={() => onSelectLocation(isSelected ? [] : path)}
           className="flex min-w-0 flex-1 items-center gap-1 text-left"
+          title={pathKey}
         >
           <span className="text-stone-400">📁</span>
           <span className="truncate">{node.name}</span>
@@ -149,6 +162,7 @@ function LocationNode({ node, depth, activeLocation, onSelectLocation, locationC
             key={c.id}
             node={c}
             depth={depth + 1}
+            parentPath={path}
             activeLocation={activeLocation}
             onSelectLocation={onSelectLocation}
             locationCounts={locationCounts}

@@ -68,6 +68,8 @@ export default function ItemCard({
             className="h-full w-full object-cover"
             onError={() => setImgErr(true)}
             draggable={false}
+            referrerPolicy="no-referrer"
+            crossOrigin="anonymous"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-4xl text-stone-300">
