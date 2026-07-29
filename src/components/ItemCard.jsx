@@ -1,8 +1,12 @@
 import { useState } from 'react'
+import { motion } from 'framer-motion'
+import { Pencil, Trash2, Minus, Plus, MapPin, AlertTriangle, CalendarClock, Check, Package, Image as ImageIcon } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName } from '../lib/api'
+import { getCategoryIcon } from '../lib/categoryIcons'
 import { expiryStatus } from '../lib/utils'
-import ImageLightbox from './ImageLightbox'
+import { cn } from '../lib/cn'
+import { EASE } from '../lib/motion'
 
 function normalizePhotoUrl(photo) {
   if (!photo) return ''
@@ -25,15 +29,14 @@ export default function ItemCard({
   onDelete,
   selected,
   onToggleSelect,
-  bulkMode
+  bulkMode,
+  index = 0
 }) {
   const { t } = useI18n()
   const cat = categories.find((c) => c.key === item.category)
   const expiry = expiryStatus(item.expiry_date)
   const lowStock = item.min_quantity > 0 && item.quantity <= item.min_quantity
   const [imgErr, setImgErr] = useState(false)
-  const [imgRatio, setImgRatio] = useState(4 / 3)
-  const [lightbox, setLightbox] = useState(false)
 
   const locationText = [item.room, item.position, item.location]
     .filter((x, i, a) => x && a.indexOf(x) === i)
@@ -41,157 +44,191 @@ export default function ItemCard({
 
   const photoUrl = normalizePhotoUrl(item.photo)
   const hasPhoto = photoUrl && !imgErr
+  const CategoryIcon = getCategoryIcon(cat)
 
-  const handleImgLoad = (e) => {
-    const { naturalWidth: w, naturalHeight: h } = e.target
-    if (w && h) {
-      // 限制比例范围：最宽 16:9，最高 2:3，避免极端比例破坏布局
-      const ratio = Math.max(2 / 3, Math.min(16 / 9, w / h))
-      setImgRatio(ratio)
-    }
+  const handleCardClick = () => {
+    if (bulkMode) onToggleSelect(item.id)
   }
 
   return (
-    <div
-      className={`group break-inside-avoid flex flex-col overflow-hidden rounded-xl border bg-surface shadow-card transition hover:-translate-y-0.5 hover:shadow-float ${
-        selected ? 'border-primary ring-2 ring-primary/20' : 'border-border'
-      }`}
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 16, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.4, ease: EASE, delay: Math.min(index * 0.04, 0.32) }}
+      whileHover={{ y: -4 }}
+      onClick={handleCardClick}
+      className={cn(
+        'group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card transition-shadow duration-300 hover:shadow-float',
+        selected ? 'border-primary' : 'border-border',
+        bulkMode && 'cursor-pointer'
+      )}
     >
-      {/* 图片区：按图片比例自适应 */}
-      <div
-        className="relative w-full cursor-zoom-in bg-bg"
-        style={{ aspectRatio: `${imgRatio} / 1`, maxHeight: '320px' }}
-        onClick={() => hasPhoto && setLightbox(true)}
-      >
-        {bulkMode && (
-          <label
-            className="absolute left-2 top-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-surface/90 shadow-sm backdrop-blur"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <input
-              type="checkbox"
-              checked={selected}
-              onChange={() => onToggleSelect(item.id)}
-              className="h-4 w-4 accent-primary"
-            />
-          </label>
-        )}
+      {selected && <span className="pointer-events-none absolute inset-0 z-10 rounded-2xl ring-2 ring-primary/30" />}
 
+      {/* 图片区：去掉点击放大，仅保留悬停缩放 */}
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-bg">
         {hasPhoto ? (
-          <img
-            src={photoUrl}
-            alt={item.name}
-            className="h-full w-full object-contain"
-            onError={() => setImgErr(true)}
-            onLoad={handleImgLoad}
-            draggable={false}
-            referrerPolicy="no-referrer"
-            crossOrigin="anonymous"
-          />
+          <>
+            <img
+              src={photoUrl}
+              alt={item.name}
+              className="h-full w-full object-cover transition-transform duration-500 ease-smooth group-hover:scale-[1.06]"
+              onError={() => setImgErr(true)}
+              draggable={false}
+              onDragStart={(e) => e.preventDefault()}
+            />
+            <span className="pointer-events-none absolute bottom-2 right-2 z-10 rounded-full bg-black/25 p-1.5 text-white backdrop-blur-sm opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+              <ImageIcon size={14} />
+            </span>
+          </>
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-4xl text-text-tertiary/60">
-            {cat?.icon || '📦'}
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface-hover to-bg text-text-tertiary transition-transform duration-500 group-hover:scale-[1.02]">
+            <CategoryIcon size={48} strokeWidth={1.4} />
           </div>
         )}
 
-        {/* 分类标签：批量模式下避开勾选框 */}
+        {/* 底部渐变遮罩，提升标签可读性 */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/15 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+
+        {/* 批量勾选 */}
+        {bulkMode && (
+          <div
+            className={cn(
+              'absolute left-2.5 top-2.5 z-20 flex h-6 w-6 items-center justify-center rounded-full border-2 shadow-sm transition-smooth',
+              selected
+                ? 'border-primary bg-primary text-white'
+                : 'border-white/80 bg-surface/80 text-transparent backdrop-blur group-hover:border-primary'
+            )}
+          >
+            <Check size={13} strokeWidth={3} />
+          </div>
+        )}
+
+        {/* 分类标签 */}
         <span
-          className={`absolute inline-flex max-w-[70%] items-center gap-1 truncate rounded-full bg-surface/90 px-2 py-0.5 text-xs font-medium text-text-secondary shadow-sm backdrop-blur ${
-            bulkMode ? 'left-2 top-10' : 'left-2 top-2'
-          }`}
+          className="absolute left-2.5 z-10 inline-flex max-w-[70%] items-center gap-1 truncate rounded-full bg-surface/90 px-2.5 py-1 text-xs font-medium text-text-secondary shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface"
+          style={{ top: bulkMode ? '2.75rem' : '0.625rem' }}
         >
-          <span>{cat?.icon || '🏷️'}</span>
+          <CategoryIcon size={13} strokeWidth={2.2} />
           <span className="truncate">{cat ? categoryDisplayName(cat, lang) : item.category || t('nav_categories')}</span>
         </span>
 
-        {/* 操作按钮 */}
-        <div className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-surface/90 p-1 opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100">
-          <button
+        {/* 操作按钮组：始终可见，编辑主色、删除暗红 */}
+        <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1.5 rounded-full bg-surface/92 p-1 shadow-sm backdrop-blur-md transition-smooth">
+          <motion.button
+            whileTap={{ scale: 0.9 }}
             onClick={(e) => {
               e.stopPropagation()
               onEdit(item)
             }}
             title={t('form_editTitle')}
-            className="rounded-md p-1 text-text-secondary transition hover:bg-surface-hover hover:text-text-primary"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary ring-1 ring-transparent transition-smooth hover:bg-primary-soft hover:text-primary hover:ring-primary/20"
           >
-            ✏️
-          </button>
-          <button
+            <Pencil size={15} />
+          </motion.button>
+          <motion.button
+            whileTap={{ scale: 0.9 }}
             onClick={(e) => {
               e.stopPropagation()
               onDelete(item)
             }}
             title={t('btn_delete')}
-            className="rounded-md p-1 text-text-secondary transition hover:bg-danger-soft hover:text-danger"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-danger ring-1 ring-transparent transition-smooth hover:bg-danger-soft hover:ring-danger/20"
           >
-            🗑️
-          </button>
+            <Trash2 size={15} />
+          </motion.button>
         </div>
       </div>
 
-      <div className="flex flex-col p-4">
-        <h3 className="truncate text-base font-semibold text-text-primary" title={item.name}>
-          {item.name || '—'}
-        </h3>
-
-        {item.item_no && <div className="mt-0.5 text-xs text-text-tertiary">#{item.item_no}</div>}
-
-        {/* 位置高亮 */}
-        {locationText && (
-          <div
-            className="mt-2 inline-flex w-fit max-w-full items-center gap-1 truncate rounded-md bg-primary-soft px-2 py-1 text-xs font-medium text-primary"
-            title={locationText}
-          >
-            <span>📍</span>
-            <span className="truncate">{locationText}</span>
-          </div>
-        )}
-
-        <div className="mt-4 flex items-center justify-between rounded-lg bg-bg p-1.5">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => onAdjust(item.id, -1)}
-              disabled={item.quantity <= 0}
-              className="flex h-8 w-8 items-center justify-center rounded-md bg-surface text-lg font-semibold text-text-secondary shadow-sm ring-1 ring-border transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              −
-            </button>
-            <span className="min-w-[2.5rem] text-center text-lg font-semibold text-text-primary">{item.quantity}</span>
-            <button
-              onClick={() => onAdjust(item.id, 1)}
-              className="flex h-8 w-8 items-center justify-center rounded-md bg-surface text-lg font-semibold text-text-secondary shadow-sm ring-1 ring-border transition hover:bg-surface-hover"
-            >
-              +
-            </button>
-          </div>
-          {item.min_quantity > 0 && (
-            <span className="text-[11px] text-text-tertiary">
-              {t('card_min')} {item.min_quantity}
+      {/* 内容区 */}
+      <div className="flex flex-1 flex-col p-4">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="truncate text-[15px] font-semibold leading-tight text-text-primary" title={item.name}>
+            {item.name || '—'}
+          </h3>
+          {item.item_no && (
+            <span className="shrink-0 rounded-md bg-bg px-1.5 py-0.5 font-mono text-[11px] text-text-tertiary">
+              #{item.item_no}
             </span>
           )}
         </div>
 
+        {/* 位置 */}
+        {locationText && (
+          <div
+            className="mt-2 inline-flex w-fit max-w-full items-center gap-1 truncate rounded-lg bg-primary-soft/70 px-2 py-1 text-xs font-medium text-primary"
+            title={locationText}
+          >
+            <MapPin size={12} className="shrink-0" />
+            <span className="truncate">{locationText}</span>
+          </div>
+        )}
+
+        {/* 数量步进器 */}
+        <div className="mt-3.5 flex items-center justify-between rounded-xl bg-bg p-1.5">
+          <div className="flex items-center gap-1">
+            <motion.button
+              whileTap={{ scale: 0.88 }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onAdjust(item.id, -1)
+              }}
+              disabled={item.quantity <= 0}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface text-text-secondary shadow-xs ring-1 ring-border transition-smooth hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Minus size={15} strokeWidth={2.5} />
+            </motion.button>
+            <motion.span
+              key={item.quantity}
+              initial={{ scale: 0.8, opacity: 0.5 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.2, ease: EASE }}
+              className="min-w-[2.75rem] text-center text-lg font-semibold tabular-nums text-text-primary"
+            >
+              {item.quantity}
+            </motion.span>
+            <motion.button
+              whileTap={{ scale: 0.88 }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onAdjust(item.id, 1)
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface text-text-secondary shadow-xs ring-1 ring-border transition-smooth hover:bg-surface-hover hover:text-text-primary"
+            >
+              <Plus size={15} strokeWidth={2.5} />
+            </motion.button>
+          </div>
+          {item.min_quantity > 0 && (
+            <span className="pr-1 text-[11px] text-text-tertiary">
+              {t('card_min')} <span className="font-medium tabular-nums">{item.min_quantity}</span>
+            </span>
+          )}
+        </div>
+
+        {/* 状态徽章 */}
         {(lowStock || (expiry && expiry.tone !== 'ok')) && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
             {lowStock && (
               <span className="inline-flex items-center gap-1 rounded-md bg-danger-soft px-2 py-0.5 text-[11px] font-medium text-danger">
-                ⚠ {t('card_lowStock')}
+                <AlertTriangle size={11} />
+                {t('card_lowStock')}
               </span>
             )}
             {expiry && expiry.tone !== 'ok' && (
               <span
-                className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium',
                   expiry.tone === 'expired' ? 'bg-danger-soft text-danger' : 'bg-warn-soft text-warn'
-                }`}
+                )}
               >
-                📅 {expiry.tone === 'expired' ? t('card_expired') : t('card_expireIn', { n: expiry.days })}
+                <CalendarClock size={11} />
+                {expiry.tone === 'expired' ? t('card_expired') : t('card_expireIn', { n: expiry.days })}
               </span>
             )}
           </div>
         )}
       </div>
-
-      {lightbox && <ImageLightbox src={photoUrl} alt={item.name} onClose={() => setLightbox(false)} />}
-    </div>
+    </motion.div>
   )
 }

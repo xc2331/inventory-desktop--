@@ -20,7 +20,9 @@ contextBridge.exposeInMainWorld('lingguang', {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (patch) => ipcRenderer.invoke('settings:set', patch),
     setDataDir: (dir) => ipcRenderer.invoke('settings:setDataDir', dir),
-    resetDataDir: () => ipcRenderer.invoke('settings:resetDataDir')
+    resetDataDir: () => ipcRenderer.invoke('settings:resetDataDir'),
+    getApiToken: () => ipcRenderer.invoke('settings:getApiToken'),
+    resetApiToken: () => ipcRenderer.invoke('settings:resetApiToken')
   },
   dialog: {
     pickFolder: () => ipcRenderer.invoke('dialog:pickFolder')

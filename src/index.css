@@ -5,43 +5,69 @@
 :root {
   color-scheme: light;
 
-  /* V2 设计令牌 - 浅色 */
-  --color-bg: #f8fafc;
+  /* V3 设计令牌 - 暖白浅色 */
+  --color-bg: #faf9f7;
+  --color-bg-elevated: #ffffff;
   --color-surface: #ffffff;
-  --color-surface-hover: #f1f5f9;
-  --color-surface-active: #e2e8f0;
-  --color-border: #e2e8f0;
-  --color-text-primary: #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-tertiary: #94a3b8;
-  --color-primary: #10b981;
-  --color-primary-hover: #059669;
+  --color-surface-hover: #f4f2ef;
+  --color-surface-active: #ebe8e3;
+  --color-border: #e8e4dd;
+  --color-border-strong: #d6d0c6;
+  --color-text-primary: #1a1815;
+  --color-text-secondary: #57534e;
+  --color-text-tertiary: #a8a29e;
+  --color-primary: #047857;
+  --color-primary-hover: #065f46;
   --color-primary-soft: #d1fae5;
-  --color-danger: #f43f5e;
+  --color-primary-glow: rgba(4, 120, 87, 0.16);
+  --color-accent: #b45309;
+  --color-danger: #be123c;
   --color-danger-soft: #ffe4e6;
-  --color-warn: #f59e0b;
+  --color-warn: #b45309;
   --color-warn-soft: #fef3c7;
+
+  /* 阴影分层 */
+  --shadow-xs: 0 1px 2px 0 rgb(28 25 23 / 0.04);
+  --shadow-sm: 0 1px 3px 0 rgb(28 25 23 / 0.06), 0 1px 2px -1px rgb(28 25 23 / 0.04);
+  --shadow-card: 0 2px 8px -2px rgb(28 25 23 / 0.06), 0 4px 16px -4px rgb(28 25 23 / 0.04);
+  --shadow-float: 0 12px 32px -8px rgb(28 25 23 / 0.12), 0 4px 12px -4px rgb(28 25 23 / 0.06);
+  --shadow-glow: 0 0 0 4px var(--color-primary-glow);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
 }
 
 .dark {
   color-scheme: dark;
 
-  /* V2 设计令牌 - 深色 */
-  --color-bg: #0f172a;
-  --color-surface: #1e293b;
-  --color-surface-hover: #334155;
-  --color-surface-active: #475569;
-  --color-border: #334155;
-  --color-text-primary: #f8fafc;
-  --color-text-secondary: #cbd5e1;
-  --color-text-tertiary: #64748b;
+  /* V3 设计令牌 - 深石板深色 */
+  --color-bg: #14110e;
+  --color-bg-elevated: #1c1917;
+  --color-surface: #1c1917;
+  --color-surface-hover: #292524;
+  --color-surface-active: #3a3530;
+  --color-border: #2e2a26;
+  --color-border-strong: #44403c;
+  --color-text-primary: #f5f5f4;
+  --color-text-secondary: #d6d3d1;
+  --color-text-tertiary: #78716c;
   --color-primary: #34d399;
-  --color-primary-hover: #10b981;
+  --color-primary-hover: #6ee7b7;
   --color-primary-soft: #064e3b;
+  --color-primary-glow: rgba(52, 211, 153, 0.22);
+  --color-accent: #fbbf24;
   --color-danger: #fb7185;
-  --color-danger-soft: #881337;
+  --color-danger-soft: #4c0519;
   --color-warn: #fbbf24;
-  --color-warn-soft: #78350f;
+  --color-warn-soft: #451a03;
+
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+  --shadow-card: 0 2px 8px -2px rgb(0 0 0 / 0.4), 0 4px 16px -4px rgb(0 0 0 / 0.3);
+  --shadow-float: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 4px 12px -4px rgb(0 0 0 / 0.4);
+  --shadow-glow: 0 0 0 4px var(--color-primary-glow);
 }
 
 html,
@@ -56,6 +82,7 @@ body {
   background: var(--color-bg);
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   user-select: none;
 }
 
@@ -71,41 +98,106 @@ select {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--color-border-strong);
   border-radius: 6px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--color-text-tertiary);
   background-clip: padding-box;
-}
-.dark ::-webkit-scrollbar-thumb {
-  background: #475569;
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* 通用输入框样式 */
-.input {
+/* 通用输入框 - 不覆盖 Tailwind padding，避免与图标位冲突 */
+.field-input {
   width: 100%;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   color: var(--color-text-primary);
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
-.input:focus {
+.field-input:hover:not(:focus) {
+  border-color: var(--color-border-strong);
+}
+.field-input:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  box-shadow: var(--shadow-glow);
 }
-.input:hover:not(:focus) {
-  border-color: var(--color-text-tertiary);
+
+/* 兼容旧表单的 .input 组件类 */
+@layer components {
+  .input {
+    width: 100%;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--color-text-primary);
+    outline: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  }
+  .input::placeholder {
+    color: var(--color-text-tertiary);
+  }
+  .input:hover:not(:focus) {
+    border-color: var(--color-border-strong);
+  }
+  .input:focus {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-glow);
+  }
+  select.input {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    padding-right: 2rem;
+  }
+}
+
+/* 玻璃拟态 */
+.glass {
+  background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* 渐变文字 */
+.text-gradient {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* 选中态辉光 */
+.ring-glow {
+  box-shadow: var(--shadow-glow);
+}
+
+/* 平滑过渡工具类（配合 ease-smooth 缓动） */
+@layer utilities {
+  .transition-smooth {
+    transition-property: color, background-color, border-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    transition-duration: 200ms;
+  }
+}
+
+/* 减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

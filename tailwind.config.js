@@ -9,31 +9,52 @@ export default {
       },
       colors: {
         bg: 'var(--color-bg)',
+        'bg-elevated': 'var(--color-bg-elevated)',
         surface: 'var(--color-surface)',
         'surface-hover': 'var(--color-surface-hover)',
         'surface-active': 'var(--color-surface-active)',
         border: 'var(--color-border)',
+        'border-strong': 'var(--color-border-strong)',
         'text-primary': 'var(--color-text-primary)',
         'text-secondary': 'var(--color-text-secondary)',
         'text-tertiary': 'var(--color-text-tertiary)',
         primary: 'var(--color-primary)',
         'primary-hover': 'var(--color-primary-hover)',
         'primary-soft': 'var(--color-primary-soft)',
+        accent: 'var(--color-accent)',
         danger: 'var(--color-danger)',
         'danger-soft': 'var(--color-danger-soft)',
         warn: 'var(--color-warn)',
         'warn-soft': 'var(--color-warn-soft)'
       },
       boxShadow: {
-        card: '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.05)',
-        float: '0 10px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.02)'
+        xs: 'var(--shadow-xs)',
+        sm: 'var(--shadow-sm)',
+        card: 'var(--shadow-card)',
+        float: 'var(--shadow-float)',
+        glow: 'var(--shadow-glow)'
       },
       borderRadius: {
-        '2xl': '1rem',
-        '3xl': '1.5rem'
+        sm: 'var(--radius-sm)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        xl: 'var(--radius-xl)'
       },
-      transitionDuration: {
-        '250': '250ms'
+      transitionTimingFunction: {
+        smooth: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        spring: 'cubic-bezier(0.34, 1.56, 0.64, 1)'
+      },
+      keyframes: {
+        'fade-in': {
+          from: { opacity: 0 },
+          to: { opacity: 1 }
+        },
+        'shimmer': {
+          '100%': { transform: 'translateX(100%)' }
+        }
+      },
+      animation: {
+        'fade-in': 'fade-in 0.3s ease'
       }
     }
   },

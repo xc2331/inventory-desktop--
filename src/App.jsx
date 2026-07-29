@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Search, PackageOpen, Plus, Loader2 } from 'lucide-react'
 import { useI18n } from './lib/i18n'
+import { EASE } from './lib/motion'
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import ItemCard from './components/ItemCard'
@@ -380,55 +383,96 @@ export default function App() {
   handlersRef.current.ec = handleExportCSV
 
   // ---- 渲染 ----
-  if (view === 'settings') {
-    return (
-      <SettingsView
-        theme={theme}
-        onChangeTheme={handleChangeTheme}
-        onBack={() => setView('items')}
-        onChangeLang={handleChangeLang}
-        onChangeDataDir={handleChangeDataDir}
-        onResetDataDir={handleResetDataDir}
-        onManageCategories={() => setView('categories')}
-        onManageLocations={() => setView('locations')}
-        onExportJSON={handleExportJSON}
-        onExportCSV={handleExportCSV}
-        onImport={handleImportJSON}
-      />
-    )
-  }
-  if (view === 'categories') {
-    return (
-      <CategoryManager
-        categories={categories}
-        counts={counts}
-        lang={lang}
-        onBack={() => setView('settings')}
-        onChanged={handleCatsChanged}
-        showToast={showToast}
-      />
-    )
-  }
-  if (view === 'locations') {
-    return (
-      <LocationManager
-        locations={locations}
-        lang={lang}
-        onBack={() => setView('settings')}
-        onChanged={handleLocsChanged}
-        showToast={showToast}
-      />
-    )
-  }
+  const settingsView = (
+    <SettingsView
+      theme={theme}
+      onChangeTheme={handleChangeTheme}
+      onBack={() => setView('items')}
+      onChangeLang={handleChangeLang}
+      onChangeDataDir={handleChangeDataDir}
+      onResetDataDir={handleResetDataDir}
+      onManageCategories={() => setView('categories')}
+      onManageLocations={() => setView('locations')}
+      onExportJSON={handleExportJSON}
+      onExportCSV={handleExportCSV}
+      onImport={handleImportJSON}
+    />
+  )
+  const categoriesView = (
+    <CategoryManager
+      categories={categories}
+      counts={counts}
+      lang={lang}
+      onBack={() => setView('settings')}
+      onChanged={handleCatsChanged}
+      showToast={showToast}
+    />
+  )
+  const locationsView = (
+    <LocationManager
+      locations={locations}
+      lang={lang}
+      onBack={() => setView('settings')}
+      onChanged={handleLocsChanged}
+      showToast={showToast}
+    />
+  )
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg">
+    <AnimatePresence mode="wait">
+      {view === 'settings' && (
+        <motion.div
+          key="settings"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.25, ease: EASE }}
+          className="h-screen w-screen"
+        >
+          {settingsView}
+        </motion.div>
+      )}
+      {view === 'categories' && (
+        <motion.div
+          key="categories"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.25, ease: EASE }}
+          className="h-screen w-screen"
+        >
+          {categoriesView}
+        </motion.div>
+      )}
+      {view === 'locations' && (
+        <motion.div
+          key="locations"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.25, ease: EASE }}
+          className="h-screen w-screen"
+        >
+          {locationsView}
+        </motion.div>
+      )}
+      {view === 'items' && (
+        <motion.div
+          key="items"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2, ease: EASE }}
+          className="h-screen w-screen"
+        >
+      <div className="flex h-screen w-screen overflow-hidden bg-bg">
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         activeCategory={activeCategory}
         onSelectCategory={(c) => {
           setActiveCategory(c)
+          setActiveLocation([])
           setView('items')
           exitBulkMode()
         }}
@@ -470,28 +514,33 @@ export default function App() {
           }}
         />
         <main className="flex flex-1 flex-col overflow-y-auto p-6">
-          {bulkMode && (
-            <div className="mb-4">
-              <BulkEditBar
-                selectedCount={selectedIds.size}
-                total={filteredItems.length}
-                categories={categories}
-                lang={lang}
-                onSelectAll={handleSelectAll}
-                onClear={handleClearSelection}
-                onChangeCategory={handleBulkChangeCategory}
-                onDelete={handleBulkDelete}
-                onClose={exitBulkMode}
-              />
-            </div>
-          )}
+          <AnimatePresence>
+            {bulkMode && (
+              <div className="mb-4">
+                <BulkEditBar
+                  selectedCount={selectedIds.size}
+                  total={filteredItems.length}
+                  categories={categories}
+                  lang={lang}
+                  onSelectAll={handleSelectAll}
+                  onClear={handleClearSelection}
+                  onChangeCategory={handleBulkChangeCategory}
+                  onDelete={handleBulkDelete}
+                  onClose={exitBulkMode}
+                />
+              </div>
+            )}
+          </AnimatePresence>
           {loading && items.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-text-tertiary">{t('loading')}</div>
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-text-tertiary">
+              <Loader2 size={28} className="animate-spin" />
+              <span className="text-sm">{t('loading')}</span>
+            </div>
           ) : filteredItems.length === 0 ? (
             <EmptyState onAdd={handleOpenNew} hasFilter={!!keyword || !!activeCategory || activeLocation.length > 0} />
           ) : (
-            <div className="columns-1 gap-4 space-y-4 sm:columns-2 xl:columns-3 2xl:columns-4">
-              {filteredItems.map((it) => (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {filteredItems.map((it, i) => (
                 <ItemCard
                   key={it.id}
                   item={it}
@@ -503,6 +552,7 @@ export default function App() {
                   selected={selectedIds.has(it.id)}
                   onToggleSelect={toggleSelect}
                   bulkMode={bulkMode}
+                  index={i}
                 />
               ))}
             </div>
@@ -528,28 +578,46 @@ export default function App() {
         onCancel={() => setConfirm({ open: false, id: null, name: '' })}
       />
       <Toast toast={toast} onDone={() => setToast(null)} />
-    </div>
+      </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 
   function EmptyState({ onAdd, hasFilter }) {
+    const Icon = hasFilter ? Search : PackageOpen
     return (
-      <div className="flex h-full flex-col items-center justify-center text-center">
-        <div className="mb-4 text-6xl">{hasFilter ? '🔍' : '🏠'}</div>
-        <p className="mb-1 text-lg font-medium text-text-secondary">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: EASE }}
+        className="flex h-full flex-col items-center justify-center text-center"
+      >
+        <motion.div
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.45, ease: EASE, delay: 0.05 }}
+          className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-surface text-text-tertiary shadow-card"
+        >
+          <Icon size={36} strokeWidth={1.5} />
+        </motion.div>
+        <p className="mb-1 text-lg font-semibold text-text-secondary">
           {hasFilter ? t('empty_noMatch') : t('empty_noItems')}
         </p>
         <p className="mb-6 text-sm text-text-tertiary">
           {hasFilter ? t('empty_tryFilter') : t('empty_addFirst')}
         </p>
         {!hasFilter && (
-          <button
+          <motion.button
+            whileTap={{ scale: 0.97 }}
             onClick={onAdd}
-            className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
+            className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover hover:shadow-card"
           >
-            + {t('btn_add')}
-          </button>
+            <Plus size={16} strokeWidth={2.5} />
+            {t('btn_add')}
+          </motion.button>
         )}
-      </div>
+      </motion.div>
     )
   }
 }

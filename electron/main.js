@@ -4,9 +4,11 @@ const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
 const Database = require('better-sqlite3')
+const { ApiServer } = require('./api-server')
 
 let mainWindow = null
 let db = null
+let apiServer = null
 
 const DB_FILENAME = 'inventory.db'
 const SETTINGS_FILE = 'settings.json' // 应用级设置（语言、数据目录），独立于数据库存放
@@ -171,8 +173,66 @@ function toPhoneItem(row) {
   }
 }
 
+// 分类别名表（与前端 src/lib/api.js 保持一致）
+const CATEGORY_ALIASES = {
+  electronic: ['electronics', '电子', '电子产品', '電子', '電子產品'],
+  food: ['foods', '食品', '食物'],
+  beverage: ['beverages', '饮料', '飲料', 'drink', 'drinks'],
+  daily: ['dailies', '日用品', 'daily necessities'],
+  kitchen: ['kitchens', '厨房用品', '廚房用品', 'kitchenware'],
+  cleaning: ['cleanings', '清洁用品', '清潔用品', 'cleaning supplies'],
+  medical: ['medicals', '医药', '醫藥', 'medicine', 'medicines', 'drug', 'drugs'],
+  stationery: ['stationeries', '文具', 'office supplies'],
+  tools: ['tool', '工具', 'hand tools', 'power tools'],
+  other: ['others', '其他', '其它', 'misc', 'miscellaneous']
+}
+
+function normalizeCategoryKey(raw, categories = []) {
+  if (!raw) return ''
+  const key = String(raw).trim().toLowerCase()
+  if (!key) return ''
+
+  const direct = categories.find((c) => c.key && c.key.toLowerCase() === key)
+  if (direct) return direct.key
+
+  for (const [canonical, aliases] of Object.entries(CATEGORY_ALIASES)) {
+    if (canonical.toLowerCase() === key) return canonical
+    if (aliases.includes(key)) return canonical
+  }
+
+  const byName = categories.find(
+    (c) =>
+      (c.name && c.name.toLowerCase() === key) ||
+      (c.name_en && c.name_en.toLowerCase() === key)
+  )
+  if (byName) return byName.key
+
+  return raw
+}
+
+// 启动时一次性把历史数据的 category 归一化（幂等）
+function migrateCategoryKeys() {
+  try {
+    const categories = db.prepare('SELECT * FROM categories').all()
+    const items = db.prepare('SELECT id, category FROM items').all()
+    const stmt = db.prepare('UPDATE items SET category = ?, updated_at = ? WHERE id = ?')
+    let changed = 0
+    for (const it of items) {
+      const normalized = normalizeCategoryKey(it.category, categories)
+      if (normalized !== it.category) {
+        stmt.run(normalized, Date.now(), it.id)
+        changed += 1
+      }
+    }
+    if (changed) console.log(`[migrate] 归一化 ${changed} 条物品分类`)
+  } catch (e) {
+    console.error('[migrate] 分类归一化失败:', e)
+  }
+}
+
 // 导入行（兼容 camelCase 手机端 与 snake_case 旧桌面端）
 function fromImportItem(r, now) {
+  const categories = db.prepare('SELECT * FROM categories').all()
   return {
     id: r.id || crypto.randomUUID(),
     name: r.name ?? '',
@@ -183,7 +243,7 @@ function fromImportItem(r, now) {
     quantity: Number(r.quantity) || 0,
     min_quantity: Number(r.minQuantity ?? r.min_quantity) || 0,
     photo: r.photo ?? '',
-    category: r.category ?? '',
+    category: normalizeCategoryKey(r.category, categories),
     expiry_date: toMs(r.expiryDate ?? r.expiry_date),
     created_at: toMs(r.createdAt ?? r.created_at) || now,
     updated_at: toMs(r.updatedAt ?? r.updated_at) || now
@@ -314,7 +374,13 @@ ipcMain.handle('db:execute', (_event, { sql, binds }) => {
 })
 
 // ===== IPC：应用设置（语言、数据目录）=====
-ipcMain.handle('settings:get', () => readAppSettings())
+ipcMain.handle('settings:get', () => {
+  const settings = readAppSettings()
+  return {
+    ...settings,
+    defaultDataDir: app.getPath('userData')
+  }
+})
 
 ipcMain.handle('settings:set', (_event, patch) => {
   const cur = readAppSettings()
@@ -367,6 +433,24 @@ ipcMain.handle('settings:resetDataDir', async () => {
   delete s.dataDir
   writeAppSettings(s)
   return { ok: true }
+})
+
+// 暴露/刷新外部 Agent API Token
+ipcMain.handle('settings:getApiToken', () => {
+  const s = readAppSettings()
+  if (!s.apiToken) {
+    s.apiToken = crypto.randomBytes(24).toString('hex')
+    writeAppSettings(s)
+  }
+  return { token: s.apiToken, port: s.apiPort || 3001 }
+})
+
+ipcMain.handle('settings:resetApiToken', () => {
+  const s = readAppSettings()
+  s.apiToken = crypto.randomBytes(24).toString('hex')
+  writeAppSettings(s)
+  if (apiServer) apiServer.restart()
+  return { token: s.apiToken, port: s.apiPort || 3001 }
 })
 
 // 选择文件夹对话框
@@ -502,7 +586,8 @@ ipcMain.handle('locations:delete', (_event, { id }) => {
 
 // ===== 导入辅助：自动创建缺失分类 =====
 function ensureCategoriesFromItems(items) {
-  const existing = db.prepare('SELECT key FROM categories').all().map((r) => r.key)
+  const categories = db.prepare('SELECT * FROM categories').all()
+  const existing = categories.map((r) => r.key)
   const seen = new Set(existing)
   const now = Date.now()
   let maxOrder = db.prepare('SELECT MAX(sort_order) m FROM categories').get().m || 0
@@ -510,9 +595,10 @@ function ensureCategoriesFromItems(items) {
     'INSERT INTO categories (id,key,name,name_en,icon,sort_order,created_at,updated_at) VALUES (@id,@key,@name,@name_en,@icon,@sort_order,@created_at,@updated_at)'
   )
   for (const r of items) {
-    const key = String(r.category || '').trim()
+    const key = normalizeCategoryKey(r.category, categories)
     if (!key || seen.has(key)) continue
     seen.add(key)
+    categories.push({ key, name: key, name_en: '' })
     maxOrder += 1
     ins.run({
       id: crypto.randomUUID(),
@@ -660,9 +746,21 @@ ipcMain.handle('file:open', async (_event, { filters }) => {
 // ===== 应用生命周期 =====
 app.whenReady().then(() => {
   initDatabase()
+  migrateCategoryKeys()
   const settings = readAppSettings()
   buildMenu(settings.language || 'zh')
   createWindow()
+
+  // 启动外部 Agent HTTP API（本地回环，带 Token 鉴权）
+  apiServer = new ApiServer({
+    db,
+    getSettings: readAppSettings,
+    writeAppSettings,
+    resolveDbPath,
+    app
+  })
+  apiServer.start()
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
@@ -673,6 +771,11 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  try {
+    if (apiServer) apiServer.stop()
+  } catch (e) {
+    /* ignore */
+  }
   try {
     if (db) db.close()
   } catch (e) {

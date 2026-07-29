@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Plus, Pencil, Trash2, Check, X, ChevronRight, Folder, Package } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import {
   createLocation,
@@ -7,7 +9,9 @@ import {
   buildLocationTree,
   fetchLocationItemCounts
 } from '../lib/api'
+import { EASE } from '../lib/motion'
 import ConfirmDialog from './ConfirmDialog'
+import PageHeader from './PageHeader'
 
 export default function LocationManager({ locations, lang, onBack, onChanged, showToast }) {
   const { t } = useI18n()
@@ -83,60 +87,76 @@ export default function LocationManager({ locations, lang, onBack, onChanged, sh
     }
   }
 
+  const addAction = (
+    <motion.button
+      whileTap={{ scale: 0.97 }}
+      onClick={() => setAddingRoot((a) => !a)}
+      className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover hover:shadow-card"
+    >
+      <Plus size={16} strokeWidth={2.5} />
+      {t('loc_addRoot')}
+    </motion.button>
+  )
+
   return (
     <div className="flex h-screen w-screen flex-col bg-bg">
-      <header className="flex items-center gap-3 border-b border-border bg-surface px-6 py-4">
-        <button onClick={onBack} className="rounded-md p-1.5 text-text-tertiary transition hover:bg-bg">
-          ←
-        </button>
-        <h1 className="flex-1 text-lg font-semibold text-text-primary">{t('loc_title')}</h1>
-        <button
-          onClick={() => setAddingRoot((a) => !a)}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
-        >
-          + {t('loc_addRoot')}
-        </button>
-      </header>
+      <PageHeader title={t('loc_title')} onBack={onBack} action={addAction} />
 
       <main className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-6">
-        {addingRoot && (
-          <form onSubmit={handleAddRoot} className="mb-4 rounded-xl border border-border bg-surface p-4 shadow-sm">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={rootName}
-                onChange={(e) => setRootName(e.target.value)}
-                className="input"
-                placeholder={t('loc_name_placeholder')}
-                autoFocus
-              />
-              <button
-                type="submit"
-                className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-hover"
-              >
-                {t('btn_save')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAddingRoot(false)
-                  setRootName('')
-                }}
-                className="shrink-0 rounded-lg border border-border px-4 py-2 text-sm font-medium text-text-secondary transition hover:bg-surface-hover"
-              >
-                {t('btn_cancel')}
-              </button>
-            </div>
-          </form>
-        )}
+        <AnimatePresence>
+          {addingRoot && (
+            <motion.form
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.28, ease: EASE }}
+              onSubmit={handleAddRoot}
+              className="mb-4 overflow-hidden rounded-2xl border border-primary/40 bg-surface p-4 shadow-card"
+            >
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={rootName}
+                  onChange={(e) => setRootName(e.target.value)}
+                  className="input"
+                  placeholder={t('loc_name_placeholder')}
+                  autoFocus
+                />
+                <motion.button
+                  type="submit"
+                  whileTap={{ scale: 0.97 }}
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-smooth hover:bg-primary-hover"
+                >
+                  <Check size={15} />
+                  {t('btn_save')}
+                </motion.button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddingRoot(false)
+                    setRootName('')
+                  }}
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl border border-border px-4 py-2 text-sm font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+                >
+                  <X size={15} />
+                  {t('btn_cancel')}
+                </button>
+              </div>
+            </motion.form>
+          )}
+        </AnimatePresence>
 
         {tree.length === 0 && !addingRoot ? (
-          <div className="rounded-xl border border-dashed border-border bg-surface px-4 py-12 text-center text-sm text-text-tertiary">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="rounded-2xl border border-dashed border-border bg-surface px-4 py-16 text-center text-sm text-text-tertiary"
+          >
             {t('loc_empty')}
-          </div>
+          </motion.div>
         ) : (
-          <div className="rounded-xl border border-border bg-surface p-3 shadow-sm">
-            {tree.map((node) => (
+          <div className="rounded-2xl border border-border bg-surface p-3 shadow-card">
+            {tree.map((node, idx) => (
               <LocationNode
                 key={node.id}
                 node={node}
@@ -154,6 +174,7 @@ export default function LocationManager({ locations, lang, onBack, onChanged, sh
                 onAddChild={handleAddChild}
                 onSaveRename={handleSaveRename}
                 onAskDelete={(id, name) => setConfirm({ open: true, id, name })}
+                delay={idx * 0.04}
               />
             ))}
           </div>
@@ -186,7 +207,8 @@ function LocationNode({
   setAddChildId,
   onAddChild,
   onSaveRename,
-  onAskDelete
+  onAskDelete,
+  delay = 0
 }) {
   const hasChildren = node.children && node.children.length > 0
   const [open, setOpen] = useState(depth < 1)
@@ -195,20 +217,26 @@ function LocationNode({
   const isAddingChild = addChildId === node.id
 
   return (
-    <div>
+    <motion.div
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3, ease: EASE, delay: Math.min(delay, 0.24) }}
+    >
       <div
-        className="group flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-surface-hover"
+        className="group flex items-center gap-1 rounded-xl px-2 py-1.5 transition-smooth hover:bg-surface-hover"
         style={{ paddingLeft: `${depth * 20 + 8}px` }}
       >
         {hasChildren ? (
           <button
             onClick={() => setOpen((o) => !o)}
-            className="w-4 shrink-0 text-text-tertiary"
+            className="flex w-5 shrink-0 items-center justify-center text-text-tertiary transition-smooth hover:text-text-secondary"
           >
-            {open ? '▾' : '▸'}
+            <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.2, ease: EASE }}>
+              <ChevronRight size={14} />
+            </motion.span>
           </button>
         ) : (
-          <span className="w-4 shrink-0" />
+          <span className="w-5 shrink-0" />
         )}
 
         {isEditing ? (
@@ -224,112 +252,143 @@ function LocationNode({
               className="input py-1"
               autoFocus
             />
-            <button
+            <motion.button
+              whileTap={{ scale: 0.88 }}
               onClick={() => onSaveRename(node.id)}
-              className="shrink-0 rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover"
+              className="flex shrink-0 h-7 w-7 items-center justify-center rounded-lg bg-primary text-white"
             >
-              ✓
-            </button>
-            <button
+              <Check size={14} />
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.88 }}
               onClick={() => setEditingId(null)}
-              className="shrink-0 rounded-md border border-border px-3 py-1 text-xs text-text-tertiary hover:bg-surface-hover"
+              className="flex shrink-0 h-7 w-7 items-center justify-center rounded-lg border border-border text-text-tertiary hover:bg-surface-hover"
             >
-              ✕
-            </button>
+              <X size={14} />
+            </motion.button>
           </div>
         ) : (
           <>
-            <span className="min-w-0 flex-1 truncate text-sm text-text-secondary">📁 {node.name}</span>
+            <Folder size={15} className="shrink-0 text-text-tertiary" />
+            <span className="min-w-0 flex-1 truncate text-sm text-text-secondary">{node.name}</span>
             {count > 0 && (
-              <span className="shrink-0 text-[11px] text-text-tertiary">{t('loc_itemCount', { n: count })}</span>
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-bg px-2 py-0.5 text-[11px] font-medium text-text-tertiary">
+                <Package size={10} />
+                {t('loc_itemCount', { n: count })}
+              </span>
             )}
-            <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-              <button
+            <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-smooth group-hover:opacity-100">
+              <motion.button
+                whileTap={{ scale: 0.88 }}
                 onClick={() => {
                   setEditingId(node.id)
                   setEditName(node.name)
                 }}
                 title={t('loc_rename')}
-                className="rounded p-1 text-text-tertiary transition hover:bg-bg hover:text-text-secondary"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-bg hover:text-primary"
               >
-                ✏️
-              </button>
-              <button
+                <Pencil size={13} />
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.88 }}
                 onClick={() => {
                   setAddChildId(isAddingChild ? null : node.id)
                   setChildName('')
                 }}
                 title={t('loc_addChild')}
-                className="rounded p-1 text-text-tertiary transition hover:bg-bg hover:text-text-secondary"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-bg hover:text-primary"
               >
-                ➕
-              </button>
-              <button
+                <Plus size={14} />
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.88 }}
                 onClick={() => onAskDelete(node.id, node.name)}
                 title={t('btn_delete')}
-                className="rounded p-1 text-text-tertiary transition hover:bg-danger-soft hover:text-danger"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-danger-soft hover:text-danger"
               >
-                🗑️
-              </button>
+                <Trash2 size={13} />
+              </motion.button>
             </div>
           </>
         )}
       </div>
 
-      {isAddingChild && (
-        <div
-          className="flex items-center gap-2 rounded-lg bg-primary-soft/50 py-1.5 pr-2"
-          style={{ marginLeft: `${depth * 20 + 28}px` }}
-        >
-          <input
-            type="text"
-            value={childName}
-            onChange={(e) => setChildName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onAddChild(node.id)
-              if (e.key === 'Escape') setAddChildId(null)
-            }}
-            className="input py-1"
-            placeholder={t('loc_name_placeholder')}
-            autoFocus
-          />
-          <button
-            onClick={() => onAddChild(node.id)}
-            className="shrink-0 rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover"
+      <AnimatePresence>
+        {isAddingChild && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.24, ease: EASE }}
+            className="overflow-hidden"
           >
-            {t('btn_save')}
-          </button>
-          <button
-            onClick={() => setAddChildId(null)}
-            className="shrink-0 rounded-md border border-border px-3 py-1 text-xs text-text-tertiary hover:bg-surface-hover"
-          >
-            {t('btn_cancel')}
-          </button>
-        </div>
-      )}
+            <div
+              className="flex items-center gap-2 rounded-xl bg-primary-soft/40 py-1.5 pr-2"
+              style={{ marginLeft: `${depth * 20 + 28}px` }}
+            >
+              <input
+                type="text"
+                value={childName}
+                onChange={(e) => setChildName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') onAddChild(node.id)
+                  if (e.key === 'Escape') setAddChildId(null)
+                }}
+                className="input py-1"
+                placeholder={t('loc_name_placeholder')}
+                autoFocus
+              />
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={() => onAddChild(node.id)}
+                className="flex shrink-0 items-center gap-1 rounded-lg bg-primary px-3 py-1 text-xs font-medium text-white"
+              >
+                <Check size={13} />
+                {t('btn_save')}
+              </motion.button>
+              <button
+                onClick={() => setAddChildId(null)}
+                className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-3 py-1 text-xs text-text-tertiary hover:bg-surface-hover"
+              >
+                {t('btn_cancel')}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {hasChildren &&
-        open &&
-        node.children.map((c) => (
-          <LocationNode
-            key={c.id}
-            node={c}
-            depth={depth + 1}
-            itemCounts={itemCounts}
-            t={t}
-            editingId={editingId}
-            editName={editName}
-            setEditName={setEditName}
-            setEditingId={setEditingId}
-            addChildId={addChildId}
-            childName={childName}
-            setChildName={setChildName}
-            setAddChildId={setAddChildId}
-            onAddChild={onAddChild}
-            onSaveRename={onSaveRename}
-            onAskDelete={onAskDelete}
-          />
-        ))}
-    </div>
+      <AnimatePresence initial={false}>
+        {hasChildren && open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: EASE }}
+            className="overflow-hidden"
+          >
+            {node.children.map((c) => (
+              <LocationNode
+                key={c.id}
+                node={c}
+                depth={depth + 1}
+                itemCounts={itemCounts}
+                t={t}
+                editingId={editingId}
+                editName={editName}
+                setEditName={setEditName}
+                setEditingId={setEditingId}
+                addChildId={addChildId}
+                childName={childName}
+                setChildName={setChildName}
+                setAddChildId={setAddChildId}
+                onAddChild={onAddChild}
+                onSaveRename={onSaveRename}
+                onAskDelete={onAskDelete}
+              />
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   )
 }

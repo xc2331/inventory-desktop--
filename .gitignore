@@ -3,6 +3,9 @@ dist/
 release/
 release-new/
 release-v2/
+release-v3/
+release-v4/
+release-v4b/
 *.log
 .DS_Store
 .env

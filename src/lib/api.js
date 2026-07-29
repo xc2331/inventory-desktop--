@@ -45,6 +45,7 @@ export function fetchCategoryCounts() {
 
 export async function createItem(item) {
   const now = Date.now()
+  const categories = await fetchCategories()
   const row = {
     id: item.id || uid(),
     name: item.name || '',
@@ -55,7 +56,7 @@ export async function createItem(item) {
     quantity: Number(item.quantity) || 0,
     min_quantity: Number(item.min_quantity) || 0,
     photo: item.photo || '',
-    category: item.category || '',
+    category: normalizeCategoryKey(item.category, categories),
     expiry_date: Number(item.expiry_date) || 0,
     created_at: item.created_at || now,
     updated_at: now
@@ -74,12 +75,14 @@ export async function updateItem(id, patch) {
   const rows = await api.db.query({ sql: 'SELECT * FROM items WHERE id = ?', binds: [id] })
   const cur = rows[0]
   if (!cur) return null
+  const categories = await fetchCategories()
   const next = {
     ...cur,
     ...patch,
     quantity: Number(patch.quantity ?? cur.quantity) || 0,
     min_quantity: Number(patch.min_quantity ?? cur.min_quantity) || 0,
     expiry_date: Number(patch.expiry_date ?? cur.expiry_date) || 0,
+    category: patch.category !== undefined ? normalizeCategoryKey(patch.category, categories) : cur.category,
     updated_at: now
   }
   await api.db.execute({
@@ -145,6 +148,51 @@ export function categoryDisplayName(cat, lang) {
   if (!cat) return ''
   if (lang === 'en' && cat.name_en) return cat.name_en
   return cat.name || cat.name_en || cat.key
+}
+
+// 分类别名表：将常见中英文变体归一化为 canonical key
+export const CATEGORY_ALIASES = {
+  electronic: ['electronics', '电子', '电子产品', '電子', '電子產品'],
+  food: ['foods', '食品', '食物'],
+  beverage: ['beverages', '饮料', '飲料', 'drink', 'drinks'],
+  daily: ['dailies', '日用品', 'daily necessities'],
+  kitchen: ['kitchens', '厨房用品', '廚房用品', 'kitchenware'],
+  cleaning: ['cleanings', '清洁用品', '清潔用品', 'cleaning supplies'],
+  medical: ['medicals', '医药', '醫藥', 'medicine', 'medicines', 'drug', 'drugs'],
+  stationery: ['stationeries', '文具', 'office supplies'],
+  tools: ['tool', '工具', 'hand tools', 'power tools'],
+  other: ['others', '其他', '其它', 'misc', 'miscellaneous']
+}
+
+/**
+ * 将用户输入/导入的原始分类字符串归一化为数据库中的 canonical key。
+ * 优先匹配现有分类 key/name/name_en，再匹配默认别名表。
+ */
+export function normalizeCategoryKey(raw, categories = []) {
+  if (!raw) return ''
+  const key = String(raw).trim().toLowerCase()
+  if (!key) return ''
+
+  // 1. 直接命中已有分类 key
+  const direct = categories.find((c) => c.key && c.key.toLowerCase() === key)
+  if (direct) return direct.key
+
+  // 2. 命中默认别名表
+  for (const [canonical, aliases] of Object.entries(CATEGORY_ALIASES)) {
+    if (canonical.toLowerCase() === key) return canonical
+    if (aliases.includes(key)) return canonical
+  }
+
+  // 3. 按现有分类的 name / name_en 模糊匹配（忽略大小写）
+  const byName = categories.find(
+    (c) =>
+      (c.name && c.name.toLowerCase() === key) ||
+      (c.name_en && c.name_en.toLowerCase() === key)
+  )
+  if (byName) return byName.key
+
+  // 4. 未命中则原样返回（保留用户自定义可能性）
+  return raw
 }
 
 // ===== 位置树 =====
@@ -293,4 +341,13 @@ export async function resetDataDir() {
 
 export async function pickFolder() {
   return api.dialog.pickFolder()
+}
+
+// ===== Agent 外部 API =====
+export async function getApiToken() {
+  return api.settings.getApiToken()
+}
+
+export async function resetApiToken() {
+  return api.settings.resetApiToken()
 }
