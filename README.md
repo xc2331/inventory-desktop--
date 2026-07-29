@@ -132,7 +132,7 @@ npm run build:mac    # macOS (dmg)
 npm run build:linux  # Linux (AppImage)
 ```
 
-打包产物输出到 `release-v4c/` 目录。
+打包产物输出到 `release-v4d/` 目录。
 
 > 打包脚本已加 `--publish never`，不会自动发布到 GitHub；需要发布 Release 时请用 `GH_TOKEN` 配合 `--publish always`。
 > `win.signAndEditExecutable` 设为 `false`，跳过代码签名与 rcedit，在无符号链接权限的环境下也能打包。
