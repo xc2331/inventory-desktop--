@@ -102,7 +102,7 @@ export default function LocationManager({ locations, lang, onBack, onChanged, sh
     <div className="flex h-screen w-screen flex-col bg-bg">
       <PageHeader title={t('loc_title')} onBack={onBack} action={addAction} />
 
-      <main className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-6">
+      <main className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-5">
         <AnimatePresence>
           {addingRoot && (
             <motion.form

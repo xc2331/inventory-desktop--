@@ -250,81 +250,10 @@ function fromImportItem(r, now) {
   }
 }
 
-// ===== 中文应用菜单 =====
-function buildMenu(lang) {
-  const isZh = lang !== 'en'
-  const t = (zh, en) => (isZh ? zh : en)
-  const template = [
-    {
-      label: t('文件', 'File'),
-      submenu: [
-        {
-          label: t('导入 JSON…', 'Import JSON…'),
-          accelerator: 'CmdOrCtrl+I',
-          click: () => mainWindow && mainWindow.webContents.send('menu:import')
-        },
-        {
-          label: t('导出 JSON…', 'Export JSON…'),
-          accelerator: 'CmdOrCtrl+E',
-          click: () => mainWindow && mainWindow.webContents.send('menu:export-json')
-        },
-        {
-          label: t('导出 CSV…', 'Export CSV…'),
-          accelerator: 'CmdOrCtrl+Shift+E',
-          click: () => mainWindow && mainWindow.webContents.send('menu:export-csv')
-        },
-        { type: 'separator' },
-        { label: t('退出', 'Quit'), role: 'quit' }
-      ]
-    },
-    {
-      label: t('编辑', 'Edit'),
-      submenu: [
-        { label: t('撤销', 'Undo'), role: 'undo' },
-        { label: t('重做', 'Redo'), role: 'redo' },
-        { type: 'separator' },
-        { label: t('剪切', 'Cut'), role: 'cut' },
-        { label: t('复制', 'Copy'), role: 'copy' },
-        { label: t('粘贴', 'Paste'), role: 'paste' },
-        { label: t('全选', 'Select All'), role: 'selectAll' }
-      ]
-    },
-    {
-      label: t('视图', 'View'),
-      submenu: [
-        { label: t('重新加载', 'Reload'), role: 'reload' },
-        { label: t('强制重新加载', 'Force Reload'), role: 'forceReload' },
-        { label: t('开发者工具', 'Toggle Developer Tools'), role: 'toggleDevTools' },
-        { type: 'separator' },
-        { label: t('放大', 'Zoom In'), role: 'zoomIn' },
-        { label: t('缩小', 'Zoom Out'), role: 'zoomOut' },
-        { label: t('重置缩放', 'Reset Zoom'), role: 'resetZoom' },
-        { type: 'separator' },
-        { label: t('全屏', 'Toggle Fullscreen'), role: 'togglefullscreen' }
-      ]
-    },
-    {
-      label: t('帮助', 'Help'),
-      submenu: [
-        {
-          label: t('关于 家庭物资管家', 'About Family Inventory'),
-          click: () => {
-            dialog.showMessageBox(mainWindow, {
-              type: 'info',
-              title: t('关于', 'About'),
-              message: '家庭物资管家 / Family Inventory',
-              detail: t(
-                '家庭物品本地管理工具\n数据与手机端兼容\nMIT License',
-                'Local home inventory manager\nCompatible with mobile data\nMIT License'
-              ),
-              buttons: ['OK']
-            })
-          }
-        }
-      ]
-    }
-  ]
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+// ===== 应用菜单（默认隐藏，功能入口集中到设置页） =====
+function buildMenu(_lang) {
+  // 隐藏顶部菜单栏以保持界面简洁；导入/导出/设置等入口已集成在渲染页内
+  Menu.setApplicationMenu(null)
 }
 
 function createWindow() {
@@ -338,6 +267,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     title: '家庭物资管家',
+    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
     backgroundColor: isDarkTheme ? '#0f172a' : '#f8fafc',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

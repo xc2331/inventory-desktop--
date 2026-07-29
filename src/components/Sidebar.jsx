@@ -6,9 +6,7 @@ import {
   Settings,
   ChevronRight,
   Folder,
-  ChevronLeft,
-  Boxes,
-  Home
+  Boxes
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName, buildLocationTree } from '../lib/api'
@@ -16,9 +14,25 @@ import { getCategoryIcon } from '../lib/categoryIcons'
 import { cn } from '../lib/cn'
 import { EASE } from '../lib/motion'
 
+function Logo({ size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="1024" height="1024" rx="240" fill="url(#sidebar-logo-gradient)" />
+      <rect x="284" y="424" width="456" height="48" rx="24" fill="currentColor" />
+      <rect x="464" y="400" width="96" height="96" rx="32" fill="currentColor" />
+      <defs>
+        <linearGradient id="sidebar-logo-gradient" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#10b981" />
+          <stop offset="0.55" stopColor="#14b8a6" />
+          <stop offset="1" stopColor="#0d9488" />
+        </linearGradient>
+      </defs>
+    </svg>
+  )
+}
+
 export default function Sidebar({
   collapsed,
-  onToggleCollapse,
   activeCategory,
   onSelectCategory,
   activeLocation,
@@ -42,9 +56,9 @@ export default function Sidebar({
         transition={{ duration: 0.3, ease: EASE }}
         className="flex shrink-0 flex-col border-r border-border bg-surface"
       >
-        <div className="flex h-[66px] items-center justify-center border-b border-border">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-teal-600 text-white shadow-sm">
-            <Home size={20} strokeWidth={2.2} />
+        <div className="flex h-14 items-center justify-center border-b border-border">
+          <div className="text-white">
+            <Logo size={28} />
           </div>
         </div>
 
@@ -66,17 +80,10 @@ export default function Sidebar({
               badge={counts[c.key] || 0}
             />
           ))}
-          <IconButton
-            active={activeLocation.length > 0}
-            onClick={onToggleCollapse}
-            icon={<MapPin size={18} />}
-            label={t('nav_locations')}
-          />
         </div>
 
         <div className="flex flex-col items-center gap-1 border-t border-border py-2">
           <IconButton active={false} onClick={onOpenSettings} icon={<Settings size={18} />} label={t('nav_settings')} />
-          <IconButton active={false} onClick={onToggleCollapse} icon={<ChevronLeft size={18} />} label={t('close')} />
         </div>
       </motion.aside>
     )
@@ -89,28 +96,19 @@ export default function Sidebar({
       transition={{ duration: 0.3, ease: EASE }}
       className="flex w-64 shrink-0 flex-col border-r border-border bg-surface"
     >
-      <div className="flex items-center justify-between px-5 py-[18px]">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-teal-600 text-white shadow-sm">
-            <Home size={20} strokeWidth={2.2} />
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-[15px] font-semibold leading-tight text-text-primary">{t('appTitle')}</div>
-            <div className="text-[11px] text-text-tertiary">{t('appSubtitle')}</div>
-          </div>
+      <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
+        <div className="text-white">
+          <Logo size={28} />
         </div>
-        <button
-          onClick={onToggleCollapse}
-          className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-secondary"
-          title={t('close')}
-        >
-          <ChevronLeft size={16} />
-        </button>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold leading-tight text-text-primary">{t('appTitle')}</div>
+          <div className="text-[11px] text-text-tertiary">{t('appSubtitle')}</div>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 pb-4">
+      <div className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
         {/* 分类 */}
-        <div className="mt-2 px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
+        <div className="px-2 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/80">
           {t('nav_categories')}
         </div>
         <NavRow
@@ -136,7 +134,7 @@ export default function Sidebar({
         })}
 
         {/* 位置 */}
-        <div className="mt-4 px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
+        <div className="mt-4 px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/80">
           {t('nav_locations')}
         </div>
         {locTree.length === 0 ? (
@@ -158,13 +156,13 @@ export default function Sidebar({
 
       <button
         onClick={onOpenSettings}
-        className="group flex items-center gap-2.5 border-t border-border px-5 py-3 text-sm text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+        className="group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
       >
         <Settings size={16} className="transition-transform group-hover:rotate-45" />
         {t('nav_settings')}
       </button>
-      <div className="flex items-center gap-1.5 px-5 pb-3 text-[11px] leading-relaxed text-text-tertiary">
-        <Boxes size={12} className="shrink-0" />
+      <div className="flex items-center gap-1.5 px-4 pb-2.5 text-[10px] leading-relaxed text-text-tertiary/70">
+        <Boxes size={11} className="shrink-0" />
         {t('sidebar_localBackup')}
       </div>
     </motion.aside>
@@ -177,13 +175,13 @@ function IconButton({ active, onClick, icon, label, badge }) {
       onClick={onClick}
       title={label}
       className={cn(
-        'relative flex h-10 w-10 items-center justify-center rounded-xl transition-smooth',
+        'relative flex h-9 w-9 items-center justify-center rounded-xl transition-smooth',
         active ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-surface-hover'
       )}
     >
       {icon}
       {badge > 0 && (
-        <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-surface px-1 text-[10px] font-semibold text-text-secondary shadow-sm ring-1 ring-border">
+        <span className="absolute -right-1 -top-1 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-surface px-1 text-[9px] font-semibold text-text-secondary shadow-sm ring-1 ring-border">
           {badge > 99 ? '99+' : badge}
         </span>
       )}
@@ -196,7 +194,7 @@ function NavRow({ active, onClick, icon, label, badge }) {
     <button
       onClick={onClick}
       className={cn(
-        'relative mb-0.5 flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm transition-smooth',
+        'relative mb-0.5 flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-sm transition-smooth',
         active ? 'font-medium text-primary' : 'text-text-secondary hover:bg-surface-hover'
       )}
     >
@@ -207,7 +205,7 @@ function NavRow({ active, onClick, icon, label, badge }) {
           className="absolute inset-0 rounded-xl bg-primary-soft"
         />
       )}
-      <span className="relative flex min-w-0 items-center gap-2.5">
+      <span className="relative flex min-w-0 items-center gap-2">
         <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
         <span className="truncate">{label}</span>
       </span>
@@ -247,7 +245,7 @@ function LocationNode({ node, depth, parentPath, activeLocation, onSelectLocatio
           'group relative mb-0.5 flex w-full items-center justify-between rounded-xl px-2 py-1.5 text-sm transition-smooth',
           isSelected ? 'bg-primary-soft font-medium text-primary' : 'text-text-secondary hover:bg-surface-hover'
         )}
-        style={{ paddingLeft: `${depth * 16 + 12}px` }}
+        style={{ paddingLeft: `${depth * 14 + 10}px` }}
       >
         {isSelected && depth === 0 && (
           <motion.span
@@ -264,15 +262,15 @@ function LocationNode({ node, depth, parentPath, activeLocation, onSelectLocatio
           <Folder size={14} className={cn('shrink-0', isSelected ? 'text-primary' : 'text-text-tertiary')} />
           <span className="truncate">{node.name}</span>
         </button>
-        <div className="relative flex shrink-0 items-center gap-1.5">
-          <span className="text-xs tabular-nums text-text-tertiary">{count}</span>
+        <div className="relative flex shrink-0 items-center gap-1">
+          <span className="text-xs tabular-nums text-text-tertiary/80">{count}</span>
           {hasChildren && (
             <button
               onClick={(e) => {
                 e.stopPropagation()
                 setOpen((o) => !o)
               }}
-              className="flex h-4 w-4 items-center justify-center text-text-tertiary transition-smooth hover:text-text-secondary"
+              className="flex h-5 w-5 items-center justify-center rounded-md text-text-tertiary transition-smooth hover:bg-surface-active hover:text-text-secondary"
             >
               <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.2, ease: EASE }}>
                 <ChevronRight size={13} />

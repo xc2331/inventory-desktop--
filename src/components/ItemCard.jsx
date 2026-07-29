@@ -83,8 +83,8 @@ export default function ItemCard({
             </span>
           </>
         ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface-hover to-bg text-text-tertiary transition-transform duration-500 group-hover:scale-[1.02]">
-            <CategoryIcon size={48} strokeWidth={1.4} />
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface-hover to-bg text-text-tertiary/70 transition-transform duration-500 group-hover:scale-[1.02]">
+            <CategoryIcon size={40} strokeWidth={1.4} />
           </div>
         )}
 
@@ -107,15 +107,15 @@ export default function ItemCard({
 
         {/* 分类标签 */}
         <span
-          className="absolute left-2.5 z-10 inline-flex max-w-[70%] items-center gap-1 truncate rounded-full bg-surface/90 px-2.5 py-1 text-xs font-medium text-text-secondary shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface"
-          style={{ top: bulkMode ? '2.75rem' : '0.625rem' }}
+          className="absolute left-2.5 z-10 inline-flex max-w-[70%] items-center gap-1 truncate rounded-full bg-surface/92 px-2 py-1 text-[11px] font-medium text-text-secondary shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface"
+          style={{ top: bulkMode ? '2.5rem' : '0.625rem' }}
         >
-          <CategoryIcon size={13} strokeWidth={2.2} />
+          <CategoryIcon size={12} strokeWidth={2.2} />
           <span className="truncate">{cat ? categoryDisplayName(cat, lang) : item.category || t('nav_categories')}</span>
         </span>
 
-        {/* 操作按钮组：始终可见，编辑主色、删除暗红 */}
-        <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1.5 rounded-full bg-surface/92 p-1 shadow-sm backdrop-blur-md transition-smooth">
+        {/* 操作按钮组：hover 时强化 */}
+        <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-surface/88 p-1 shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface">
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={(e) => {
@@ -123,9 +123,9 @@ export default function ItemCard({
               onEdit(item)
             }}
             title={t('form_editTitle')}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-text-secondary ring-1 ring-transparent transition-smooth hover:bg-primary-soft hover:text-primary hover:ring-primary/20"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-text-tertiary transition-smooth hover:bg-primary-soft hover:text-primary"
           >
-            <Pencil size={15} />
+            <Pencil size={14} />
           </motion.button>
           <motion.button
             whileTap={{ scale: 0.9 }}
@@ -134,9 +134,9 @@ export default function ItemCard({
               onDelete(item)
             }}
             title={t('btn_delete')}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-danger ring-1 ring-transparent transition-smooth hover:bg-danger-soft hover:ring-danger/20"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-text-tertiary transition-smooth hover:bg-danger-soft hover:text-danger"
           >
-            <Trash2 size={15} />
+            <Trash2 size={14} />
           </motion.button>
         </div>
       </div>
@@ -166,8 +166,8 @@ export default function ItemCard({
         )}
 
         {/* 数量步进器 */}
-        <div className="mt-3.5 flex items-center justify-between rounded-xl bg-bg p-1.5">
-          <div className="flex items-center gap-1">
+        <div className="mt-3 flex items-center justify-between rounded-xl bg-bg p-1">
+          <div className="flex items-center gap-0.5">
             <motion.button
               whileTap={{ scale: 0.88 }}
               onClick={(e) => {
@@ -175,16 +175,16 @@ export default function ItemCard({
                 onAdjust(item.id, -1)
               }}
               disabled={item.quantity <= 0}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface text-text-secondary shadow-xs ring-1 ring-border transition-smooth hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-surface text-text-secondary shadow-xs ring-1 ring-border transition-smooth hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Minus size={15} strokeWidth={2.5} />
+              <Minus size={14} strokeWidth={2.5} />
             </motion.button>
             <motion.span
               key={item.quantity}
               initial={{ scale: 0.8, opacity: 0.5 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.2, ease: EASE }}
-              className="min-w-[2.75rem] text-center text-lg font-semibold tabular-nums text-text-primary"
+              className="min-w-[2.5rem] text-center text-base font-semibold tabular-nums text-text-primary"
             >
               {item.quantity}
             </motion.span>
@@ -194,9 +194,9 @@ export default function ItemCard({
                 e.stopPropagation()
                 onAdjust(item.id, 1)
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface text-text-secondary shadow-xs ring-1 ring-border transition-smooth hover:bg-surface-hover hover:text-text-primary"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-surface text-text-secondary shadow-xs ring-1 ring-border transition-smooth hover:bg-surface-hover hover:text-text-primary"
             >
-              <Plus size={15} strokeWidth={2.5} />
+              <Plus size={14} strokeWidth={2.5} />
             </motion.button>
           </div>
           {item.min_quantity > 0 && (

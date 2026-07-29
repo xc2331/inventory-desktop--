@@ -99,22 +99,22 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
           className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface shadow-float"
         >
           {/* 头部 */}
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface/95 px-6 py-4 backdrop-blur">
-            <h2 className="text-lg font-semibold text-text-primary">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface/95 px-5 py-3.5 backdrop-blur">
+            <h2 className="text-base font-semibold text-text-primary">
               {initial ? t('form_editTitle') : t('form_addTitle')}
             </h2>
             <motion.button
               type="button"
               whileTap={{ scale: 0.9 }}
               onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
             >
-              <X size={18} />
+              <X size={17} />
             </motion.button>
           </div>
 
-          <div className="p-6">
-            <div className="grid grid-cols-2 gap-4">
+          <div className="p-5">
+            <div className="grid grid-cols-2 gap-3.5">
               <Field label={t('f_name')} required error={errors.name} className="col-span-2">
                 <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} className="input" autoFocus />
               </Field>
@@ -202,19 +202,19 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
           </div>
 
           {/* 底部操作 */}
-          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface/95 px-6 py-4 backdrop-blur">
+          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface/95 px-5 py-3 backdrop-blur">
             <motion.button
               type="button"
               whileTap={{ scale: 0.97 }}
               onClick={onClose}
-              className="rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+              className="rounded-lg border border-border bg-surface px-3.5 py-1.5 text-sm font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
             >
               {t('btn_cancel')}
             </motion.button>
             <motion.button
               type="submit"
               whileTap={{ scale: 0.97 }}
-              className="rounded-xl bg-primary px-5 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover hover:shadow-card"
+              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover hover:shadow-card"
             >
               {t('btn_save')}
             </motion.button>

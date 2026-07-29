@@ -5,21 +5,21 @@
 :root {
   color-scheme: light;
 
-  /* V3 设计令牌 - 暖白浅色 */
-  --color-bg: #faf9f7;
+  /* V4 设计令牌 - 暖白浅色，更柔和现代 */
+  --color-bg: #fbfaf8;
   --color-bg-elevated: #ffffff;
   --color-surface: #ffffff;
-  --color-surface-hover: #f4f2ef;
+  --color-surface-hover: #f5f3f0;
   --color-surface-active: #ebe8e3;
-  --color-border: #e8e4dd;
-  --color-border-strong: #d6d0c6;
-  --color-text-primary: #1a1815;
-  --color-text-secondary: #57534e;
-  --color-text-tertiary: #a8a29e;
-  --color-primary: #047857;
-  --color-primary-hover: #065f46;
+  --color-border: #e9e5de;
+  --color-border-strong: #d8d2c9;
+  --color-text-primary: #1c1917;
+  --color-text-secondary: #5c5751;
+  --color-text-tertiary: #a9a29b;
+  --color-primary: #059669;
+  --color-primary-hover: #047857;
   --color-primary-soft: #d1fae5;
-  --color-primary-glow: rgba(4, 120, 87, 0.16);
+  --color-primary-glow: rgba(5, 150, 105, 0.16);
   --color-accent: #b45309;
   --color-danger: #be123c;
   --color-danger-soft: #ffe4e6;
@@ -28,10 +28,10 @@
 
   /* 阴影分层 */
   --shadow-xs: 0 1px 2px 0 rgb(28 25 23 / 0.04);
-  --shadow-sm: 0 1px 3px 0 rgb(28 25 23 / 0.06), 0 1px 2px -1px rgb(28 25 23 / 0.04);
-  --shadow-card: 0 2px 8px -2px rgb(28 25 23 / 0.06), 0 4px 16px -4px rgb(28 25 23 / 0.04);
-  --shadow-float: 0 12px 32px -8px rgb(28 25 23 / 0.12), 0 4px 12px -4px rgb(28 25 23 / 0.06);
-  --shadow-glow: 0 0 0 4px var(--color-primary-glow);
+  --shadow-sm: 0 1px 3px 0 rgb(28 25 23 / 0.05), 0 1px 2px -1px rgb(28 25 23 / 0.04);
+  --shadow-card: 0 2px 8px -2px rgb(28 25 23 / 0.05), 0 4px 16px -4px rgb(28 25 23 / 0.04);
+  --shadow-float: 0 12px 32px -8px rgb(28 25 23 / 0.1), 0 4px 12px -4px rgb(28 25 23 / 0.05);
+  --shadow-glow: 0 0 0 3px var(--color-primary-glow);
 
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
@@ -42,16 +42,16 @@
 .dark {
   color-scheme: dark;
 
-  /* V3 设计令牌 - 深石板深色 */
-  --color-bg: #14110e;
+  /* V4 设计令牌 - 深石板深色 */
+  --color-bg: #16130f;
   --color-bg-elevated: #1c1917;
   --color-surface: #1c1917;
   --color-surface-hover: #292524;
   --color-surface-active: #3a3530;
-  --color-border: #2e2a26;
-  --color-border-strong: #44403c;
+  --color-border: #2f2b27;
+  --color-border-strong: #46413c;
   --color-text-primary: #f5f5f4;
-  --color-text-secondary: #d6d3d1;
+  --color-text-secondary: #d8d4d2;
   --color-text-tertiary: #78716c;
   --color-primary: #34d399;
   --color-primary-hover: #6ee7b7;
@@ -64,10 +64,10 @@
   --color-warn-soft: #451a03;
 
   --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.3);
-  --shadow-card: 0 2px 8px -2px rgb(0 0 0 / 0.4), 0 4px 16px -4px rgb(0 0 0 / 0.3);
-  --shadow-float: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 4px 12px -4px rgb(0 0 0 / 0.4);
-  --shadow-glow: 0 0 0 4px var(--color-primary-glow);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.35), 0 1px 2px -1px rgb(0 0 0 / 0.25);
+  --shadow-card: 0 2px 8px -2px rgb(0 0 0 / 0.35), 0 4px 16px -4px rgb(0 0 0 / 0.28);
+  --shadow-float: 0 12px 32px -8px rgb(0 0 0 / 0.55), 0 4px 12px -4px rgb(0 0 0 / 0.35);
+  --shadow-glow: 0 0 0 3px var(--color-primary-glow);
 }
 
 html,
@@ -92,22 +92,23 @@ select {
   user-select: text;
 }
 
-/* 自定义滚动条 */
+/* 自定义滚动条 - 更细更 understated */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--color-border-strong);
-  border-radius: 6px;
-  border: 2px solid transparent;
+  border-radius: 4px;
+  border: 1px solid transparent;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-tertiary);
   background-clip: padding-box;
 }
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Search, PackageOpen, Plus, Loader2 } from 'lucide-react'
+import { Search, PackageOpen, Plus, Loader2, Package, AlertTriangle, CalendarClock } from 'lucide-react'
 import { useI18n } from './lib/i18n'
 import { EASE } from './lib/motion'
+import { cn } from './lib/cn'
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import ItemCard from './components/ItemCard'
@@ -468,7 +469,6 @@ export default function App() {
       <div className="flex h-screen w-screen overflow-hidden bg-bg">
       <Sidebar
         collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         activeCategory={activeCategory}
         onSelectCategory={(c) => {
           setActiveCategory(c)
@@ -500,9 +500,6 @@ export default function App() {
           onImport={handleImportJSON}
           onExportJSON={handleExportJSON}
           onExportCSV={handleExportCSV}
-          total={total}
-          lowStock={lowStock}
-          expiringSoon={expiringSoon}
           activeCategory={activeCategory}
           activeLocation={activeLocation}
           categories={categories}
@@ -514,6 +511,13 @@ export default function App() {
           }}
         />
         <main className="flex flex-1 flex-col overflow-y-auto p-6">
+          {/* 统计条 */}
+          <div className="mb-4 flex items-center gap-2">
+            <StatChip icon={Package} label={t('stat_items')} value={total} tone="neutral" />
+            <StatChip icon={AlertTriangle} label={t('stat_lowStock')} value={lowStock} tone={lowStock > 0 ? 'danger' : 'neutral'} />
+            <StatChip icon={CalendarClock} label={t('stat_expiringSoon')} value={expiringSoon} tone={expiringSoon > 0 ? 'warn' : 'neutral'} />
+          </div>
+
           <AnimatePresence>
             {bulkMode && (
               <div className="mb-4">
@@ -597,11 +601,11 @@ export default function App() {
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.45, ease: EASE, delay: 0.05 }}
-          className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-surface text-text-tertiary shadow-card"
+          className="mb-5 flex h-[5.5rem] w-[5.5rem] items-center justify-center rounded-[1.75rem] bg-surface text-text-tertiary/80 shadow-card ring-1 ring-border"
         >
-          <Icon size={36} strokeWidth={1.5} />
+          <Icon size={34} strokeWidth={1.4} />
         </motion.div>
-        <p className="mb-1 text-lg font-semibold text-text-secondary">
+        <p className="mb-1 text-base font-semibold text-text-secondary">
           {hasFilter ? t('empty_noMatch') : t('empty_noItems')}
         </p>
         <p className="mb-6 text-sm text-text-tertiary">
@@ -611,13 +615,28 @@ export default function App() {
           <motion.button
             whileTap={{ scale: 0.97 }}
             onClick={onAdd}
-            className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover hover:shadow-card"
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover hover:shadow-card"
           >
-            <Plus size={16} strokeWidth={2.5} />
+            <Plus size={15} strokeWidth={2.5} />
             {t('btn_add')}
           </motion.button>
         )}
       </motion.div>
+    )
+  }
+
+  function StatChip({ icon: Icon, label, value, tone }) {
+    const tones = {
+      neutral: 'bg-surface-hover/60 text-text-secondary ring-1 ring-inset ring-border',
+      danger: 'bg-danger-soft text-danger ring-1 ring-inset ring-danger/20',
+      warn: 'bg-warn-soft text-warn ring-1 ring-inset ring-warn/20'
+    }
+    return (
+      <span className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium', tones[tone])}>
+        <Icon size={12} />
+        <span>{label}</span>
+        <span className="font-semibold tabular-nums">{value}</span>
+      </span>
     )
   }
 }

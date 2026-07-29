@@ -6,21 +6,33 @@
 
 ## 功能特性
 
+- 简洁现代的界面设计：隐藏顶部系统菜单栏，所有功能入口集中在设置页
+- 自定义应用图标：任务栏、窗口与安装包均使用专属简约 Logo
 - 物品增删改查（名称、分类、房间、位置、数量、过期日期、编号、最低库存等）
 - 数量快速增减按钮（+/−），低于最低库存自动提示「库存不足」
 - 9 大预设分类筛选（食品 / 饮料 / 日用品 / 厨房用品 / 清洁用品 / 医药 / 文具 / 工具 / 其他）
-- 关键词搜索（名称 / 编号 / 房间 / 位置）
+- 分类别名归一化：例如 `tool` 与 `工具` 会自动合并为「工具」
+- 关键词搜索（名称 / 编号 / 房间 / 位置），支持模糊匹配
 - JSON 导入 / 导出（结构含 `version`、`export_time`、`items` 数组，与手机端兼容）
 - CSV 导出（含物品主要字段，带 UTF-8 BOM，Excel 直接打开不乱码）
 - 启动时自动备份数据库文件（`inventory.db.backup`）
 - 过期提醒（已过期 / 7 天内即将过期）
+- 批量选择：批量改分类、批量删除
+- 可折叠侧边栏：仅保留顶部统一的展开/收起入口
 
 ## 技术栈
 
 - **Electron** —— 主进程（窗口、数据库、IPC、文件对话框）
-- **React + Vite** —— 渲染进程（可复用手机端 UI 代码）
+- **React + Vite** —— 渲染进程
 - **better-sqlite3** —— 本地 SQLite 数据库
-- **Tailwind CSS** —— 样式
+- **Tailwind CSS + Framer Motion** —— 样式与动效
+
+## 界面说明
+
+- **顶部工具栏**：左侧切换侧边栏 + 当前视图标题，中间为圆角搜索框，右侧为导入/导出、批量选择、添加物品
+- **侧边栏**：分类筛选、位置树筛选、设置入口；收起后仅显示图标
+- **统计条**：物品总数、库存不足、即将过期三项快捷统计
+- **设置页**：语言、主题、数据目录、Agent API、分类/位置管理、导入导出
 
 ## 数据库说明
 
@@ -59,6 +71,15 @@
 ```
 
 导入时会**覆盖**当前数据（先清空再写入，事务保证原子性），可直接导入手机端导出的 JSON。
+
+## 图标说明
+
+应用图标位于 `build/` 目录：
+
+- `build/icon.ico` —— Windows 打包与任务栏图标（含多尺寸）
+- `build/logo.svg` —— SVG 矢量源文件
+
+打包时 `electron-builder` 会自动使用 `build/icon.ico` 作为可执行文件与任务栏图标；开发环境下窗口也通过 `icon` 参数指向同一文件。
 
 ## API 桥接（preload）
 
@@ -106,15 +127,15 @@ npm run build        # 仅构建前端到 dist/
 ### 打包安装包
 
 ```bash
-npm run build:win    # Windows (nsis exe)
+npm run build:win    # Windows (portable exe)
 npm run build:mac    # macOS (dmg)
 npm run build:linux  # Linux (AppImage)
 ```
 
-打包产物输出到 `release/` 目录。
+打包产物输出到 `release-v4c/` 目录。
 
 > 打包脚本已加 `--publish never`，不会自动发布到 GitHub；需要发布 Release 时请用 `GH_TOKEN` 配合 `--publish always`。
-> `win.signAndEditExecutable` 设为 `false`，跳过代码签名与 rcedit（图标/版本信息），符合「图标暂用默认、签名不强制」的 MVP 约束，且在无符号链接权限的环境下也能打包。如需嵌入自定义图标，可在拥有权限的机器上移除该选项。
+> `win.signAndEditExecutable` 设为 `false`，跳过代码签名与 rcedit，在无符号链接权限的环境下也能打包。
 
 ## 国内网络加速（可选）
 
@@ -134,7 +155,7 @@ set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-buil
 ## 下载安装
 
 1. 前往 [Releases 页面](https://github.com/xc2331/inventory-desktop--/releases) 下载对应平台的安装包
-2. Windows：双击 `.exe` 安装
+2. Windows：双击 `.exe` 运行
 3. macOS：打开 `.dmg` 拖入「应用程序」
 4. Linux：赋予执行权限后运行 `.AppImage`
 
@@ -142,20 +163,31 @@ set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-buil
 
 ```
 inventory-desktop/
+├── build/
+│   ├── icon.ico           # 应用图标（多尺寸 ICO）
+│   └── logo.svg           # Logo 矢量源文件
 ├── electron/
-│   ├── main.js          # 主进程：数据库、IPC、文件对话框、自动备份
-│   └── preload.js       # 预加载脚本：暴露 window.lingguang API
+│   ├── main.js            # 主进程：数据库、IPC、文件对话框、自动备份
+│   └── preload.js         # 预加载脚本：暴露 window.lingguang API
 ├── src/
-│   ├── main.jsx         # React 入口
-│   ├── App.jsx          # 主应用
-│   ├── index.css        # Tailwind 样式
-│   ├── components/      # 组件（Sidebar/TopBar/ItemCard/ItemForm/...）
-│   └── lib/             # api.js、categories.js、utils.js
+│   ├── main.jsx           # React 入口
+│   ├── App.jsx            # 主应用
+│   ├── index.css          # Tailwind 样式与设计令牌
+│   ├── components/        # 组件（Sidebar/TopBar/ItemCard/ItemForm/...）
+│   └── lib/               # api.js、categories.js、utils.js、i18n.jsx
 ├── index.html
 ├── vite.config.js
 ├── tailwind.config.js
 └── package.json
 ```
+
+## 更新日志（最近）
+
+- **UI 大改**：顶部菜单栏隐藏，搜索框居中，侧边栏仅保留顶部统一入口
+- **新增自定义 Logo**：替换为简约「物资箱」图标，任务栏与窗口同步生效
+- **设置集中化**：导入/导出、分类管理、位置管理、语言、主题、数据目录全部集中到设置页
+- **分类归一化**：`tool` / `工具` 等中英文别名自动合并到同一分类
+- **交互优化**：更柔和的配色、更细的滚动条、卡片动效、表单紧凑布局
 
 ## 约束说明
 

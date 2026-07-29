@@ -61,12 +61,12 @@ export default function SettingsView({
     <div className="flex h-screen w-screen flex-col bg-bg">
       <PageHeader title={t('settings_title')} onBack={onBack} />
 
-      <main className="mx-auto w-full max-w-2xl flex-1 overflow-y-auto p-6">
+      <main className="mx-auto w-full max-w-2xl flex-1 overflow-y-auto p-5">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, ease: EASE, delay: 0.05 }}
-          className="space-y-5"
+          className="space-y-4"
         >
           {/* 语言 */}
           <Section title={t('settings_language')}>
@@ -208,9 +208,9 @@ export default function SettingsView({
 
 function Section({ title, desc, children }) {
   return (
-    <section className="rounded-2xl border border-border bg-surface p-5 shadow-card">
-      <h2 className="mb-1 text-base font-semibold text-text-primary">{title}</h2>
-      {desc && <p className="mb-3.5 text-xs leading-relaxed text-text-tertiary">{desc}</p>}
+    <section className="rounded-2xl border border-border bg-surface p-4 shadow-card">
+      <h2 className="mb-1 text-sm font-semibold text-text-primary">{title}</h2>
+      {desc && <p className="mb-3 text-xs leading-relaxed text-text-tertiary">{desc}</p>}
       {children}
     </section>
   )
