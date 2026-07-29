@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useI18n } from './lib/i18n'
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
@@ -29,7 +29,9 @@ import {
   setSettings,
   setDataDir,
   resetDataDir,
-  pickFolder
+  pickFolder,
+  locationMatchesPath,
+  buildLocationCounts
 } from './lib/api'
 
 export default function App() {
@@ -39,6 +41,7 @@ export default function App() {
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
   const [activeCategory, setActiveCategory] = useState('')
+  const [activeLocation, setActiveLocation] = useState([]) // 位置路径数组
   const [counts, setCounts] = useState({})
   const [categories, setCategories] = useState([])
   const [locations, setLocations] = useState([])
@@ -126,9 +129,17 @@ export default function App() {
     api.menu.onExportCsv(() => handlersRef.current.ec())
   }, [])
 
-  const total = items.length
-  const lowStock = items.filter((it) => it.min_quantity > 0 && it.quantity <= it.min_quantity).length
-  const expiringSoon = items.filter((it) => {
+  // 当前可见物品（含位置筛选）
+  const filteredItems = useMemo(() => {
+    if (!activeLocation || activeLocation.length === 0) return items
+    return items.filter((it) => locationMatchesPath(it, activeLocation))
+  }, [items, activeLocation])
+
+  const locationCounts = useMemo(() => buildLocationCounts(items), [items])
+
+  const total = filteredItems.length
+  const lowStock = filteredItems.filter((it) => it.min_quantity > 0 && it.quantity <= it.min_quantity).length
+  const expiringSoon = filteredItems.filter((it) => {
     if (!it.expiry_date) return false
     return Math.ceil((it.expiry_date - Date.now()) / 86400000) <= 7
   }).length
@@ -225,6 +236,7 @@ export default function App() {
       await reload()
       await refreshCounts()
       await refreshCategories()
+      await refreshLocations()
     } catch (e) {
       showToast(t('toast_importFail', { msg: e.message }), 'error')
     }
@@ -317,8 +329,16 @@ export default function App() {
           setActiveCategory(c)
           setView('items')
         }}
+        activeLocation={activeLocation}
+        onSelectLocation={(path) => {
+          setActiveLocation(path)
+          setActiveCategory('')
+          setView('items')
+        }}
         counts={counts}
         categories={categories}
+        locations={locations}
+        locationCounts={locationCounts}
         lang={lang}
         onOpenSettings={() => setView('settings')}
       />
@@ -334,17 +354,18 @@ export default function App() {
           lowStock={lowStock}
           expiringSoon={expiringSoon}
           activeCategory={activeCategory}
+          activeLocation={activeLocation}
           categories={categories}
           lang={lang}
         />
         <main className="flex-1 overflow-y-auto p-6">
           {loading && items.length === 0 ? (
             <div className="flex h-full items-center justify-center text-stone-400">{t('loading')}</div>
-          ) : items.length === 0 ? (
-            <EmptyState onAdd={handleOpenNew} hasFilter={!!keyword || !!activeCategory} />
+          ) : filteredItems.length === 0 ? (
+            <EmptyState onAdd={handleOpenNew} hasFilter={!!keyword || !!activeCategory || activeLocation.length > 0} />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {items.map((it) => (
+              {filteredItems.map((it) => (
                 <ItemCard
                   key={it.id}
                   item={it}

@@ -1,12 +1,25 @@
+import { useState } from 'react'
 import { useI18n } from '../lib/i18n'
-import { categoryDisplayName } from '../lib/api'
+import { categoryDisplayName, buildLocationTree } from '../lib/api'
 
-export default function Sidebar({ activeCategory, onSelectCategory, counts, categories, lang, onOpenSettings }) {
+export default function Sidebar({
+  activeCategory,
+  onSelectCategory,
+  activeLocation,
+  onSelectLocation,
+  counts,
+  categories,
+  locations,
+  locationCounts,
+  lang,
+  onOpenSettings
+}) {
   const { t } = useI18n()
   const totalCount = Object.values(counts).reduce((a, b) => a + b, 0)
+  const locTree = buildLocationTree(locations)
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-stone-200 bg-white">
+    <aside className="flex w-64 shrink-0 flex-col border-r border-stone-200 bg-white">
       <div className="flex items-center gap-2.5 px-5 py-5">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-xl text-white shadow-sm">
           🏠
@@ -17,11 +30,18 @@ export default function Sidebar({ activeCategory, onSelectCategory, counts, cate
         </div>
       </div>
 
-      <div className="px-3">
+      <div className="flex-1 overflow-y-auto px-3 pb-4">
+        {/* 分类 */}
+        <div className="mt-2 px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-stone-400">
+          {t('nav_categories')}
+        </div>
         <button
-          onClick={() => onSelectCategory('')}
+          onClick={() => {
+            onSelectCategory('')
+            onSelectLocation([])
+          }}
           className={`mb-1 flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-            activeCategory === ''
+            activeCategory === '' && activeLocation.length === 0
               ? 'bg-emerald-50 font-medium text-emerald-700'
               : 'text-stone-600 hover:bg-stone-50'
           }`}
@@ -31,19 +51,16 @@ export default function Sidebar({ activeCategory, onSelectCategory, counts, cate
           </span>
           <span className="text-xs text-stone-400">{totalCount}</span>
         </button>
-      </div>
-
-      <div className="mt-2 px-5 pb-1 text-[11px] font-medium uppercase tracking-wide text-stone-400">
-        {t('nav_categories')}
-      </div>
-      <nav className="flex-1 overflow-y-auto px-3 pb-4">
         {categories.map((c) => {
           const active = activeCategory === c.key
           const count = counts[c.key] || 0
           return (
             <button
               key={c.id}
-              onClick={() => onSelectCategory(active ? '' : c.key)}
+              onClick={() => {
+                onSelectCategory(active ? '' : c.key)
+                onSelectLocation([])
+              }}
               className={`mb-1 flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
                 active ? 'bg-emerald-50 font-medium text-emerald-700' : 'text-stone-600 hover:bg-stone-50'
               }`}
@@ -56,10 +73,26 @@ export default function Sidebar({ activeCategory, onSelectCategory, counts, cate
             </button>
           )
         })}
-        {categories.length === 0 && (
-          <div className="px-3 py-2 text-xs text-stone-300">{t('cat_addNew')}…</div>
+
+        {/* 位置 */}
+        <div className="mt-4 px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-stone-400">
+          {t('nav_locations')}
+        </div>
+        {locTree.length === 0 ? (
+          <div className="px-3 py-2 text-xs text-stone-300">{t('loc_empty')}</div>
+        ) : (
+          locTree.map((node) => (
+            <LocationNode
+              key={node.id}
+              node={node}
+              depth={0}
+              activeLocation={activeLocation}
+              onSelectLocation={onSelectLocation}
+              locationCounts={locationCounts}
+            />
+          ))
         )}
-      </nav>
+      </div>
 
       <button
         onClick={onOpenSettings}
@@ -69,5 +102,58 @@ export default function Sidebar({ activeCategory, onSelectCategory, counts, cate
       </button>
       <div className="px-5 pb-3 text-[11px] leading-relaxed text-stone-400">{t('sidebar_localBackup')}</div>
     </aside>
+  )
+}
+
+function LocationNode({ node, depth, activeLocation, onSelectLocation, locationCounts }) {
+  const [open, setOpen] = useState(depth < 1)
+  const hasChildren = node.children && node.children.length > 0
+  const path = [...activeLocation.slice(0, depth), node.name]
+  const pathKey = path.join(' > ')
+  const isActive = activeLocation.length > depth && activeLocation[depth] === node.name && activeLocation.join(' > ').startsWith(pathKey)
+  const count = locationCounts[pathKey] || 0
+
+  return (
+    <div>
+      <div
+        className={`group mb-1 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-sm transition ${
+          isActive ? 'bg-emerald-50 font-medium text-emerald-700' : 'text-stone-600 hover:bg-stone-50'
+        }`}
+        style={{ paddingLeft: `${depth * 14 + 12}px` }}
+      >
+        <button
+          onClick={() => onSelectLocation(isActive ? [] : path)}
+          className="flex min-w-0 flex-1 items-center gap-1 text-left"
+        >
+          <span className="text-stone-400">📁</span>
+          <span className="truncate">{node.name}</span>
+        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="text-xs text-stone-400">{count}</span>
+          {hasChildren && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setOpen((o) => !o)
+              }}
+              className="w-4 text-stone-400"
+            >
+              {open ? '▾' : '▸'}
+            </button>
+          )}
+        </div>
+      </div>
+      {hasChildren && open &&
+        node.children.map((c) => (
+          <LocationNode
+            key={c.id}
+            node={c}
+            depth={depth + 1}
+            activeLocation={activeLocation}
+            onSelectLocation={onSelectLocation}
+            locationCounts={locationCounts}
+          />
+        ))}
+    </div>
   )
 }

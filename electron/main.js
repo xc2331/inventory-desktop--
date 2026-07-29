@@ -279,7 +279,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      webSecurity: false
     }
   })
 
@@ -495,6 +496,87 @@ ipcMain.handle('locations:delete', (_event, { id }) => {
   return { ok: true, deleted: toDelete.length }
 })
 
+// ===== 导入辅助：自动创建缺失分类 =====
+function ensureCategoriesFromItems(items) {
+  const existing = db.prepare('SELECT key FROM categories').all().map((r) => r.key)
+  const seen = new Set(existing)
+  const now = Date.now()
+  let maxOrder = db.prepare('SELECT MAX(sort_order) m FROM categories').get().m || 0
+  const ins = db.prepare(
+    'INSERT INTO categories (id,key,name,name_en,icon,sort_order,created_at,updated_at) VALUES (@id,@key,@name,@name_en,@icon,@sort_order,@created_at,@updated_at)'
+  )
+  for (const r of items) {
+    const key = String(r.category || '').trim()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    maxOrder += 1
+    ins.run({
+      id: crypto.randomUUID(),
+      key,
+      name: key,
+      name_en: '',
+      icon: '📦',
+      sort_order: maxOrder,
+      created_at: now,
+      updated_at: now
+    })
+  }
+}
+
+// 解析物品的位置层级路径
+function parseItemLocationPath(item) {
+  if (item.location) {
+    const parts = String(item.location).split(/\s*>\s*/).filter(Boolean)
+    if (parts.length) return parts
+  }
+  const path = []
+  if (item.room) path.push(String(item.room).trim())
+  if (item.position && item.position !== item.room) path.push(String(item.position).trim())
+  return path
+}
+
+// ===== 导入辅助：自动根据 location 创建位置树 =====
+function ensureLocationsFromItems(items) {
+  const now = Date.now()
+  const rows = db.prepare('SELECT * FROM locations').all()
+  const existing = new Map()
+  rows.forEach((r) => existing.set(`${r.parent_id || ''}|${r.name}`, r))
+
+  const createNode = (name, parentId) => {
+    const id = crypto.randomUUID()
+    const siblings =
+      db
+        .prepare('SELECT MAX(sort_order) m FROM locations WHERE parent_id IS ? OR parent_id = ?')
+        .get(parentId || null, parentId || '').m || 0
+    db.prepare(
+      'INSERT INTO locations (id,name,parent_id,sort_order,created_at,updated_at) VALUES (@id,@name,@parent_id,@sort_order,@created_at,@updated_at)'
+    ).run({
+      id,
+      name,
+      parent_id: parentId || '',
+      sort_order: siblings + 1,
+      created_at: now,
+      updated_at: now
+    })
+    return { id, name, parent_id: parentId || '' }
+  }
+
+  for (const item of items) {
+    const path = parseItemLocationPath(item)
+    if (!path.length) continue
+    let parentId = ''
+    for (const name of path) {
+      const key = `${parentId}|${name}`
+      let node = existing.get(key)
+      if (!node) {
+        node = createNode(name, parentId)
+        existing.set(key, node)
+      }
+      parentId = node.id
+    }
+  }
+}
+
 // ===== IPC：JSON 导出/导入，CSV 导出 =====
 ipcMain.handle('sync:exportData', () => {
   const items = db.prepare('SELECT * FROM items').all()
@@ -518,6 +600,8 @@ ipcMain.handle('sync:importData', (_event, jsonString) => {
   const delStmt = db.prepare('DELETE FROM items')
   const insStmt = db.prepare(insertSql)
   const tx = db.transaction((rows) => {
+    ensureCategoriesFromItems(rows)
+    ensureLocationsFromItems(rows)
     delStmt.run()
     for (const r of rows) {
       insStmt.run(fromImportItem(r, now))

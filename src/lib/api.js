@@ -189,11 +189,48 @@ export function locationParts(list, id) {
   }
 }
 
-// 每个位置下的物品计数
+// 每个位置下的物品计数（按 position 统计，旧逻辑保留给位置管理页）
 export function fetchLocationItemCounts() {
   return api.db.query({
     sql: "SELECT position as name, COUNT(*) as count FROM items WHERE position != '' GROUP BY position"
   })
+}
+
+// 把物品的 location/room/position 解析为统一路径数组
+export function itemLocationPath(item) {
+  if (item.location) {
+    const parts = String(item.location).split(/\s*>\s*/).filter(Boolean)
+    if (parts.length) return parts
+  }
+  const path = []
+  if (item.room) path.push(String(item.room).trim())
+  if (item.position && item.position !== item.room) path.push(String(item.position).trim())
+  return path
+}
+
+// 判断物品是否属于指定位置路径（path 为其祖先前缀）
+export function locationMatchesPath(item, path) {
+  if (!path || path.length === 0) return true
+  const itemPath = itemLocationPath(item)
+  if (itemPath.length < path.length) return false
+  for (let i = 0; i < path.length; i++) {
+    if (itemPath[i] !== path[i]) return false
+  }
+  return true
+}
+
+// 根据当前物品列表，统计每个位置路径（含子级）的物品数量
+export function buildLocationCounts(items) {
+  const counts = {}
+  items.forEach((item) => {
+    const path = itemLocationPath(item)
+    let prefix = ''
+    path.forEach((part) => {
+      prefix = prefix ? `${prefix} > ${part}` : part
+      counts[prefix] = (counts[prefix] || 0) + 1
+    })
+  })
+  return counts
 }
 
 // ===== 导入导出 =====

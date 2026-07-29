@@ -12,23 +12,38 @@ export default function TopBar({
   lowStock,
   expiringSoon,
   activeCategory,
+  activeLocation,
   categories,
   lang
 }) {
   const { t } = useI18n()
   const cat = categories.find((c) => c.key === activeCategory)
 
+  const title = () => {
+    if (activeLocation && activeLocation.length > 0) {
+      return (
+        <>
+          <span>📍</span>
+          <span className="truncate">{activeLocation.join(' > ')}</span>
+        </>
+      )
+    }
+    if (cat) {
+      return (
+        <>
+          <span>{cat.icon || '🏷️'}</span>
+          <span className="truncate">{categoryDisplayName(cat, lang)}</span>
+        </>
+      )
+    }
+    return t('nav_all')
+  }
+
   return (
     <header className="flex flex-col gap-3 border-b border-stone-200 bg-white px-6 py-4">
       <div className="flex items-center gap-3">
-        <h1 className="flex items-center gap-2 text-lg font-semibold text-stone-800">
-          {cat ? (
-            <>
-              <span>{cat.icon || '🏷️'}</span> {categoryDisplayName(cat, lang)}
-            </>
-          ) : (
-            t('nav_all')
-          )}
+        <h1 className="flex min-w-0 max-w-[260px] items-center gap-2 text-lg font-semibold text-stone-800">
+          {title()}
         </h1>
 
         <div className="relative max-w-md flex-1">
@@ -42,7 +57,7 @@ export default function TopBar({
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             onClick={onImport}
             className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-600 transition hover:bg-stone-50"
