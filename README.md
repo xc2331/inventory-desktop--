@@ -113,6 +113,24 @@ npm run build:linux  # Linux (AppImage)
 
 打包产物输出到 `release/` 目录。
 
+> 打包脚本已加 `--publish never`，不会自动发布到 GitHub；需要发布 Release 时请用 `GH_TOKEN` 配合 `--publish always`。
+> `win.signAndEditExecutable` 设为 `false`，跳过代码签名与 rcedit（图标/版本信息），符合「图标暂用默认、签名不强制」的 MVP 约束，且在无符号链接权限的环境下也能打包。如需嵌入自定义图标，可在拥有权限的机器上移除该选项。
+
+## 国内网络加速（可选）
+
+Electron 与 electron-builder 的辅助二进制默认从 GitHub 下载，国内网络可能较慢或失败。安装/打包前设置以下镜像环境变量即可加速：
+
+```bash
+# PowerShell
+$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+$env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
+$env:NODE_TLS_REJECT_UNAUTHORIZED="0"   # 仅在遇到证书校验问题时使用
+
+# CMD
+set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+```
+
 ## 下载安装
 
 1. 前往 [Releases 页面](https://github.com/xc2331/inventory-desktop--/releases) 下载对应平台的安装包
