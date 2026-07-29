@@ -14,7 +14,9 @@ export default function TopBar({
   activeCategory,
   activeLocation,
   categories,
-  lang
+  lang,
+  bulkMode,
+  onToggleBulk
 }) {
   const { t } = useI18n()
   const cat = categories.find((c) => c.key === activeCategory)
@@ -83,6 +85,16 @@ export default function TopBar({
               </button>
             </div>
           </div>
+          <button
+            onClick={onToggleBulk}
+            className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+              bulkMode
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-stone-200 bg-white text-stone-600 hover:bg-stone-50'
+            }`}
+          >
+            {bulkMode ? '✓ ' + t('bulk_select') : t('bulk_select')}
+          </button>
           <button
             onClick={onAdd}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"

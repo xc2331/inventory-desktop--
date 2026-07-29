@@ -97,7 +97,17 @@ const DICT = {
     loc_empty: '还没有位置，点击「添加根位置」开始',
     loc_itemCount: '{n} 件物品',
     back: '返回',
-    close: '关闭'
+    close: '关闭',
+    bulk_select: '批量选择',
+    bulk_selected: '已选 {n} 项',
+    bulk_selectAll: '全选',
+    bulk_clear: '清空',
+    bulk_changeCategory: '改分类',
+    bulk_delete: '批量删除',
+    confirm_bulkDeleteTitle: '批量删除',
+    confirm_bulkDeleteMsg: '确定要删除选中的 {n} 件物品吗？此操作不可撤销。',
+    toast_bulkDeleted: '已删除 {n} 件物品',
+    toast_bulkUpdated: '已更新 {n} 件物品分类'
   },
   en: {
     appTitle: 'Family Inventory',
@@ -202,7 +212,17 @@ const DICT = {
     loc_empty: 'No locations yet. Click "Add root" to start.',
     loc_itemCount: '{n} items',
     back: 'Back',
-    close: 'Close'
+    close: 'Close',
+    bulk_select: 'Select',
+    bulk_selected: '{n} selected',
+    bulk_selectAll: 'Select all',
+    bulk_clear: 'Clear',
+    bulk_changeCategory: 'Set category',
+    bulk_delete: 'Delete selected',
+    confirm_bulkDeleteTitle: 'Delete selected',
+    confirm_bulkDeleteMsg: 'Delete {n} selected items? This cannot be undone.',
+    toast_bulkDeleted: 'Deleted {n} items',
+    toast_bulkUpdated: 'Updated category for {n} items'
   }
 }
 

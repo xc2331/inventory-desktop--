@@ -9,6 +9,7 @@ import Toast from './components/Toast'
 import SettingsView from './components/SettingsView'
 import CategoryManager from './components/CategoryManager'
 import LocationManager from './components/LocationManager'
+import BulkEditBar from './components/BulkEditBar'
 import {
   fetchAllItems,
   searchItems,
@@ -21,6 +22,8 @@ import {
   updateItem,
   adjustQuantity,
   deleteItem,
+  bulkDeleteItems,
+  bulkUpdateCategory,
   exportJSON,
   importJSON,
   exportCSV,
@@ -50,6 +53,8 @@ export default function App() {
   const [confirm, setConfirm] = useState({ open: false, id: null, name: '' })
   const [toast, setToast] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [bulkMode, setBulkMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type, id: Date.now() })
@@ -199,6 +204,65 @@ export default function App() {
     }
   }
 
+  // ---- 批量选择 ----
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === filteredItems.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredItems.map((it) => it.id)))
+    }
+  }
+
+  const handleClearSelection = () => setSelectedIds(new Set())
+
+  const exitBulkMode = () => {
+    setBulkMode(false)
+    setSelectedIds(new Set())
+  }
+
+  const handleBulkChangeCategory = async (category) => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    try {
+      const res = await bulkUpdateCategory(ids, category)
+      showToast(t('toast_bulkUpdated', { n: res.updated }))
+      setSelectedIds(new Set())
+      await reload()
+      await refreshCounts()
+    } catch (e) {
+      showToast(t('toast_saveFail', { msg: e.message }), 'error')
+    }
+  }
+
+  const handleBulkDelete = () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setConfirm({ open: true, bulk: true, ids, name: t('confirm_bulkDeleteMsg', { n: ids.length }) })
+  }
+
+  const handleConfirmBulkDelete = async () => {
+    const { ids } = confirm
+    setConfirm({ open: false, id: null, name: '' })
+    try {
+      const res = await bulkDeleteItems(ids)
+      showToast(t('toast_bulkDeleted', { n: res.deleted }))
+      setSelectedIds(new Set())
+      await reload()
+      await refreshCounts()
+    } catch (e) {
+      showToast(t('toast_deleteFail', { msg: e.message }), 'error')
+    }
+  }
+
   const handleExportJSON = async () => {
     try {
       const json = await exportJSON()
@@ -328,12 +392,14 @@ export default function App() {
         onSelectCategory={(c) => {
           setActiveCategory(c)
           setView('items')
+          exitBulkMode()
         }}
         activeLocation={activeLocation}
         onSelectLocation={(path) => {
           setActiveLocation(path)
           setActiveCategory('')
           setView('items')
+          exitBulkMode()
         }}
         counts={counts}
         categories={categories}
@@ -357,8 +423,28 @@ export default function App() {
           activeLocation={activeLocation}
           categories={categories}
           lang={lang}
+          bulkMode={bulkMode}
+          onToggleBulk={() => {
+            if (bulkMode) exitBulkMode()
+            else setBulkMode(true)
+          }}
         />
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex flex-1 flex-col overflow-y-auto p-6">
+          {bulkMode && (
+            <div className="mb-4">
+              <BulkEditBar
+                selectedCount={selectedIds.size}
+                total={filteredItems.length}
+                categories={categories}
+                lang={lang}
+                onSelectAll={handleSelectAll}
+                onClear={handleClearSelection}
+                onChangeCategory={handleBulkChangeCategory}
+                onDelete={handleBulkDelete}
+                onClose={exitBulkMode}
+              />
+            </div>
+          )}
           {loading && items.length === 0 ? (
             <div className="flex h-full items-center justify-center text-stone-400">{t('loading')}</div>
           ) : filteredItems.length === 0 ? (
@@ -374,6 +460,9 @@ export default function App() {
                   onAdjust={handleAdjust}
                   onEdit={handleOpenEdit}
                   onDelete={handleAskDelete}
+                  selected={selectedIds.has(it.id)}
+                  onToggleSelect={toggleSelect}
+                  bulkMode={bulkMode}
                 />
               ))}
             </div>
@@ -393,9 +482,9 @@ export default function App() {
       )}
       <ConfirmDialog
         open={confirm.open}
-        title={t('confirm_deleteTitle')}
-        message={t('confirm_deleteMsg', { name: confirm.name })}
-        onConfirm={handleConfirmDelete}
+        title={confirm.bulk ? t('confirm_bulkDeleteTitle') : t('confirm_deleteTitle')}
+        message={confirm.name}
+        onConfirm={confirm.bulk ? handleConfirmBulkDelete : handleConfirmDelete}
         onCancel={() => setConfirm({ open: false, id: null, name: '' })}
       />
       <Toast toast={toast} onDone={() => setToast(null)} />

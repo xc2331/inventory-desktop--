@@ -103,6 +103,26 @@ export async function deleteItem(id) {
   await api.db.execute({ sql: 'DELETE FROM items WHERE id = ?', binds: [id] })
 }
 
+export async function bulkDeleteItems(ids) {
+  if (!ids || ids.length === 0) return { deleted: 0 }
+  const ph = ids.map(() => '?').join(',')
+  const res = await api.db.execute({
+    sql: `DELETE FROM items WHERE id IN (${ph})`,
+    binds: ids
+  })
+  return { deleted: res.changes || 0 }
+}
+
+export async function bulkUpdateCategory(ids, category) {
+  if (!ids || ids.length === 0) return { updated: 0 }
+  const ph = ids.map(() => '?').join(',')
+  const res = await api.db.execute({
+    sql: `UPDATE items SET category = ?, updated_at = ? WHERE id IN (${ph})`,
+    binds: [category, Date.now(), ...ids]
+  })
+  return { updated: res.changes || 0 }
+}
+
 // ===== 分类（动态）=====
 export async function fetchCategories() {
   return api.categories.list()

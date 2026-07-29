@@ -3,7 +3,32 @@ import { useI18n } from '../lib/i18n'
 import { categoryDisplayName } from '../lib/api'
 import { expiryStatus } from '../lib/utils'
 
-export default function ItemCard({ item, categories, lang, onAdjust, onEdit, onDelete }) {
+function normalizePhotoUrl(photo) {
+  if (!photo) return ''
+  const trimmed = photo.trim()
+  if (!trimmed) return ''
+  // 已经是协议 URL：直接返回
+  if (/^(data:|https?:|file:)/i.test(trimmed)) return trimmed
+  // Windows / Unix 绝对路径 -> file://
+  if (/^[a-z]:[\\/]/i.test(trimmed) || trimmed.startsWith('/')) {
+    const withSlash = trimmed.replace(/\\/g, '/')
+    return withSlash.startsWith('/') ? 'file://' + withSlash : 'file:///' + withSlash
+  }
+  // 相对路径也尝试用 file 协议（Electron 本地场景）
+  return 'file:///' + trimmed.replace(/\\/g, '/')
+}
+
+export default function ItemCard({
+  item,
+  categories,
+  lang,
+  onAdjust,
+  onEdit,
+  onDelete,
+  selected,
+  onToggleSelect,
+  bulkMode
+}) {
   const { t } = useI18n()
   const cat = categories.find((c) => c.key === item.category)
   const expiry = expiryStatus(item.expiry_date)
@@ -14,15 +39,31 @@ export default function ItemCard({ item, categories, lang, onAdjust, onEdit, onD
     .filter((x, i, a) => x && a.indexOf(x) === i)
     .join(' · ')
 
-  const hasPhoto = item.photo && !imgErr
+  const photoUrl = normalizePhotoUrl(item.photo)
+  const hasPhoto = photoUrl && !imgErr
 
   return (
-    <div className="group flex flex-col overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <div
+      className={`group flex flex-col overflow-hidden rounded-xl border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+        selected ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-stone-200'
+      }`}
+    >
       {/* 图片区 */}
       <div className="relative h-28 w-full bg-stone-100">
+        {bulkMode && (
+          <label className="absolute left-2 top-2 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect(item.id)}
+              className="h-4 w-4 accent-emerald-600"
+            />
+          </label>
+        )}
+
         {hasPhoto ? (
           <img
-            src={item.photo}
+            src={photoUrl}
             alt={item.name}
             className="h-full w-full object-cover"
             onError={() => setImgErr(true)}
