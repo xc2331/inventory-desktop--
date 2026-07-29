@@ -10,8 +10,8 @@ export default function Toast({ toast, onDone }) {
   if (!toast) return null
 
   const styles = {
-    success: 'bg-stone-800 text-white',
-    error: 'bg-rose-600 text-white'
+    success: 'bg-text-primary text-bg',
+    error: 'bg-danger text-white'
   }
 
   return (

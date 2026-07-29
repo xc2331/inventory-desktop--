@@ -77,15 +77,15 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const tree = buildLocationTree(locations)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface p-6 shadow-xl"
       >
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-stone-800">{initial ? t('form_editTitle') : t('form_addTitle')}</h2>
-          <button type="button" onClick={onClose} className="rounded-md p-1 text-stone-400 hover:bg-stone-100">
+          <h2 className="text-lg font-semibold text-text-primary">{initial ? t('form_editTitle') : t('form_addTitle')}</h2>
+          <button type="button" onClick={onClose} className="rounded-md p-1 text-text-tertiary hover:bg-bg">
             ✕
           </button>
         </div>
@@ -118,15 +118,15 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                 onClick={() => setTreeOpen((o) => !o)}
                 className="input flex items-center justify-between text-left"
               >
-                <span className={form.location ? 'text-stone-700' : 'text-stone-400'}>
+                <span className={form.location ? 'text-text-secondary' : 'text-text-tertiary'}>
                   {form.location || t('f_pickLocation')}
                 </span>
-                <span className="text-stone-400">▾</span>
+                <span className="text-text-tertiary">▾</span>
               </button>
               {treeOpen && (
-                <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-stone-200 bg-white p-1 shadow-lg">
+                <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-lg">
                   {tree.length === 0 && (
-                    <div className="px-3 py-2 text-xs text-stone-400">{t('loc_empty')}</div>
+                    <div className="px-3 py-2 text-xs text-text-tertiary">{t('loc_empty')}</div>
                   )}
                   {tree.map((node) => (
                     <LocationTreeNode key={node.id} node={node} depth={0} selectedId={form._locId} onSelect={pickLocation} />
@@ -145,7 +145,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                 <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className="input" />
               </MiniField>
             </div>
-            <p className="mt-1 text-[11px] text-stone-400">{t('f_orManual')}</p>
+            <p className="mt-1 text-[11px] text-text-tertiary">{t('f_orManual')}</p>
           </Field>
 
           <Field label={t('f_quantity')}>
@@ -169,13 +169,13 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-stone-200 px-4 py-2 text-sm font-medium text-stone-600 transition hover:bg-stone-50"
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-text-secondary transition hover:bg-surface-hover"
           >
             {t('btn_cancel')}
           </button>
           <button
             type="submit"
-            className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+            className="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
           >
             {t('btn_save')}
           </button>
@@ -193,12 +193,12 @@ function LocationTreeNode({ node, depth, selectedId, onSelect }) {
     <div>
       <div
         className={`flex items-center gap-1 rounded-md px-2 py-1.5 text-sm ${
-          selected ? 'bg-emerald-50 text-emerald-700' : 'text-stone-600 hover:bg-stone-50'
+          selected ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-surface-hover'
         }`}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
         {hasChildren ? (
-          <button type="button" onClick={() => setOpen((o) => !o)} className="w-4 text-stone-400">
+          <button type="button" onClick={() => setOpen((o) => !o)} className="w-4 text-text-tertiary">
             {open ? '▾' : '▸'}
           </button>
         ) : (
@@ -218,12 +218,12 @@ function LocationTreeNode({ node, depth, selectedId, onSelect }) {
 function Field({ label, required, error, className = '', children }) {
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1 block text-xs font-medium text-stone-500">
+      <span className="mb-1 block text-xs font-medium text-text-tertiary">
         {label}
-        {required && <span className="text-rose-500"> *</span>}
+        {required && <span className="text-danger"> *</span>}
       </span>
       {children}
-      {error && <span className="mt-1 block text-xs text-rose-500">{error}</span>}
+      {error && <span className="mt-1 block text-xs text-danger">{error}</span>}
     </label>
   )
 }
@@ -231,7 +231,7 @@ function Field({ label, required, error, className = '', children }) {
 function MiniField({ label, children }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[11px] font-medium text-stone-400">{label}</span>
+      <span className="mb-1 block text-[11px] font-medium text-text-tertiary">{label}</span>
       {children}
     </label>
   )

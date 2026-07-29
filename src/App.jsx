@@ -29,6 +29,7 @@ import {
   exportCSV,
   saveFile,
   openFile,
+  getSettings,
   setSettings,
   setDataDir,
   resetDataDir,
@@ -36,6 +37,12 @@ import {
   locationMatchesPath,
   buildLocationCounts
 } from './lib/api'
+
+function applyThemeClass(theme) {
+  const isDark =
+    theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  document.documentElement.classList.toggle('dark', isDark)
+}
 
 export default function App() {
   const { t, lang, setLang } = useI18n()
@@ -55,6 +62,26 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [theme, setTheme] = useState('light')
+
+  // 初始化主题
+  useEffect(() => {
+    getSettings().then((s) => {
+      const initial = s.theme || 'light'
+      setTheme(initial)
+      applyThemeClass(initial)
+    })
+  }, [])
+
+  // 监听系统主题变化（仅在 auto 模式）
+  useEffect(() => {
+    if (theme !== 'system') return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = () => applyThemeClass(theme)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [theme])
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type, id: Date.now() })
@@ -313,6 +340,13 @@ export default function App() {
     showToast(t('toast_langChanged'))
   }
 
+  // 设置页：切换主题
+  const handleChangeTheme = async (nextTheme) => {
+    await setSettings({ theme: nextTheme })
+    setTheme(nextTheme)
+    applyThemeClass(nextTheme)
+  }
+
   // 设置页：切换数据目录
   const handleChangeDataDir = async () => {
     const res = await pickFolder()
@@ -349,6 +383,8 @@ export default function App() {
   if (view === 'settings') {
     return (
       <SettingsView
+        theme={theme}
+        onChangeTheme={handleChangeTheme}
         onBack={() => setView('items')}
         onChangeLang={handleChangeLang}
         onChangeDataDir={handleChangeDataDir}
@@ -386,8 +422,10 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-stone-100">
+    <div className="flex h-screen w-screen overflow-hidden bg-bg">
       <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         activeCategory={activeCategory}
         onSelectCategory={(c) => {
           setActiveCategory(c)
@@ -410,6 +448,8 @@ export default function App() {
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar
+          collapsed={sidebarCollapsed}
+          onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
           keyword={keywordInput}
           onKeywordChange={setKeywordInput}
           onAdd={handleOpenNew}
@@ -446,11 +486,11 @@ export default function App() {
             </div>
           )}
           {loading && items.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-stone-400">{t('loading')}</div>
+            <div className="flex h-full items-center justify-center text-text-tertiary">{t('loading')}</div>
           ) : filteredItems.length === 0 ? (
             <EmptyState onAdd={handleOpenNew} hasFilter={!!keyword || !!activeCategory || activeLocation.length > 0} />
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <div className="columns-1 gap-4 space-y-4 sm:columns-2 xl:columns-3 2xl:columns-4">
               {filteredItems.map((it) => (
                 <ItemCard
                   key={it.id}
@@ -495,16 +535,16 @@ export default function App() {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center">
         <div className="mb-4 text-6xl">{hasFilter ? '🔍' : '🏠'}</div>
-        <p className="mb-1 text-lg font-medium text-stone-600">
+        <p className="mb-1 text-lg font-medium text-text-secondary">
           {hasFilter ? t('empty_noMatch') : t('empty_noItems')}
         </p>
-        <p className="mb-6 text-sm text-stone-400">
+        <p className="mb-6 text-sm text-text-tertiary">
           {hasFilter ? t('empty_tryFilter') : t('empty_addFirst')}
         </p>
         {!hasFilter && (
           <button
             onClick={onAdd}
-            className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+            className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
           >
             + {t('btn_add')}
           </button>

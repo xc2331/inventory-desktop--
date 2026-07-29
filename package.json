@@ -43,7 +43,7 @@
       "**/node_modules/better-sqlite3/**"
     ],
     "directories": {
-      "output": "release",
+      "output": "release-v2",
       "buildResources": "build"
     },
     "win": {

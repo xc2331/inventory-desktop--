@@ -84,15 +84,15 @@ export default function LocationManager({ locations, lang, onBack, onChanged, sh
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-stone-100">
-      <header className="flex items-center gap-3 border-b border-stone-200 bg-white px-6 py-4">
-        <button onClick={onBack} className="rounded-md p-1.5 text-stone-500 transition hover:bg-stone-100">
+    <div className="flex h-screen w-screen flex-col bg-bg">
+      <header className="flex items-center gap-3 border-b border-border bg-surface px-6 py-4">
+        <button onClick={onBack} className="rounded-md p-1.5 text-text-tertiary transition hover:bg-bg">
           ←
         </button>
-        <h1 className="flex-1 text-lg font-semibold text-stone-800">{t('loc_title')}</h1>
+        <h1 className="flex-1 text-lg font-semibold text-text-primary">{t('loc_title')}</h1>
         <button
           onClick={() => setAddingRoot((a) => !a)}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-primary-hover"
         >
           + {t('loc_addRoot')}
         </button>
@@ -100,7 +100,7 @@ export default function LocationManager({ locations, lang, onBack, onChanged, sh
 
       <main className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-6">
         {addingRoot && (
-          <form onSubmit={handleAddRoot} className="mb-4 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
+          <form onSubmit={handleAddRoot} className="mb-4 rounded-xl border border-border bg-surface p-4 shadow-sm">
             <div className="flex gap-2">
               <input
                 type="text"
@@ -112,7 +112,7 @@ export default function LocationManager({ locations, lang, onBack, onChanged, sh
               />
               <button
                 type="submit"
-                className="shrink-0 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+                className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-hover"
               >
                 {t('btn_save')}
               </button>
@@ -122,7 +122,7 @@ export default function LocationManager({ locations, lang, onBack, onChanged, sh
                   setAddingRoot(false)
                   setRootName('')
                 }}
-                className="shrink-0 rounded-lg border border-stone-200 px-4 py-2 text-sm font-medium text-stone-600 transition hover:bg-stone-50"
+                className="shrink-0 rounded-lg border border-border px-4 py-2 text-sm font-medium text-text-secondary transition hover:bg-surface-hover"
               >
                 {t('btn_cancel')}
               </button>
@@ -131,11 +131,11 @@ export default function LocationManager({ locations, lang, onBack, onChanged, sh
         )}
 
         {tree.length === 0 && !addingRoot ? (
-          <div className="rounded-xl border border-dashed border-stone-300 bg-white px-4 py-12 text-center text-sm text-stone-400">
+          <div className="rounded-xl border border-dashed border-border bg-surface px-4 py-12 text-center text-sm text-text-tertiary">
             {t('loc_empty')}
           </div>
         ) : (
-          <div className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
+          <div className="rounded-xl border border-border bg-surface p-3 shadow-sm">
             {tree.map((node) => (
               <LocationNode
                 key={node.id}
@@ -197,13 +197,13 @@ function LocationNode({
   return (
     <div>
       <div
-        className="group flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-stone-50"
+        className="group flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-surface-hover"
         style={{ paddingLeft: `${depth * 20 + 8}px` }}
       >
         {hasChildren ? (
           <button
             onClick={() => setOpen((o) => !o)}
-            className="w-4 shrink-0 text-stone-400"
+            className="w-4 shrink-0 text-text-tertiary"
           >
             {open ? '▾' : '▸'}
           </button>
@@ -226,22 +226,22 @@ function LocationNode({
             />
             <button
               onClick={() => onSaveRename(node.id)}
-              className="shrink-0 rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700"
+              className="shrink-0 rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover"
             >
               ✓
             </button>
             <button
               onClick={() => setEditingId(null)}
-              className="shrink-0 rounded-md border border-stone-200 px-3 py-1 text-xs text-stone-500 hover:bg-stone-50"
+              className="shrink-0 rounded-md border border-border px-3 py-1 text-xs text-text-tertiary hover:bg-surface-hover"
             >
               ✕
             </button>
           </div>
         ) : (
           <>
-            <span className="min-w-0 flex-1 truncate text-sm text-stone-700">📁 {node.name}</span>
+            <span className="min-w-0 flex-1 truncate text-sm text-text-secondary">📁 {node.name}</span>
             {count > 0 && (
-              <span className="shrink-0 text-[11px] text-stone-400">{t('loc_itemCount', { n: count })}</span>
+              <span className="shrink-0 text-[11px] text-text-tertiary">{t('loc_itemCount', { n: count })}</span>
             )}
             <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
               <button
@@ -250,7 +250,7 @@ function LocationNode({
                   setEditName(node.name)
                 }}
                 title={t('loc_rename')}
-                className="rounded p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+                className="rounded p-1 text-text-tertiary transition hover:bg-bg hover:text-text-secondary"
               >
                 ✏️
               </button>
@@ -260,14 +260,14 @@ function LocationNode({
                   setChildName('')
                 }}
                 title={t('loc_addChild')}
-                className="rounded p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+                className="rounded p-1 text-text-tertiary transition hover:bg-bg hover:text-text-secondary"
               >
                 ➕
               </button>
               <button
                 onClick={() => onAskDelete(node.id, node.name)}
                 title={t('btn_delete')}
-                className="rounded p-1 text-stone-400 transition hover:bg-rose-50 hover:text-rose-600"
+                className="rounded p-1 text-text-tertiary transition hover:bg-danger-soft hover:text-danger"
               >
                 🗑️
               </button>
@@ -278,7 +278,7 @@ function LocationNode({
 
       {isAddingChild && (
         <div
-          className="flex items-center gap-2 rounded-lg bg-emerald-50/50 py-1.5 pr-2"
+          className="flex items-center gap-2 rounded-lg bg-primary-soft/50 py-1.5 pr-2"
           style={{ marginLeft: `${depth * 20 + 28}px` }}
         >
           <input
@@ -295,13 +295,13 @@ function LocationNode({
           />
           <button
             onClick={() => onAddChild(node.id)}
-            className="shrink-0 rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700"
+            className="shrink-0 rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover"
           >
             {t('btn_save')}
           </button>
           <button
             onClick={() => setAddChildId(null)}
-            className="shrink-0 rounded-md border border-stone-200 px-3 py-1 text-xs text-stone-500 hover:bg-stone-50"
+            className="shrink-0 rounded-md border border-border px-3 py-1 text-xs text-text-tertiary hover:bg-surface-hover"
           >
             {t('btn_cancel')}
           </button>

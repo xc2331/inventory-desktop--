@@ -268,13 +268,17 @@ function buildMenu(lang) {
 }
 
 function createWindow() {
+  const settings = readAppSettings()
+  const isDarkTheme =
+    settings.theme === 'dark' ||
+    (settings.theme === 'system' && require('electron').nativeTheme.shouldUseDarkColors)
   mainWindow = new BrowserWindow({
     width: 1320,
     height: 880,
     minWidth: 960,
     minHeight: 640,
     title: '家庭物资管家',
-    backgroundColor: '#fafaf9',
+    backgroundColor: isDarkTheme ? '#0f172a' : '#f8fafc',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
