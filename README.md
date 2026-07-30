@@ -49,7 +49,7 @@
 主界面采用无边框窗口 + 顶栏工具栏一体化设计，侧边栏可折叠，卡片悬浮放大，双击图片即可全屏查看。
 
 <div align="center">
-  <img src="docs/hero.jpg" alt="Family Inventory UI Preview" width="720" />
+  <img src="docs/hero.png" alt="Family Inventory UI Preview" width="720" />
   <br/>
   <sub>界面预览：分类 · 位置 · 过期 · 库存 · 趋势 · 数量 多维统计</sub>
 </div>
