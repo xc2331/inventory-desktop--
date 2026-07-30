@@ -9,6 +9,7 @@ release-v4b/
 release-v4c/
 release-v4d/
 release-v4e/
+release-v4f/
 *.log
 .DS_Store
 .env
