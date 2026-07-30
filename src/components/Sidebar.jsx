@@ -7,7 +7,8 @@ import {
   ChevronRight,
   Folder,
   Boxes,
-  BarChart3
+  BarChart3,
+  HelpCircle
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName, buildLocationTree } from '../lib/api'
@@ -45,6 +46,7 @@ export default function Sidebar({
   lang,
   onOpenSettings,
   onOpenStatistics,
+  onOpenHelp,
   activeView
 }) {
   const { t } = useI18n()
@@ -66,6 +68,13 @@ export default function Sidebar({
         </div>
 
         <div className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3">
+          <IconButton
+            active={activeView === 'help'}
+            onClick={onOpenHelp}
+            icon={<HelpCircle size={18} />}
+            label={t('nav_help')}
+          />
+          <div className="my-1 h-px w-7 bg-border" />
           <IconButton
             active={activeCategory === '' && activeLocation.length === 0}
             onClick={() => onSelectCategory('')}
@@ -111,6 +120,23 @@ export default function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
+        {/* 常见问题 & 新手指南 */}
+        <button
+          onClick={onOpenHelp}
+          className={cn(
+            'group mb-3 flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm font-medium transition-smooth',
+            activeView === 'help'
+              ? 'border-primary/30 bg-primary-soft text-primary'
+              : 'border-primary/20 bg-primary-soft/60 text-primary hover:bg-primary-soft hover:shadow-sm'
+          )}
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/60 dark:bg-white/10">
+            <HelpCircle size={16} />
+          </span>
+          <span className="flex-1 text-left">{t('nav_help')}</span>
+          <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white">?</span>
+        </button>
+
         {/* 分类 */}
         <div className="px-2 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/80">
           {t('nav_categories')}

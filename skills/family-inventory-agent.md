@@ -532,6 +532,39 @@ GET /api/items
 - Agent 处理：遍历全部物品，筛选 `quantity <= minQuantity`（且 `minQuantity > 0`）的物品。
 - Agent 回复：列出库存不足的物品及建议补充数量。
 
+### 场景 11：根据自然语言推断位置层级
+
+- 用户：「把牛奶放到 xx 小区厨房水槽下面」
+- Agent 第一步，调用位置推断接口，让服务自动拆分层级并复用/创建位置节点：
+
+```http
+POST /api/locations/infer
+Content-Type: application/json
+
+{
+  "raw": "xx小区厨房水槽下",
+  "createMissing": true
+}
+```
+
+- Agent 第二步，根据返回的 `path` 构造物品位置字段并创建物品：
+
+```http
+POST /api/items
+Content-Type: application/json
+
+{
+  "name": "牛奶",
+  "quantity": 1,
+  "category": "beverage",
+  "room": "xx小区",
+  "position": "水槽下",
+  "location": "xx小区 > 厨房 > 水槽下"
+}
+```
+
+- Agent 回复：确认已放置到具体位置。
+
 ---
 
 ## 七、多步操作技巧
@@ -570,7 +603,68 @@ GET /api/items
 
 ---
 
-## 八、错误处理指南
+## 八、位置推断与去重（Agent 必读）
+
+用户在自然语言中描述位置时，往往不会给出规范的路径格式，例如：
+
+> 「放到 xx 小区厨房水槽下面」
+> 「冰箱第二层」
+> 「客厅电视柜左边抽屉」
+
+Agent **不得**直接把整串文本塞进 `location` 字段，而应遵循以下流程：
+
+### 1. 优先调用位置推断接口
+
+```http
+POST /api/locations/infer
+Content-Type: application/json
+
+{
+  "raw": "xx小区厨房水槽下",
+  "createMissing": true
+}
+```
+
+### 2. 理解返回结果
+
+```json
+{
+  "raw": "xx小区厨房水槽下",
+  "path": ["xx小区", "厨房", "水槽下"],
+  "matched": [...],
+  "created": [...]
+}
+```
+
+- `path` 是拆分后的层级数组。
+- `matched` 表示命中了已有位置节点（含语义相似，如「厨房」匹配已有「廚房」）。
+- `created` 表示因不存在而自动新建的节点。
+
+### 3. 构造物品位置字段
+
+假设 `path = ["xx小区", "厨房", "水槽下"]`：
+
+```json
+{
+  "room": "xx小区",
+  "position": "水槽下",
+  "location": "xx小区 > 厨房 > 水槽下"
+}
+```
+
+- `room`：取 `path[0]`（第一级）。
+- `position`：取 `path[path.length - 1]`（最末级）。
+- `location`：`path.join(" > ")`。
+
+### 4. 避免重复与歧义
+
+- 如果用户描述存在多种拆分方式（如 「A 小区 B 厨房」既可理解为两层也可理解为三层），应向用户确认。
+- 若 `matched` 显示返回的节点名称与用户原词不同但语义相同（例如用户说「廚房」、系统返回「厨房」），应使用系统返回的规范名称，不要在同一父级下创建新节点。
+- 若 `path` 为空或推断结果明显不合理，提示用户补充更清晰的位置描述。
+
+---
+
+## 九、错误处理指南
 
 ### 常见错误码
 

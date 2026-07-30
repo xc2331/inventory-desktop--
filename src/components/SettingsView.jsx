@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles } from 'lucide-react'
+import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
 import { getSettings, getApiToken, resetApiToken, setApiConfig } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -16,8 +16,10 @@ const THEMES = [
 export default function SettingsView({
   theme,
   animations,
+  closeAction,
   onChangeTheme,
   onChangeAnimations,
+  onChangeCloseAction,
   onBack,
   onChangeLang,
   onChangeDataDir,
@@ -179,6 +181,42 @@ export default function SettingsView({
                 {t('settings_animation_off')}
               </motion.button>
             </div>
+          </Section>
+
+          {/* 关闭行为 */}
+          <Section title={t('settings_closeAction')} desc={t('settings_closeAction_desc')}>
+            <div className="grid grid-cols-2 gap-2">
+              <motion.button
+                whileTap={{ scale: 0.96 }}
+                onClick={() => onChangeCloseAction('minimize')}
+                className={cn(
+                  'flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-sm font-medium transition-smooth',
+                  closeAction === 'minimize'
+                    ? 'border-primary bg-primary-soft text-primary'
+                    : 'border-border bg-surface text-text-secondary hover:bg-surface-hover'
+                )}
+              >
+                <Minimize2 size={18} />
+                {t('settings_closeAction_minimize')}
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.96 }}
+                onClick={() => onChangeCloseAction('quit')}
+                className={cn(
+                  'flex flex-col items-center gap-2 rounded-xl border px-3 py-4 text-sm font-medium transition-smooth',
+                  closeAction === 'quit'
+                    ? 'border-primary bg-primary-soft text-primary'
+                    : 'border-border bg-surface text-text-secondary hover:bg-surface-hover'
+                )}
+              >
+                <X size={18} />
+                {t('settings_closeAction_quit')}
+              </motion.button>
+            </div>
+            <p className="mt-3 flex items-start gap-1.5 text-xs text-text-tertiary/80">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              {t('closeAction_note')}
+            </p>
           </Section>
 
           {/* 数据目录 */}

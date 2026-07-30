@@ -108,6 +108,101 @@ function fromInputItem(data, db) {
   }
 }
 
+// ===== 位置推断辅助函数 =====
+
+function segmentRawLocation(raw, existingNames = []) {
+  if (!raw) return []
+  const s = String(raw).trim()
+  if (!s) return []
+
+  // 如果用户已使用常见分隔符，直接拆分
+  if (/[>\/→]/.test(s)) {
+    return s.split(/\s*[>\/→]\s*/).map((p) => p.trim()).filter(Boolean)
+  }
+
+  // 无分隔符时，用已有位置名做贪心最长匹配
+  const tokens = Array.from(new Set(existingNames))
+    .filter((n) => n && String(n).trim().length > 0)
+    .map((n) => String(n).trim())
+    .sort((a, b) => b.length - a.length || a.localeCompare(b))
+
+  const result = []
+  let i = 0
+  while (i < s.length) {
+    let matched = false
+    for (const t of tokens) {
+      if (s.startsWith(t, i)) {
+        result.push(t)
+        i += t.length
+        matched = true
+        break
+      }
+    }
+    if (!matched) {
+      result.push(s[i])
+      i += 1
+    }
+  }
+
+  // 合并连续未匹配的单个字符为一个片段
+  const merged = []
+  result.forEach((r) => {
+    const last = merged[merged.length - 1]
+    if (last && r.length === 1 && last.length === 1) {
+      merged[merged.length - 1] = last + r
+    } else {
+      merged.push(r)
+    }
+  })
+  return merged
+}
+
+function levenshtein(a, b) {
+  const m = a.length
+  const n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  const dp = Array.from({ length: m + 1 }, (_, i) => i)
+  for (let j = 1; j <= n; j++) {
+    let prev = dp[0]
+    dp[0] = j
+    for (let i = 1; i <= m; i++) {
+      const temp = dp[i]
+      if (a[i - 1] === b[j - 1]) {
+        dp[i] = prev
+      } else {
+        dp[i] = Math.min(prev + 1, dp[i] + 1, dp[i - 1] + 1)
+      }
+      prev = temp
+    }
+  }
+  return dp[m]
+}
+
+function findSimilarNode(name, candidates) {
+  const n = String(name).trim().toLowerCase()
+  if (!n) return null
+
+  // 1. 完全匹配（忽略大小写和前后空格）
+  const exact = candidates.find((c) => String(c.name).trim().toLowerCase() === n)
+  if (exact) return exact
+
+  // 2. 互相包含（例如 "xx小区" 与 "XX小区" 已由大小写覆盖，此处处理 "厨房" 与 "厨房里"）
+  const incl = candidates.find((c) => {
+    const cn = String(c.name).trim().toLowerCase()
+    return cn.includes(n) || n.includes(cn)
+  })
+  if (incl) return incl
+
+  // 3. 编辑距离 ≤1 且长度差 ≤1（处理 typo，如 "水槽下" vs "水糟下"）
+  for (const c of candidates) {
+    const cn = String(c.name).trim().toLowerCase()
+    if (Math.abs(cn.length - n.length) <= 1 && levenshtein(n, cn) <= 1) return c
+  }
+
+  return null
+}
+
 class ApiServer {
   constructor({ db, getSettings, writeAppSettings, resolveDbPath, app, getMainWindow }) {
     this.db = db
@@ -202,6 +297,8 @@ class ApiServer {
         this.listLocations(req, res)
       } else if (path === '/api/locations' && req.method === 'POST') {
         this.createLocation(req, res)
+      } else if (path === '/api/locations/infer' && req.method === 'POST') {
+        this.inferLocations(req, res)
       } else if (path.startsWith('/api/locations/') && req.method === 'PATCH') {
         this.updateLocation(req, res, path)
       } else if (path.startsWith('/api/locations/') && req.method === 'DELETE') {
@@ -215,6 +312,75 @@ class ApiServer {
       console.error('[api-server] error:', e)
       json(res, 500, { error: 'Internal error', message: e.message })
     }
+  }
+
+  async inferLocations(req, res) {
+    const data = await readBody(req)
+    const raw = String(data.raw || '').trim()
+    const createMissing = data.createMissing !== false
+    if (!raw) {
+      json(res, 400, { error: 'Bad request', message: 'raw is required' })
+      return
+    }
+
+    const allLocations = this.db.prepare('SELECT * FROM locations ORDER BY sort_order ASC, created_at ASC').all()
+    const existingNames = allLocations.map((l) => l.name)
+    const parts = segmentRawLocation(raw, existingNames)
+
+    // 按 parent_id 分组的子节点
+    const childrenMap = new Map()
+    allLocations.forEach((l) => {
+      const pid = l.parent_id || ''
+      if (!childrenMap.has(pid)) childrenMap.set(pid, [])
+      childrenMap.get(pid).push(l)
+    })
+
+    const matched = []
+    const created = []
+    const path = []
+    let parentId = ''
+
+    const tx = this.db.transaction(() => {
+      for (const part of parts) {
+        const candidates = childrenMap.get(parentId) || []
+        const similar = findSimilarNode(part, candidates)
+        if (similar) {
+          path.push(similar.name)
+          matched.push({ input: part, matched: similar.name, id: similar.id })
+          parentId = similar.id
+        } else if (createMissing) {
+          const id = crypto.randomUUID()
+          const maxOrder =
+            this.db.prepare('SELECT MAX(sort_order) m FROM locations WHERE parent_id IS ? OR parent_id = ?').get(
+              parentId || null,
+              parentId || ''
+            ).m || 0
+          this.db.prepare(
+            'INSERT INTO locations (id,name,parent_id,sort_order,created_at,updated_at) VALUES (@id,@name,@parent_id,@sort_order,@created_at,@updated_at)'
+          ).run({
+            id,
+            name: part,
+            parent_id: parentId,
+            sort_order: maxOrder + 1,
+            created_at: nowMs(),
+            updated_at: nowMs()
+          })
+          const row = this.db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
+          path.push(row.name)
+          created.push({ input: part, id: row.id, name: row.name })
+          // 更新内存索引
+          if (!childrenMap.has(parentId)) childrenMap.set(parentId, [])
+          childrenMap.get(parentId).push(row)
+          parentId = row.id
+        } else {
+          path.push(part)
+        }
+      }
+    })
+    tx()
+
+    if (created.length) this.notifyRenderer('locations')
+    json(res, 200, { raw, path, matched, created })
   }
 
   getStatus(req, res) {

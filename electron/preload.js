@@ -39,7 +39,13 @@ contextBridge.exposeInMainWorld('lingguang', {
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
     onMaximizeChange: (cb) => {
       ipcRenderer.on('window:maximizeChanged', (_e, isMax) => cb(isMax))
-    }
+    },
+    onRequestCloseAction: (cb) => {
+      const handler = (_e) => cb()
+      ipcRenderer.on('window:requestCloseAction', handler)
+      return () => ipcRenderer.removeListener('window:requestCloseAction', handler)
+    },
+    resolveCloseAction: (payload) => ipcRenderer.invoke('window:resolveCloseAction', payload)
   },
   categories: {
     list: () => ipcRenderer.invoke('categories:list'),

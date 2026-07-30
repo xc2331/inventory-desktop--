@@ -10,12 +10,14 @@ import ItemCard from './components/ItemCard'
 import ItemForm from './components/ItemForm'
 import Lightbox from './components/Lightbox'
 import ConfirmDialog from './components/ConfirmDialog'
+import CloseActionDialog from './components/CloseActionDialog'
 import Toast from './components/Toast'
 import SettingsView from './components/SettingsView'
 import StatisticsView from './components/StatisticsView'
 import CategoryManager from './components/CategoryManager'
 import LocationManager from './components/LocationManager'
 import BulkEditBar from './components/BulkEditBar'
+import HelpView from './components/HelpView'
 import {
   fetchAllItems,
   searchItems,
@@ -42,7 +44,8 @@ import {
   pickFolder,
   generateItemNo,
   locationMatchesPath,
-  buildLocationCounts
+  buildLocationCounts,
+  winControl
 } from './lib/api'
 
 function applyThemeClass(theme) {
@@ -74,8 +77,10 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [theme, setTheme] = useState('light')
   const [animations, setAnimations] = useState(true)
+  const [closeAction, setCloseAction] = useState('')
+  const [closePromptOpen, setClosePromptOpen] = useState(false)
 
-  // 初始化主题与动效
+  // 初始化主题、动效与关闭行为
   useEffect(() => {
     getSettings().then((s) => {
       const initialTheme = s.theme || 'light'
@@ -84,6 +89,7 @@ export default function App() {
       const anim = s.animations !== false
       setAnimations(anim)
       document.documentElement.classList.toggle('no-anim', !anim)
+      setCloseAction(s.closeAction || '')
     })
   }, [])
 
@@ -95,6 +101,12 @@ export default function App() {
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
   }, [theme])
+
+  // 首次关闭窗口时，主进程请求渲染进程弹出选择框
+  useEffect(() => {
+    const remove = winControl.onRequestCloseAction(() => setClosePromptOpen(true))
+    return remove
+  }, [])
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type, id: Date.now() })
@@ -396,6 +408,20 @@ export default function App() {
     document.documentElement.classList.toggle('no-anim', !on)
   }
 
+  // 设置页：切换关闭行为
+  const handleChangeCloseAction = async (action) => {
+    await setSettings({ closeAction: action })
+    setCloseAction(action)
+    showToast(t('toast_settingsSaved'))
+  }
+
+  // 关闭行为弹窗：用户选择后通知主进程
+  const handleResolveCloseAction = async (action, remember) => {
+    setClosePromptOpen(false)
+    if (remember) setCloseAction(action)
+    await winControl.resolveCloseAction({ action, remember })
+  }
+
   // 设置页：切换数据目录
   const handleChangeDataDir = async () => {
     const res = await pickFolder()
@@ -436,8 +462,10 @@ export default function App() {
     <SettingsView
       theme={theme}
       animations={animations}
+      closeAction={closeAction}
       onChangeTheme={handleChangeTheme}
       onChangeAnimations={handleChangeAnimations}
+      onChangeCloseAction={handleChangeCloseAction}
       onBack={() => setView('items')}
       onChangeLang={handleChangeLang}
       onChangeDataDir={handleChangeDataDir}
@@ -468,6 +496,7 @@ export default function App() {
       showToast={showToast}
     />
   )
+  const helpView = <HelpView onBack={() => setView('items')} />
 
   return (
     <AnimatePresence mode="wait">
@@ -519,6 +548,18 @@ export default function App() {
           {locationsView}
         </motion.div>
       )}
+      {view === 'help' && (
+        <motion.div
+          key="help"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -16 }}
+          transition={{ duration: 0.18, ease: EASE }}
+          className="h-screen w-screen"
+        >
+          {helpView}
+        </motion.div>
+      )}
       {view === 'items' && (
         <motion.div
           key="items"
@@ -553,6 +594,7 @@ export default function App() {
         activeView={view}
         onOpenSettings={() => setView('settings')}
         onOpenStatistics={() => setView('statistics')}
+        onOpenHelp={() => setView('help')}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar
@@ -641,6 +683,11 @@ export default function App() {
         message={confirm.name}
         onConfirm={confirm.bulk ? handleConfirmBulkDelete : handleConfirmDelete}
         onCancel={() => setConfirm({ open: false, id: null, name: '' })}
+      />
+      <CloseActionDialog
+        open={closePromptOpen}
+        onResolve={handleResolveCloseAction}
+        onCancel={() => setClosePromptOpen(false)}
       />
       <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox({ src: '', alt: '' })} />
       <Toast toast={toast} onDone={() => setToast(null)} />

@@ -103,6 +103,60 @@ GET /api/categories
 GET /api/locations
 ```
 
+**响应** `200`：
+
+```json
+{
+  "locations": [
+    { "id": "...", "name": "冰箱", "sort_order": 0 }
+  ]
+}
+```
+
+### 推断位置层级（避免重复）
+
+```http
+POST /api/locations/infer
+Content-Type: application/json
+
+{
+  "raw": "xx小区厨房水槽下",
+  "createMissing": true
+}
+```
+
+Agent 收到自然语言位置描述后，应先调用本接口。服务会：
+
+1. 按常见分隔符（`>`、`/`、`→`）拆分；无分隔符时，用已有位置名做贪心最长匹配。
+2. 在每级节点中查找语义相似的现有位置（完全匹配 / 互相包含 / 编辑距离 ≤1）。
+3. 命中相似节点则复用，未命中且 `createMissing` 为 `true` 时自动创建。
+
+**响应** `200`：
+
+```json
+{
+  "raw": "xx小区厨房水槽下",
+  "path": ["xx小区", "厨房", "水槽下"],
+  "matched": [
+    { "input": "xx小区", "matched": "xx小区", "id": "uuid-1" }
+  ],
+  "created": [
+    { "input": "厨房", "id": "uuid-2", "name": "厨房" },
+    { "input": "水槽下", "id": "uuid-3", "name": "水槽下" }
+  ]
+}
+```
+
+得到 `path` 后，在创建/更新物品时设置：
+
+```json
+{
+  "room": "xx小区",
+  "position": "水槽下",
+  "location": "xx小区 > 厨房 > 水槽下"
+}
+```
+
 ### 设置信息
 
 ```http

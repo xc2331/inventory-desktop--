@@ -1,5 +1,5 @@
 // Electron 主进程：窗口、数据库（含分类/位置树/设置）、IPC、文件对话框、中文菜单
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
@@ -17,6 +17,8 @@ const ICON_PATH = app.isPackaged
 let mainWindow = null
 let db = null
 let apiServer = null
+let tray = null
+let isQuitting = false
 
 const DB_FILENAME = 'inventory.db'
 const SETTINGS_FILE = 'settings.json' // 应用级设置（语言、数据目录），独立于数据库存放
@@ -334,6 +336,45 @@ function buildMenu(_lang) {
   Menu.setApplicationMenu(null)
 }
 
+function createTray() {
+  if (tray) return
+  try {
+    const icon = nativeImage.createFromPath(ICON_PATH)
+    tray = new Tray(icon.resize({ width: 16, height: 16 }))
+    tray.setToolTip('家庭物资管家')
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: '显示主窗口',
+        click: () => {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore()
+            mainWindow.show()
+            mainWindow.focus()
+          }
+        }
+      },
+      { type: 'separator' },
+      {
+        label: '退出',
+        click: () => {
+          isQuitting = true
+          app.quit()
+        }
+      }
+    ])
+    tray.setContextMenu(contextMenu)
+    tray.on('double-click', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.show()
+        mainWindow.focus()
+      }
+    })
+  } catch (e) {
+    console.error('[tray] 创建托盘失败:', e)
+  }
+}
+
 function createWindow() {
   const settings = readAppSettings()
   const isDarkTheme =
@@ -367,8 +408,43 @@ function createWindow() {
   })
   ipcMain.handle('window:close', () => mainWindow?.close())
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() || false)
+  ipcMain.handle('window:resolveCloseAction', (_event, { action, remember }) => {
+    if (!mainWindow) return
+    if (remember) {
+      const s = readAppSettings()
+      s.closeAction = action === 'quit' ? 'quit' : 'minimize'
+      writeAppSettings(s)
+    }
+    if (action === 'quit') {
+      isQuitting = true
+      mainWindow.close()
+    } else {
+      mainWindow.hide()
+    }
+  })
   mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximizeChanged', true))
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximizeChanged', false))
+
+  // 关闭行为：按设置最小化到托盘，或在未设置时询问用户
+  mainWindow.on('close', (event) => {
+    if (isQuitting || !mainWindow) return
+    const settings = readAppSettings()
+    if (settings.closeAction === 'minimize') {
+      event.preventDefault()
+      mainWindow.hide()
+      return
+    }
+    if (settings.closeAction === 'quit') {
+      isQuitting = true
+      return
+    }
+    // 首次关闭或用户未选择过，弹出统一 UI 询问
+    event.preventDefault()
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+    mainWindow.webContents.send('window:requestCloseAction')
+  })
 
   const isDev = process.env.DEV === 'true'
   if (isDev) {
@@ -837,6 +913,7 @@ app.whenReady().then(() => {
   const settings = readAppSettings()
   buildMenu(settings.language || 'zh')
   createWindow()
+  createTray()
 
   // 启动外部 Agent HTTP API（本地回环，带 Token 鉴权）
   apiServer = new ApiServer({
@@ -859,6 +936,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  isQuitting = true
   try {
     if (apiServer) apiServer.stop()
   } catch (e) {

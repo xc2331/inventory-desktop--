@@ -479,7 +479,9 @@ export const winControl = {
   maximize: () => api.window.maximize(),
   close: () => api.window.close(),
   isMaximized: () => api.window.isMaximized(),
-  onMaximizeChange: (cb) => api.window.onMaximizeChange(cb)
+  onMaximizeChange: (cb) => api.window.onMaximizeChange(cb),
+  onRequestCloseAction: (cb) => api.window.onRequestCloseAction(cb),
+  resolveCloseAction: (payload) => api.window.resolveCloseAction(payload)
 }
 
 // ===== Agent 外部 API =====
