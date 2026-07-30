@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Pencil, Trash2, Minus, Plus, MapPin, AlertTriangle, CalendarClock, Check, Package, Image as ImageIcon } from 'lucide-react'
+import { Pencil, Trash2, Minus, Plus, MapPin, AlertTriangle, CalendarClock, Check, Image as ImageIcon } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName } from '../lib/api'
 import { getCategoryIcon } from '../lib/categoryIcons'
 import { expiryStatus } from '../lib/utils'
 import { cn } from '../lib/cn'
-import { EASE } from '../lib/motion'
+import { EASE, cardHover } from '../lib/motion'
 
 function normalizePhotoUrl(photo) {
   if (!photo) return ''
@@ -27,6 +27,7 @@ export default function ItemCard({
   onAdjust,
   onEdit,
   onDelete,
+  onDoubleClick,
   selected,
   onToggleSelect,
   bulkMode,
@@ -50,30 +51,42 @@ export default function ItemCard({
     if (bulkMode) onToggleSelect(item.id)
   }
 
+  const handleContextMenu = (e) => {
+    e.preventDefault()
+    onEdit(item)
+  }
+
+  const handleDoubleClick = () => {
+    if (hasPhoto && onDoubleClick) onDoubleClick(photoUrl, item.name)
+  }
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 16, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
+      whileHover={cardHover}
       transition={{ duration: 0.4, ease: EASE, delay: Math.min(index * 0.04, 0.32) }}
-      whileHover={{ y: -4 }}
       onClick={handleCardClick}
+      onContextMenu={handleContextMenu}
+      onDoubleClick={handleDoubleClick}
       className={cn(
-        'group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card transition-shadow duration-300 hover:shadow-float',
+        'card-hover group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card',
         selected ? 'border-primary' : 'border-border',
-        bulkMode && 'cursor-pointer'
+        bulkMode && 'cursor-pointer',
+        hasPhoto && 'cursor-zoom-in'
       )}
     >
       {selected && <span className="pointer-events-none absolute inset-0 z-10 rounded-2xl ring-2 ring-primary/30" />}
 
-      {/* 图片区：去掉点击放大，仅保留悬停缩放 */}
+      {/* 图片区 */}
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-bg">
         {hasPhoto ? (
           <>
             <img
               src={photoUrl}
               alt={item.name}
-              className="h-full w-full object-cover transition-transform duration-500 ease-smooth group-hover:scale-[1.06]"
+              className="img-zoom h-full w-full object-cover"
               onError={() => setImgErr(true)}
               draggable={false}
               onDragStart={(e) => e.preventDefault()}
@@ -83,12 +96,12 @@ export default function ItemCard({
             </span>
           </>
         ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface-hover to-bg text-text-tertiary/70 transition-transform duration-500 group-hover:scale-[1.02]">
+          <div className="img-zoom flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface-hover to-bg text-text-tertiary/70">
             <CategoryIcon size={40} strokeWidth={1.4} />
           </div>
         )}
 
-        {/* 底部渐变遮罩，提升标签可读性 */}
+        {/* 底部渐变遮罩 */}
         <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/15 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
         {/* 批量勾选 */}
@@ -114,7 +127,7 @@ export default function ItemCard({
           <span className="truncate">{cat ? categoryDisplayName(cat, lang) : item.category || t('nav_categories')}</span>
         </span>
 
-        {/* 操作按钮组：hover 时强化 */}
+        {/* 操作按钮组 */}
         <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-surface/88 p-1 shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface">
           <motion.button
             whileTap={{ scale: 0.9 }}

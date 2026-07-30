@@ -1,6 +1,7 @@
 // 外部 Agent HTTP API：供其它程序/Agent 管理家庭物资数据
 const http = require('http')
 const crypto = require('crypto')
+const { generateItemNo } = require('./item-no')
 
 const DEFAULT_PORT = 3001
 
@@ -88,10 +89,12 @@ function fromInputItem(data, db) {
   const id = data.id || crypto.randomUUID()
   const t = nowMs()
   const categories = db ? db.prepare('SELECT * FROM categories').all() : []
+  const rawItemNo = String(data.itemNo ?? data.item_no ?? '').trim()
+  const itemNo = rawItemNo || (db ? generateItemNo(db) : '')
   return {
     id,
     name: String(data.name || ''),
-    item_no: String(data.itemNo ?? data.item_no ?? ''),
+    item_no: itemNo,
     room: String(data.room ?? ''),
     position: String(data.position ?? ''),
     location: String(data.location ?? ''),

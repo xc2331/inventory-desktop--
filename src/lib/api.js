@@ -343,6 +343,23 @@ export async function pickFolder() {
   return api.dialog.pickFolder()
 }
 
+export async function pickImage() {
+  return api.dialog.pickImage()
+}
+
+export async function generateItemNo() {
+  return api.items.generateItemNo()
+}
+
+// ===== 窗口控制 =====
+export const winControl = {
+  minimize: () => api.window.minimize(),
+  maximize: () => api.window.maximize(),
+  close: () => api.window.close(),
+  isMaximized: () => api.window.isMaximized(),
+  onMaximizeChange: (cb) => api.window.onMaximizeChange(cb)
+}
+
 // ===== Agent 外部 API =====
 export async function getApiToken() {
   return api.settings.getApiToken()

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useI18n } from '../lib/i18n'
-import { categoryDisplayName } from '../lib/api'
+import { categoryDisplayName, winControl } from '../lib/api'
 import { cn } from '../lib/cn'
 import {
   Search,
@@ -14,10 +14,19 @@ import {
   ChevronDown,
   Package,
   MapPin,
-  X
+  X,
+  Minus,
+  Copy,
+  PanelLeftClose,
+  PanelLeftOpen,
+  AlertTriangle,
+  CalendarClock
 } from 'lucide-react'
 import { getCategoryIcon } from '../lib/categoryIcons'
 
+/**
+ * 统一顶栏（上下一体）：单行布局，frameless 窗口拖拽标题栏 + 工具栏 + 内联统计 + 窗口控制
+ */
 export default function TopBar({
   keyword,
   onKeywordChange,
@@ -30,17 +39,32 @@ export default function TopBar({
   categories,
   lang,
   bulkMode,
-  onToggleBulk
+  onToggleBulk,
+  onToggleSidebar,
+  sidebarCollapsed,
+  total,
+  lowStock,
+  expiringSoon
 }) {
   const { t } = useI18n()
   const [exportOpen, setExportOpen] = useState(false)
+  const [maximized, setMaximized] = useState(false)
   const cat = categories.find((c) => c.key === activeCategory)
+
+  useEffect(() => {
+    let alive = true
+    winControl.isMaximized().then((m) => alive && setMaximized(m))
+    winControl.onMaximizeChange((m) => setMaximized(m))
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const titleContent = () => {
     if (activeLocation && activeLocation.length > 0) {
       return (
         <>
-          <MapPin size={16} className="shrink-0 text-primary" />
+          <MapPin size={15} className="shrink-0 text-primary" />
           <span className="truncate">{activeLocation.join(' › ')}</span>
         </>
       )
@@ -49,28 +73,48 @@ export default function TopBar({
       const CatIcon = getCategoryIcon(cat)
       return (
         <>
-          <CatIcon size={16} className="shrink-0" />
+          <CatIcon size={15} className="shrink-0" />
           <span className="truncate">{categoryDisplayName(cat, lang)}</span>
         </>
       )
     }
     return (
       <>
-        <Package size={16} className="shrink-0 text-primary" />
+        <Package size={15} className="shrink-0 text-primary" />
         <span className="truncate">{t('nav_all')}</span>
       </>
     )
   }
 
   return (
-    <header className="glass z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
-      {/* 左侧：当前视图标题 */}
-      <h1 className="flex min-w-0 max-w-[200px] items-center gap-1.5 text-sm font-semibold tracking-tight text-text-primary">
+    <header className="glass drag-region relative z-30 flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
+      {/* 侧边栏展开/收起 */}
+      <button
+        onClick={onToggleSidebar}
+        title={sidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
+        className="no-drag flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+      >
+        {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+      </button>
+
+      {/* 当前视图标题 */}
+      <h1 className="flex min-w-0 max-w-[160px] items-center gap-1.5 text-sm font-semibold tracking-tight text-text-primary">
         {titleContent()}
       </h1>
 
-      {/* 中间：搜索框 */}
-      <div className="group relative mx-auto max-w-xl flex-1 px-2">
+      {/* 内联统计（上下一体，融入单行） */}
+      <div className="no-drag flex shrink-0 items-center gap-1 pl-1">
+        <InlineStat icon={Package} value={total} tone="neutral" title={t('stat_items')} />
+        {lowStock > 0 && (
+          <InlineStat icon={AlertTriangle} value={lowStock} tone="danger" title={t('stat_lowStock')} />
+        )}
+        {expiringSoon > 0 && (
+          <InlineStat icon={CalendarClock} value={expiringSoon} tone="warn" title={t('stat_expiringSoon')} />
+        )}
+      </div>
+
+      {/* 搜索框 */}
+      <div className="group no-drag relative mx-auto flex w-full max-w-xl flex-1 px-2">
         <Search
           size={15}
           className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-text-tertiary transition-smooth group-focus-within:text-primary"
@@ -92,8 +136,8 @@ export default function TopBar({
         )}
       </div>
 
-      {/* 右侧：导入/导出 + 批量 + 添加 */}
-      <div className="flex shrink-0 items-center gap-1.5">
+      {/* 右侧操作区 */}
+      <div className="no-drag flex shrink-0 items-center gap-1.5">
         <div className="relative">
           <button
             onClick={() => setExportOpen((v) => !v)}
@@ -153,6 +197,49 @@ export default function TopBar({
           {t('btn_add')}
         </button>
       </div>
+
+      {/* 窗口控制按钮 */}
+      <div className="no-drag flex shrink-0 items-center gap-0.5 pl-1.5">
+        <button
+          onClick={() => winControl.minimize()}
+          title={t('win_minimize')}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+        >
+          <Minus size={15} />
+        </button>
+        <button
+          onClick={() => winControl.maximize()}
+          title={maximized ? t('win_restore') : t('win_maximize')}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+        >
+          {maximized ? <Copy size={13} /> : <Square size={13} />}
+        </button>
+        <button
+          onClick={() => winControl.close()}
+          title={t('win_close')}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-text-tertiary transition-smooth hover:bg-danger hover:text-white"
+        >
+          <X size={15} />
+        </button>
+      </div>
     </header>
+  )
+}
+
+/** 内联统计：无背景，仅图标+数字，融入顶栏单行 */
+function InlineStat({ icon: Icon, value, tone, title }) {
+  const tones = {
+    neutral: 'text-text-tertiary',
+    danger: 'text-danger',
+    warn: 'text-warn'
+  }
+  return (
+    <span
+      title={title}
+      className={cn('flex items-center gap-0.5 rounded-md px-1.5 py-1 text-xs font-medium tabular-nums', tones[tone])}
+    >
+      <Icon size={13} />
+      {value}
+    </span>
   )
 }

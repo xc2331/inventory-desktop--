@@ -25,7 +25,20 @@ contextBridge.exposeInMainWorld('lingguang', {
     resetApiToken: () => ipcRenderer.invoke('settings:resetApiToken')
   },
   dialog: {
-    pickFolder: () => ipcRenderer.invoke('dialog:pickFolder')
+    pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
+    pickImage: () => ipcRenderer.invoke('dialog:pickImage')
+  },
+  items: {
+    generateItemNo: () => ipcRenderer.invoke('items:generateItemNo')
+  },
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    maximize: () => ipcRenderer.invoke('window:maximize'),
+    close: () => ipcRenderer.invoke('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    onMaximizeChange: (cb) => {
+      ipcRenderer.on('window:maximizeChanged', (_e, isMax) => cb(isMax))
+    }
   },
   categories: {
     list: () => ipcRenderer.invoke('categories:list'),

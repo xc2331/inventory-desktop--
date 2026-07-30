@@ -5,6 +5,7 @@ const fs = require('fs')
 const crypto = require('crypto')
 const Database = require('better-sqlite3')
 const { ApiServer } = require('./api-server')
+const { generateItemNo } = require('./item-no')
 
 // 确保 Windows 任务栏正确显示应用图标与分组
 app.setAppUserModelId(app.getName())
@@ -237,6 +238,76 @@ function migrateCategoryKeys() {
   }
 }
 
+// 合并重复分类条目：按规范 key 分组，保留一条（必要时改名为规范 key），其余删除
+function deduplicateCategories() {
+  try {
+    const categories = db.prepare('SELECT * FROM categories').all()
+    if (categories.length === 0) return
+
+    // 每个分类 key -> 规范 key
+    const groups = new Map() // canonical -> [cat, ...]
+    for (const cat of categories) {
+      const canonical = normalizeCategoryKey(cat.key, categories)
+      if (!groups.has(canonical)) groups.set(canonical, [])
+      groups.get(canonical).push(cat)
+    }
+
+    const plans = [] // { keeperId, canonicalKey, keeperOldKey, dropKeys:[] }
+    for (const [canonical, cats] of groups) {
+      if (cats.length === 0) continue
+      // 优先选 key 已等于规范 key 的条目作为 keeper，避免改名触发 UNIQUE 冲突
+      const exactMatch = cats.find((c) => c.key === canonical)
+      const keeper = exactMatch || cats[0]
+      const drops = cats.filter((c) => c.id !== keeper.id)
+      if (drops.length === 0 && keeper.key === canonical) continue
+      plans.push({
+        keeperId: keeper.id,
+        canonicalKey: canonical,
+        keeperOldKey: keeper.key,
+        dropKeys: drops.map((d) => d.key)
+      })
+    }
+
+    if (plans.length === 0) return
+
+    const tx = db.transaction(() => {
+      for (const p of plans) {
+        // 1. 先把被合并分类下的物品迁到规范 key
+        for (const dk of p.dropKeys) {
+          db.prepare('UPDATE items SET category = ?, updated_at = ? WHERE category = ?').run(
+            p.canonicalKey, Date.now(), dk
+          )
+        }
+        // 2. 删除冗余分类条目（此时规范 key 已无冲突）
+        for (const dk of p.dropKeys) {
+          db.prepare('DELETE FROM categories WHERE key = ?').run(dk)
+        }
+        // 3. 最后把 keeper 的 key 改为规范 key（若不同），同时迁移其旧 key 下的物品
+        if (p.keeperOldKey !== p.canonicalKey) {
+          db.prepare('UPDATE items SET category = ?, updated_at = ? WHERE category = ?').run(
+            p.canonicalKey, Date.now(), p.keeperOldKey
+          )
+          db.prepare('UPDATE categories SET key = ?, updated_at = ? WHERE id = ?').run(
+            p.canonicalKey, Date.now(), p.keeperId
+          )
+        }
+      }
+    })
+    tx()
+    console.log(
+      `[dedup] 处理 ${plans.length} 组分类:`,
+      plans
+        .map((p) => `${p.keeperOldKey}${p.dropKeys.length ? '+' + p.dropKeys.join('/') : ''}→${p.canonicalKey}`)
+        .join(', ')
+    )
+  } catch (e) {
+    console.error('[dedup] 分类去重失败:', e)
+  }
+}
+
+// 自动生成物品编号：委托给 item-no.js（参考已有数据规则生成「前缀-YYYYMMDD-序号」）
+// generateItemNo(db) 由 ./item-no 提供
+
 // 导入行（兼容 camelCase 手机端 与 snake_case 旧桌面端）
 function fromImportItem(r, now) {
   const categories = db.prepare('SELECT * FROM categories').all()
@@ -273,9 +344,10 @@ function createWindow() {
     height: 880,
     minWidth: 960,
     minHeight: 640,
+    frame: false,
     title: '家庭物资管家',
     icon: ICON_PATH,
-    backgroundColor: isDarkTheme ? '#0f172a' : '#f8fafc',
+    backgroundColor: isDarkTheme ? '#0f172a' : '#fbfaf8',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -284,6 +356,19 @@ function createWindow() {
       webSecurity: false
     }
   })
+
+  // 窗口控制 IPC
+  ipcMain.handle('window:minimize', () => mainWindow?.minimize())
+  ipcMain.handle('window:maximize', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    else mainWindow.maximize()
+    return mainWindow.isMaximized()
+  })
+  ipcMain.handle('window:close', () => mainWindow?.close())
+  ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() || false)
+  mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximizeChanged', true))
+  mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximizeChanged', false))
 
   const isDev = process.env.DEV === 'true'
   if (isDev) {
@@ -397,6 +482,22 @@ ipcMain.handle('dialog:pickFolder', async () => {
   })
   if (res.canceled || res.filePaths.length === 0) return { canceled: true }
   return { canceled: false, path: res.filePaths[0] }
+})
+
+// 选择图片文件对话框（返回路径，不读取内容）
+ipcMain.handle('dialog:pickImage', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: '选择图片',
+    properties: ['openFile'],
+    filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'] }]
+  })
+  if (res.canceled || res.filePaths.length === 0) return { canceled: true }
+  return { canceled: false, path: res.filePaths[0] }
+})
+
+// 自动生成物品编号
+ipcMain.handle('items:generateItemNo', () => {
+  return generateItemNo(db)
 })
 
 // ===== IPC：分类 CRUD =====
@@ -684,6 +785,7 @@ ipcMain.handle('file:open', async (_event, { filters }) => {
 app.whenReady().then(() => {
   initDatabase()
   migrateCategoryKeys()
+  deduplicateCategories()
   const settings = readAppSettings()
   buildMenu(settings.language || 'zh')
   createWindow()

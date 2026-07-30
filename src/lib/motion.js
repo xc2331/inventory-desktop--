@@ -83,10 +83,11 @@ export const toast = {
   }
 }
 
-// 卡片悬浮
+// 卡片悬浮：柔和弹簧上浮，丝滑不生硬
 export const cardHover = {
   y: -4,
-  transition: { duration: 0.25, ease: EASE }
+  scale: 1.012,
+  transition: { type: 'spring', stiffness: 260, damping: 28, mass: 0.5 }
 }
 
 export { motion }

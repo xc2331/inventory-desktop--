@@ -1,11 +1,25 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Folder, ChevronRight, MapPin } from 'lucide-react'
+import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
-import { categoryDisplayName, buildLocationTree, locationParts } from '../lib/api'
+import { categoryDisplayName, buildLocationTree, locationParts, pickImage } from '../lib/api'
 import { getCategoryIcon } from '../lib/categoryIcons'
 import { tsToDateInput, dateInputToTs } from '../lib/utils'
 import { EASE, EASE_SPRING } from '../lib/motion'
+import { cn } from '../lib/cn'
+
+// 把存储的图片值（路径 / URL / data URL）转为可显示的 src
+function toPhotoSrc(photo) {
+  if (!photo) return ''
+  const s = photo.trim()
+  if (!s) return ''
+  if (/^(data:|https?:|file:)/i.test(s)) return s
+  if (/^[a-z]:[\\/]/i.test(s) || s.startsWith('/')) {
+    const withSlash = s.replace(/\\/g, '/')
+    return withSlash.startsWith('/') ? 'file://' + withSlash : 'file:///' + withSlash
+  }
+  return 'file:///' + s.replace(/\\/g, '/')
+}
 
 const EMPTY = {
   name: '',
@@ -42,8 +56,36 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   })
   const [errors, setErrors] = useState({})
   const [treeOpen, setTreeOpen] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
+
+  // 点击浏览：在文件管理器中选择图片，自动赋值
+  const handleBrowse = async () => {
+    try {
+      const res = await pickImage()
+      if (!res.canceled && res.path) set('photo', res.path)
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  // 拖拽图片快速赋值：优先取本地文件路径，取不到则读为 data URL
+  const handleDrop = (e) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer?.files?.[0]
+    if (!file) return
+    if (file.path) {
+      set('photo', file.path)
+      return
+    }
+    if (file.type && file.type.startsWith('image/')) {
+      const reader = new FileReader()
+      reader.onload = () => set('photo', reader.result)
+      reader.readAsDataURL(file)
+    }
+  }
 
   const pickLocation = (id) => {
     const parts = locationParts(locations, id)
@@ -131,7 +173,16 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
               </Field>
 
               <Field label={t('f_itemNo')}>
-                <input type="text" value={form.item_no} onChange={(e) => set('item_no', e.target.value)} className="input" />
+                <input
+                  type="text"
+                  value={form.item_no}
+                  onChange={(e) => set('item_no', e.target.value)}
+                  className="input"
+                  placeholder={initial ? '' : 'WP-YYYYMMDD-NNN'}
+                />
+                {!initial && (
+                  <span className="mt-1 block text-[11px] text-text-tertiary">{t('f_itemNo_auto')}</span>
+                )}
               </Field>
 
               {/* 位置选择器 */}
@@ -195,8 +246,60 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                 <input type="date" value={form.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} className="input" />
               </Field>
 
-              <Field label={t('f_photo')}>
-                <input type="text" value={form.photo} onChange={(e) => set('photo', e.target.value)} className="input" />
+              <Field label={t('f_photo')} className="col-span-2">
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={handleDrop}
+                  className={cn(
+                    'flex items-center gap-3 rounded-xl border-2 border-dashed p-2.5 transition-smooth',
+                    dragOver
+                      ? 'border-primary bg-primary-soft/40'
+                      : 'border-border bg-surface hover:border-border-strong'
+                  )}
+                >
+                  {form.photo ? (
+                    <img
+                      src={toPhotoSrc(form.photo)}
+                      alt="preview"
+                      className="h-14 w-14 shrink-0 rounded-lg object-cover ring-1 ring-border"
+                      onError={(e) => { e.target.style.display = 'none' }}
+                    />
+                  ) : (
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-bg text-text-tertiary">
+                      <ImageIcon size={22} />
+                    </div>
+                  )}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <input
+                      type="text"
+                      value={form.photo}
+                      onChange={(e) => set('photo', e.target.value)}
+                      placeholder={t('f_photo_dragHint')}
+                      className="input h-8 py-1 text-xs"
+                    />
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleBrowse}
+                        className="flex items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-[11px] font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
+                      >
+                        <FolderOpen size={12} />
+                        {t('f_photo_browse')}
+                      </button>
+                      {form.photo && (
+                        <button
+                          type="button"
+                          onClick={() => set('photo', '')}
+                          className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-text-tertiary transition-smooth hover:text-danger"
+                        >
+                          <X size={12} />
+                          {t('btn_delete')}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </Field>
             </div>
           </div>

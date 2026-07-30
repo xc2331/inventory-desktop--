@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Search, PackageOpen, Plus, Loader2, Package, AlertTriangle, CalendarClock, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Search, PackageOpen, Plus, Loader2 } from 'lucide-react'
 import { useI18n } from './lib/i18n'
 import { EASE } from './lib/motion'
 import { cn } from './lib/cn'
@@ -8,6 +8,7 @@ import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import ItemCard from './components/ItemCard'
 import ItemForm from './components/ItemForm'
+import Lightbox from './components/Lightbox'
 import ConfirmDialog from './components/ConfirmDialog'
 import Toast from './components/Toast'
 import SettingsView from './components/SettingsView'
@@ -38,6 +39,7 @@ import {
   setDataDir,
   resetDataDir,
   pickFolder,
+  generateItemNo,
   locationMatchesPath,
   buildLocationCounts
 } from './lib/api'
@@ -52,6 +54,8 @@ export default function App() {
   const { t, lang, setLang } = useI18n()
   const [view, setView] = useState('items') // items | settings | categories | locations
   const [items, setItems] = useState([])
+  const [allItems, setAllItems] = useState([]) // 全量物品，用于位置计数（不受筛选影响）
+  const [lightbox, setLightbox] = useState({ src: '', alt: '' })
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
   const [activeCategory, setActiveCategory] = useState('')
@@ -126,17 +130,22 @@ export default function App() {
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      let rows
-      if (keyword) {
-        rows = activeCategory
-          ? await fetchByCategoryAndKeyword(activeCategory, keyword)
-          : await searchItems(keyword)
-      } else if (activeCategory) {
-        rows = await fetchByCategory(activeCategory)
-      } else {
-        rows = await fetchAllItems()
-      }
+      // 并行：当前筛选列表 + 全量物品（用于位置计数，不受筛选影响）
+      const [rows, all] = await Promise.all([
+        (async () => {
+          if (keyword) {
+            return activeCategory
+              ? await fetchByCategoryAndKeyword(activeCategory, keyword)
+              : await searchItems(keyword)
+          } else if (activeCategory) {
+            return await fetchByCategory(activeCategory)
+          }
+          return await fetchAllItems()
+        })(),
+        fetchAllItems()
+      ])
       setItems(rows)
+      setAllItems(all)
     } catch (e) {
       showToast(t('toast_loadFail', { msg: e.message }), 'error')
     } finally {
@@ -171,7 +180,8 @@ export default function App() {
     return items.filter((it) => locationMatchesPath(it, activeLocation))
   }, [items, activeLocation])
 
-  const locationCounts = useMemo(() => buildLocationCounts(items), [items])
+  // 位置计数基于全量数据，选分类时数量保持不变
+  const locationCounts = useMemo(() => buildLocationCounts(allItems), [allItems])
 
   const total = filteredItems.length
   const lowStock = filteredItems.filter((it) => it.min_quantity > 0 && it.quantity <= it.min_quantity).length
@@ -191,11 +201,20 @@ export default function App() {
 
   const handleSave = async (data) => {
     try {
+      const payload = { ...data }
+      // 新建物品且编号留空时，参考已有数据规则自动生成编号
+      if (!editingItem && !payload.item_no?.trim()) {
+        try {
+          payload.item_no = await generateItemNo()
+        } catch (e) {
+          /* 生成失败则保留空值 */
+        }
+      }
       if (editingItem) {
-        await updateItem(editingItem.id, data)
+        await updateItem(editingItem.id, payload)
         showToast(t('toast_updated', { name: data.name || '—' }))
       } else {
-        await createItem(data)
+        await createItem(payload)
         showToast(t('toast_added', { name: data.name || '—' }))
       }
       setFormOpen(false)
@@ -507,22 +526,13 @@ export default function App() {
             if (bulkMode) exitBulkMode()
             else setBulkMode(true)
           }}
+          onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+          sidebarCollapsed={sidebarCollapsed}
+          total={total}
+          lowStock={lowStock}
+          expiringSoon={expiringSoon}
         />
         <main className="relative flex flex-1 flex-col overflow-y-auto p-6">
-          {/* 侧边栏切换：放在物品主内容区左侧，替代 TopBar 左侧按钮 */}
-          <div className="mb-4 flex items-center gap-3">
-            <button
-              onClick={() => setSidebarCollapsed((v) => !v)}
-              title={sidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-text-secondary shadow-xs transition-smooth hover:bg-surface-hover hover:text-text-primary"
-            >
-              {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-            </button>
-            <StatChip icon={Package} label={t('stat_items')} value={total} tone="neutral" />
-            <StatChip icon={AlertTriangle} label={t('stat_lowStock')} value={lowStock} tone={lowStock > 0 ? 'danger' : 'neutral'} />
-            <StatChip icon={CalendarClock} label={t('stat_expiringSoon')} value={expiringSoon} tone={expiringSoon > 0 ? 'warn' : 'neutral'} />
-          </div>
-
           <AnimatePresence>
             {bulkMode && (
               <div className="mb-4">
@@ -558,6 +568,7 @@ export default function App() {
                   onAdjust={handleAdjust}
                   onEdit={handleOpenEdit}
                   onDelete={handleAskDelete}
+                  onDoubleClick={(src, name) => setLightbox({ src, alt: name })}
                   selected={selectedIds.has(it.id)}
                   onToggleSelect={toggleSelect}
                   bulkMode={bulkMode}
@@ -586,6 +597,7 @@ export default function App() {
         onConfirm={confirm.bulk ? handleConfirmBulkDelete : handleConfirmDelete}
         onCancel={() => setConfirm({ open: false, id: null, name: '' })}
       />
+      <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox({ src: '', alt: '' })} />
       <Toast toast={toast} onDone={() => setToast(null)} />
       </div>
         </motion.div>
@@ -627,21 +639,6 @@ export default function App() {
           </motion.button>
         )}
       </motion.div>
-    )
-  }
-
-  function StatChip({ icon: Icon, label, value, tone }) {
-    const tones = {
-      neutral: 'bg-surface-hover/60 text-text-secondary ring-1 ring-inset ring-border',
-      danger: 'bg-danger-soft text-danger ring-1 ring-inset ring-danger/20',
-      warn: 'bg-warn-soft text-warn ring-1 ring-inset ring-warn/20'
-    }
-    return (
-      <span className={cn('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium', tones[tone])}>
-        <Icon size={12} />
-        <span>{label}</span>
-        <span className="font-semibold tabular-nums">{value}</span>
-      </span>
     )
   }
 }

@@ -19,6 +19,10 @@
 - 过期提醒（已过期 / 7 天内即将过期）
 - 批量选择：批量改分类、批量删除
 - 可折叠侧边栏：展开/收起入口放在右侧物品主内容区，顶部更简洁
+- 右键物品直接编辑、双击查看大图
+- 编辑表单支持图片拖拽赋值与文件浏览选择
+- 创建物品时编号留空自动生成（`WP-YYYYMMDD-NNN`）
+- frameless 无边框窗口，顶栏单行上下一体（标题栏 + 工具栏 + 内联统计 + 窗口控制）
 
 ## 技术栈
 
@@ -29,9 +33,8 @@
 
 ## 界面说明
 
-- **顶部工具栏**：当前视图标题 + 圆角搜索框，右侧为导入/导出、批量选择、添加物品
+- **顶部工具栏（单行上下一体）**：侧边栏切换 + 当前视图标题 + 内联统计（物品数 / 库存不足 / 即将过期）+ 居中搜索框 + 导入导出 / 批量选择 / 添加物品 + 窗口控制按钮，全部融合在一行内
 - **侧边栏**：分类筛选、位置树筛选、设置入口；收起后仅显示图标
-- **统计条**：物品总数、库存不足、即将过期三项快捷统计；左侧提供侧边栏展开/收起按钮
 - **设置页**：语言、主题、数据目录、Agent API、分类/位置管理、导入导出
 
 ## 数据库说明
@@ -94,6 +97,193 @@
 - `window.lingguang.file.open({ filters })` → 打开文件对话框
 
 > 所有数据库写操作均使用参数化查询，防止 SQL 注入。
+
+## Agent API 自然语言控制指南
+
+家庭物资管家内置一个本地 HTTP 服务，允许外部 AI Agent（如 Claude、ChatGPT、Trae 等）通过自然语言指令管理家中物品数据。本节介绍工作原理、配置方法与典型用法示例。
+
+### 工作原理
+
+应用启动后会在本机回环地址 `127.0.0.1:3001` 启动一个 HTTP 服务，所有接口均需通过 Bearer Token 鉴权。外部 AI Agent 可调用这套 REST 接口完成物品的查询、新增、修改、删除等操作，从而把「帮我看看冰箱里还有什么」「把牛奶数量改成 4」这类自然语言指令翻译成对应的 HTTP 请求。
+
+#### 自然语言 → API 翻译管线
+
+Agent 把用户自然语言转化为数据操作的完整流程分为四步：
+
+1. **意图识别**：Agent 从用户语句中提取操作类型（查询 / 新增 / 修改 / 删除）和关键实体（物品名称、数量、位置、分类等）
+2. **接口选择**：根据意图选择对应 API —— 查询用 `GET /api/items`，新增用 `POST /api/items`，修改用 `PATCH /api/items/<id>`，删除用 `DELETE /api/items/<id>`
+3. **实体定位**：对于修改 / 删除操作，Agent 先调用 `GET /api/items/<名称>` 模糊搜索获取候选列表，再从中选取目标 `id`
+4. **执行 + 回复**：Agent 发起请求，将返回的 JSON 结果整理成自然语言回复给用户
+
+```
+用户自然语言 → Agent 识别意图 → 选择 API → (必要时先搜索定位 id) → 发起请求 → 整理结果回复用户
+```
+
+#### 分类归一化
+
+创建 / 更新物品时，`category` 字段会自动归一化。Agent 传入中文别名或英文变体都能正确映射：
+
+| 用户可能说 | 传入 category | 归一化结果 |
+| --- | --- | --- |
+| 「工具」「tool」 | `tool` 或 `工具` | `tools` |
+| 「食品」「food」 | `food` 或 `食品` | `food` |
+| 「饮料」「drink」 | `drink` 或 `饮料` | `beverage` |
+
+完整对照表见 [Skill 文件](./skills/family-inventory-agent.md) 第五节。
+
+### 配置步骤
+
+1. 打开「家庭物资管家」桌面应用
+2. 进入「设置 → 外部 Agent 接口」
+3. 复制显示的访问 Token（如需更换可点击「刷新」）
+4. 在 Agent 的请求头中携带：`Authorization: Bearer <你的-Token>`
+
+> Token 存储在 `%APPDATA%/Family Inventory/settings.json`，请妥善保管，勿提交到公开仓库或分享给他人。
+
+### 自然语言示例场景
+
+下面列出常见的自然语言指令以及 Agent 应发起的 HTTP 请求。所有请求均需携带 `Authorization: Bearer <token>` 头。
+
+#### 1. 查询物品
+
+- 用户：「帮我看看冰箱里还有什么」
+- Agent 请求：
+
+```http
+GET /api/items?keyword=冰箱
+```
+
+返回 `items` 数组，Agent 可据此总结冰箱中的物品清单。
+
+#### 2. 添加物品
+
+- 用户：「添加一箱牛奶到厨房冰箱，6 盒」
+- Agent 请求：
+
+```http
+POST /api/items
+Content-Type: application/json
+
+{
+  "name": "牛奶",
+  "quantity": 6,
+  "category": "beverage",
+  "room": "厨房",
+  "position": "冰箱"
+}
+```
+
+#### 3. 修改数量（先查后改）
+
+- 用户：「把牛奶的数量改成 4」
+- Agent 第一步，通过名称定位物品：
+
+```http
+GET /api/items/牛奶
+```
+
+返回 `candidates` 候选列表，Agent 选中目标物品的 `id`。
+
+- Agent 第二步，更新数量：
+
+```http
+PATCH /api/items/<id>
+Content-Type: application/json
+
+{ "quantity": 4 }
+```
+
+#### 4. 删除物品（先查后删）
+
+- 用户：「删除那个过期的面包」
+- Agent 第一步，搜索「面包」：
+
+```http
+GET /api/items/面包
+```
+
+- Agent 第二步，从候选列表中筛选已过期项并删除：
+
+```http
+DELETE /api/items/<id>
+```
+
+#### 5. 按位置查询快过期物品
+
+- 用户：「厨房里有哪些快过期的东西」
+- Agent 请求：
+
+```http
+GET /api/items?keyword=厨房
+```
+
+返回结果后，Agent 根据 `expiryDate` 字段（毫秒时间戳）筛选 7 天内即将过期或已过期的物品并提示用户。
+
+#### 6. 查看分类
+
+- 用户：「帮我看看有哪些分类」
+- Agent 请求：
+
+```http
+GET /api/categories
+```
+
+返回所有分类及其 `key` / 中文名，便于后续按分类筛选或创建物品时指定 `category`。
+
+#### 7. 补充库存（先查后加）
+
+- 用户：「又买了 12 个鸡蛋，帮我加上去」
+- Agent 第一步，查找现有鸡蛋：
+
+```http
+GET /api/items/鸡蛋
+```
+
+- Agent 第二步，若已有鸡蛋则累加数量：
+
+```http
+PATCH /api/items/<id>
+Content-Type: application/json
+
+{ "quantity": 24 }
+```
+
+- Agent 回复：确认鸡蛋库存已从 12 补充到 24。
+
+#### 8. 查看库存全貌
+
+- 用户：「家里还有多少饮料」
+- Agent 请求：
+
+```http
+GET /api/items?category=beverage
+```
+
+- Agent 处理：汇总返回 `items` 中各饮料的数量。
+- Agent 回复：报告饮料库存总量与明细清单。
+
+### Skill 文件
+
+仓库 `skills/` 目录下提供了配套的 `family-inventory-agent.md` 技能文件，包含完整的接口规范、字段说明、分类对照表与 8 个以上自然语言映射示例。将该文件加载到 AI Agent 后，Agent 即可获得本应用的完整 API 使用能力。
+
+#### 如何加载 Skill 文件
+
+| Agent 平台 | 加载方式 |
+| --- | --- |
+| **Trae** | 将 `family-inventory-agent.md` 内容粘贴到 Skill 配置，或在项目根目录放置该文件 |
+| **Claude** | 放入 Project Instructions / Custom Instructions |
+| **ChatGPT** | 粘贴到自定义指令（Custom Instructions）或 GPTs 的 Knowledge |
+| **Cursor** | 放入 `.cursorrules` 或项目上下文文件 |
+| **通用** | 任何支持加载 Markdown 上下文的 Agent 均可直接使用 |
+
+### 安全提示
+
+- HTTP 服务仅绑定 `127.0.0.1`，不会暴露到局域网或公网，外部设备无法直接访问。
+- 所有接口均需 Bearer Token 鉴权，未携带或 Token 错误将返回 `401 Unauthorized`。
+- Token 可在「设置 → 外部 Agent 接口」中随时刷新，刷新后旧 Token 立即失效。
+- 数据库写操作使用参数化查询，防止 SQL 注入。
+
+更详细的接口字段与示例请参考 [`docs/agent-api.md`](./docs/agent-api.md)。
 
 ## 开发与运行
 
@@ -166,9 +356,15 @@ inventory-desktop/
 ├── build/
 │   ├── icon.ico           # 应用图标（多尺寸 ICO）
 │   └── logo.svg           # Logo 矢量源文件
+├── docs/
+│   └── agent-api.md       # Agent API 接口文档
 ├── electron/
 │   ├── main.js            # 主进程：数据库、IPC、文件对话框、自动备份
+│   ├── api-server.js      # 本地 HTTP API 服务（供外部 Agent 调用）
+│   ├── item-no.js         # 智能编号生成（参考已有数据规则）
 │   └── preload.js         # 预加载脚本：暴露 window.lingguang API
+├── skills/
+│   └── family-inventory-agent.md  # Agent 技能文件（自然语言 → API 映射）
 ├── src/
 │   ├── main.jsx           # React 入口
 │   ├── App.jsx            # 主应用
@@ -183,11 +379,15 @@ inventory-desktop/
 
 ## 更新日志（最近）
 
-- **UI 大改**：顶部菜单栏隐藏，搜索框居中，侧边栏切换入口移到右侧物品主内容区
-- **新增自定义 Logo**：替换为简约「物资箱」图标，任务栏与窗口同步生效；打包配置确保图标资源正确嵌入
-- **设置集中化**：导入/导出、分类管理、位置管理、语言、主题、数据目录全部集中到设置页
-- **分类归一化**：`tool` / `工具` 等中英文别名自动合并到同一分类
-- **交互优化**：更柔和的配色、更细的滚动条、卡片动效、表单紧凑布局
+- **顶栏上下一体**：合并为单行布局，统计内联显示，风格更统一
+- **分类去重重构**：修复 UNIQUE 约束冲突导致 tool/工具 仍显示两条的问题
+- **图片拖拽赋值**：编辑表单支持拖拽图片快速赋值、点击浏览在文件管理器选择、实时预览
+- **悬浮动效优化**：柔和弹簧参数 + CSS 过渡曲线调优，卡片悬浮更丝滑
+- **位置计数稳定**：选择分类时位置数量基于全量数据，不再随筛选变化
+- **自动编号**：参考已有数据规则，编号留空时自动生成 `WP-YYYYMMDD-NNN`
+- **右键编辑 / 双击大图**：右键物品直接打开编辑，双击查看大图
+- **Agent API 文档**：README 新增自然语言翻译管线说明、8 个示例场景、Skill 加载指南
+- **frameless 窗口**：标题栏与工具栏一体化，自定义窗口控制按钮
 
 ## 约束说明
 

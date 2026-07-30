@@ -171,6 +171,37 @@ select {
   -webkit-backdrop-filter: blur(16px) saturate(140%);
 }
 
+/* 卡片悬浮：阴影/边框由 CSS 过渡，上浮由 framer-motion whileHover 控制（避免 transform 冲突） */
+@layer components {
+  .card-hover {
+    transition: box-shadow 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .card-hover:hover {
+    box-shadow: var(--shadow-float);
+    border-color: var(--color-border-strong);
+  }
+  /* 图片缩放：在卡片 hover 时柔和放大，与卡片弹簧动效节奏一致 */
+  .img-zoom {
+    transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.3, 1);
+    will-change: transform;
+    transform-origin: center;
+  }
+  .card-hover:hover .img-zoom {
+    transform: scale(1.04);
+  }
+}
+
+/* frameless 窗口拖拽区域 */
+@layer utilities {
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
 /* 渐变文字 */
 .text-gradient {
   background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
