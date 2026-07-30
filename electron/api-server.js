@@ -123,17 +123,23 @@ class ApiServer {
     return this.getSettings()
   }
 
-  ensureToken(settings) {
-    if (settings.apiToken) return settings.apiToken
-    const token = crypto.randomBytes(24).toString('hex')
-    settings.apiToken = token
-    this.writeAppSettings(settings)
-    return token
+  getApiConfig(settings) {
+    const port = Number(settings.apiPort) || DEFAULT_PORT
+    const host = settings.apiHost === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1'
+    const lanMode = settings.apiLanMode === true
+    const effectiveHost = lanMode ? '0.0.0.0' : host
+    let token = settings.apiToken
+    if (!token || typeof token !== 'string' || token.trim() === '') {
+      token = crypto.randomBytes(24).toString('hex')
+      settings.apiToken = token
+      this.writeAppSettings(settings)
+    }
+    return { port, host: effectiveHost, token }
   }
 
   checkAuth(req, settings) {
     const auth = req.headers['authorization'] || ''
-    const token = this.ensureToken(settings)
+    const { token } = this.getApiConfig(settings)
     return auth.replace(/^Bearer\s+/i, '') === token
   }
 
@@ -319,11 +325,13 @@ class ApiServer {
   start() {
     if (this.server) return
     const settings = this.getSettingsObj()
-    const port = settings.apiPort || DEFAULT_PORT
+    const { port, host, token } = this.getApiConfig(settings)
     this.port = port
+    this.host = host
+    this.token = token
     this.server = http.createServer((req, res) => this.handle(req, res))
-    this.server.listen(port, '127.0.0.1', () => {
-      console.log(`[api-server] listening on http://127.0.0.1:${port}`)
+    this.server.listen(port, host, () => {
+      console.log(`[api-server] listening on http://${host}:${port}`)
     })
     this.server.on('error', (e) => {
       console.error('[api-server] failed to start:', e.message)

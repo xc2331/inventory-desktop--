@@ -43,6 +43,124 @@ export function fetchCategoryCounts() {
   })
 }
 
+// ===== 统计页数据 =====
+export async function fetchStatistics() {
+  const [items, categories, locations] = await Promise.all([
+    api.db.query({ sql: 'SELECT * FROM items' }),
+    api.categories.list(),
+    api.locations.list()
+  ])
+
+  const now = Date.now()
+  const oneDay = 86400000
+
+  // 分类统计
+  const categoryMap = {}
+  items.forEach((it) => {
+    const key = it.category || 'other'
+    categoryMap[key] = (categoryMap[key] || 0) + 1
+  })
+  const categoryStats = Object.entries(categoryMap)
+    .map(([key, count]) => {
+      const cat = categories.find((c) => c.key === key)
+      return {
+        key,
+        name: cat ? categoryDisplayName(cat, 'zh') : key,
+        name_en: cat?.name_en || key,
+        count
+      }
+    })
+    .sort((a, b) => b.count - a.count)
+
+  // 位置统计（按 location 路径）
+  const locationMap = {}
+  items.forEach((it) => {
+    const loc = it.location?.trim() || it.room?.trim() || '未指定位置'
+    locationMap[loc] = (locationMap[loc] || 0) + 1
+  })
+  const locationStats = Object.entries(locationMap)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12)
+
+  // 过期状态
+  let expired = 0
+  let expiring7 = 0
+  let expiring30 = 0
+  let normal = 0
+  let noExpiry = 0
+  items.forEach((it) => {
+    if (!it.expiry_date) {
+      noExpiry++
+      return
+    }
+    const days = Math.ceil((it.expiry_date - now) / oneDay)
+    if (days < 0) expired++
+    else if (days <= 7) expiring7++
+    else if (days <= 30) expiring30++
+    else normal++
+  })
+  const expiryStats = [
+    { name: '已过期', name_en: 'Expired', key: 'expired', count: expired, color: '#ef4444' },
+    { name: '7天内过期', name_en: '≤7 days', key: 'expiring7', count: expiring7, color: '#f97316' },
+    { name: '30天内过期', name_en: '≤30 days', key: 'expiring30', count: expiring30, color: '#fbbf24' },
+    { name: '正常', name_en: 'Normal', key: 'normal', count: normal, color: '#22c55e' },
+    { name: '无过期日', name_en: 'No date', key: 'noExpiry', count: noExpiry, color: '#94a3b8' }
+  ]
+
+  // 库存状态
+  const lowStock = items.filter((it) => it.min_quantity > 0 && it.quantity <= it.min_quantity).length
+  const stockStats = [
+    { name: '库存不足', name_en: 'Low stock', key: 'low', count: lowStock, color: '#ef4444' },
+    { name: '库存充足', name_en: 'Sufficient', key: 'ok', count: items.length - lowStock, color: '#22c55e' }
+  ]
+
+  // 时间维度：按创建月份
+  const createdMonthMap = {}
+  const updatedMonthMap = {}
+  const monthFormatter = (ts) => {
+    const d = new Date(ts)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
+  items.forEach((it) => {
+    if (it.created_at) {
+      const m = monthFormatter(it.created_at)
+      createdMonthMap[m] = (createdMonthMap[m] || 0) + 1
+    }
+    if (it.updated_at) {
+      const m = monthFormatter(it.updated_at)
+      updatedMonthMap[m] = (updatedMonthMap[m] || 0) + 1
+    }
+  })
+  const months = Array.from(new Set([...Object.keys(createdMonthMap), ...Object.keys(updatedMonthMap)])).sort()
+  const timeStats = months.map((m) => ({
+    month: m,
+    created: createdMonthMap[m] || 0,
+    updated: updatedMonthMap[m] || 0
+  }))
+
+  // 数量分布
+  const quantityStats = items.map((it) => ({
+    name: it.name,
+    quantity: it.quantity,
+    min: it.min_quantity
+  })).sort((a, b) => b.quantity - a.quantity).slice(0, 15)
+
+  // 总体指标
+  const totalQuantity = items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
+
+  return {
+    total: items.length,
+    totalQuantity,
+    categoryStats,
+    locationStats,
+    expiryStats,
+    stockStats,
+    timeStats,
+    quantityStats
+  }
+}
+
 export async function createItem(item) {
   const now = Date.now()
   const categories = await fetchCategories()
@@ -367,4 +485,8 @@ export async function getApiToken() {
 
 export async function resetApiToken() {
   return api.settings.resetApiToken()
+}
+
+export async function setApiConfig(patch) {
+  return api.settings.setApiConfig(patch)
 }

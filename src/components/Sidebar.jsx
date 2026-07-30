@@ -6,7 +6,8 @@ import {
   Settings,
   ChevronRight,
   Folder,
-  Boxes
+  Boxes,
+  BarChart3
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName, buildLocationTree } from '../lib/api'
@@ -42,7 +43,9 @@ export default function Sidebar({
   locations,
   locationCounts,
   lang,
-  onOpenSettings
+  onOpenSettings,
+  onOpenStatistics,
+  activeView
 }) {
   const { t } = useI18n()
   const totalCount = Object.values(counts).reduce((a, b) => a + b, 0)
@@ -83,7 +86,8 @@ export default function Sidebar({
         </div>
 
         <div className="flex flex-col items-center gap-1 border-t border-border py-2">
-          <IconButton active={false} onClick={onOpenSettings} icon={<Settings size={18} />} label={t('nav_settings')} />
+          <IconButton active={activeView === 'statistics'} onClick={onOpenStatistics} icon={<BarChart3 size={18} />} label={t('nav_statistics')} />
+          <IconButton active={activeView === 'settings'} onClick={onOpenSettings} icon={<Settings size={18} />} label={t('nav_settings')} />
         </div>
       </motion.aside>
     )
@@ -155,8 +159,21 @@ export default function Sidebar({
       </div>
 
       <button
+        onClick={onOpenStatistics}
+        className={cn(
+          'group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
+          activeView === 'statistics' ? 'bg-primary-soft font-medium text-primary' : 'text-text-secondary'
+        )}
+      >
+        <BarChart3 size={16} className="transition-transform group-hover:scale-110" />
+        {t('nav_statistics')}
+      </button>
+      <button
         onClick={onOpenSettings}
-        className="group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+        className={cn(
+          'group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
+          activeView === 'settings' ? 'bg-primary-soft font-medium text-primary' : 'text-text-secondary'
+        )}
       >
         <Settings size={16} className="transition-transform group-hover:rotate-45" />
         {t('nav_settings')}

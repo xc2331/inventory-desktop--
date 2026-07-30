@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check } from 'lucide-react'
+import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
-import { getSettings, getApiToken, resetApiToken } from '../lib/api'
+import { getSettings, getApiToken, resetApiToken, setApiConfig } from '../lib/api'
 import { cn } from '../lib/cn'
 import { EASE } from '../lib/motion'
 import PageHeader from './PageHeader'
@@ -30,14 +30,25 @@ export default function SettingsView({
   const [dataDir, setDataDir] = useState('')
   const [defaultDataDir, setDefaultDataDir] = useState('')
   const [apiInfo, setApiInfo] = useState(null)
+  const [apiForm, setApiForm] = useState({ port: 3001, host: '127.0.0.1', lanMode: false, token: '' })
   const [copied, setCopied] = useState(false)
+  const [apiSaved, setApiSaved] = useState(false)
+  const [apiError, setApiError] = useState('')
 
   useEffect(() => {
     getSettings().then((s) => {
       setDataDir(s.dataDir || '')
       setDefaultDataDir(s.defaultDataDir || '')
     })
-    getApiToken().then(setApiInfo)
+    getApiToken().then((info) => {
+      setApiInfo(info)
+      setApiForm({
+        port: info.port || 3001,
+        host: info.host || '127.0.0.1',
+        lanMode: info.lanMode || false,
+        token: info.token || ''
+      })
+    })
   }, [])
 
   const handleCopyToken = async () => {
@@ -54,7 +65,31 @@ export default function SettingsView({
   const handleRefreshToken = async () => {
     const next = await resetApiToken()
     setApiInfo(next)
+    setApiForm((f) => ({ ...f, token: next.token }))
     setCopied(false)
+    setApiSaved(false)
+  }
+
+  const handleSaveApiConfig = async () => {
+    setApiError('')
+    const port = Number(apiForm.port)
+    if (!Number.isInteger(port) || port <= 0 || port >= 65536) {
+      setApiError(t('settings_agentApi_portPlaceholder'))
+      return
+    }
+    if (!apiForm.token || apiForm.token.trim().length < 8) {
+      setApiError(t('settings_agentApi_tokenTooShort'))
+      return
+    }
+    const next = await setApiConfig({
+      port,
+      host: apiForm.lanMode ? '0.0.0.0' : '127.0.0.1',
+      lanMode: apiForm.lanMode,
+      token: apiForm.token.trim()
+    })
+    setApiInfo(next)
+    setApiSaved(true)
+    setTimeout(() => setApiSaved(false), 1500)
   }
 
   return (
@@ -148,33 +183,82 @@ export default function SettingsView({
           {/* Agent API */}
           <Section title={t('settings_agentApi')} desc={t('settings_agentApi_desc')}>
             <div className="space-y-3">
-              <div className="flex items-center justify-between rounded-xl bg-bg px-3.5 py-2.5 text-sm">
-                <span className="flex items-center gap-2 text-text-tertiary">
-                  <KeyRound size={15} />
-                  {t('settings_agentApi_port')}
-                </span>
-                <span className="font-mono font-medium text-text-secondary">{apiInfo?.port || 3001}</span>
-              </div>
-              <div className="flex items-center gap-2 rounded-xl bg-bg px-3.5 py-2.5 text-sm">
+              {/* 端口 */}
+              <div className="flex items-center gap-3 rounded-xl bg-bg px-3.5 py-2.5 text-sm">
                 <KeyRound size={15} className="shrink-0 text-text-tertiary" />
-                <span className="truncate font-mono text-text-secondary">{apiInfo?.token || '…'}</span>
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleCopyToken}
-                  title={t('settings_agentApi_copy')}
-                  className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
-                >
-                  {copied ? <Check size={14} className="text-primary" /> : <Copy size={14} />}
-                </motion.button>
-                <motion.button
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleRefreshToken}
-                  title={t('settings_agentApi_refresh')}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
-                >
-                  <RefreshCw size={14} />
-                </motion.button>
+                <span className="w-20 shrink-0 text-text-tertiary">{t('settings_agentApi_port')}</span>
+                <input
+                  type="number"
+                  min={1024}
+                  max={65535}
+                  value={apiForm.port}
+                  onChange={(e) => setApiForm((f) => ({ ...f, port: e.target.value }))}
+                  placeholder={t('settings_agentApi_portPlaceholder')}
+                  className="input h-8 w-24 text-xs"
+                />
               </div>
+
+              {/* 局域网开关 */}
+              <label className="flex cursor-pointer items-center justify-between rounded-xl bg-bg px-3.5 py-2.5 text-sm">
+                <span className="flex items-center gap-2 text-text-secondary">
+                  <Globe size={15} className="text-text-tertiary" />
+                  {t('settings_agentApi_lanMode')}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={apiForm.lanMode}
+                  onChange={(e) => setApiForm((f) => ({ ...f, lanMode: e.target.checked }))}
+                  className="h-4 w-4 accent-primary"
+                />
+              </label>
+              {apiForm.lanMode && (
+                <p className="flex items-start gap-1.5 text-xs text-warn">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                  {t('settings_agentApi_lanMode_desc')}
+                </p>
+              )}
+
+              {/* Token */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-3 rounded-xl bg-bg px-3.5 py-2.5 text-sm">
+                  <KeyRound size={15} className="shrink-0 text-text-tertiary" />
+                  <span className="w-20 shrink-0 text-text-tertiary">{t('settings_agentApi_token')}</span>
+                  <input
+                    type="text"
+                    value={apiForm.token}
+                    onChange={(e) => setApiForm((f) => ({ ...f, token: e.target.value }))}
+                    placeholder={t('settings_agentApi_tokenPlaceholder')}
+                    className="input h-8 flex-1 text-xs font-mono"
+                  />
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleCopyToken}
+                    title={t('settings_agentApi_copy')}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+                  >
+                    {copied ? <Check size={14} className="text-primary" /> : <Copy size={14} />}
+                  </motion.button>
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleRefreshToken}
+                    title={t('settings_agentApi_refresh')}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+                  >
+                    <RefreshCw size={14} />
+                  </motion.button>
+                </div>
+              </div>
+
+              {apiError && <p className="text-xs text-danger">{apiError}</p>}
+
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={handleSaveApiConfig}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
+              >
+                {apiSaved ? <Check size={15} /> : <Save size={15} />}
+                {apiSaved ? t('settings_agentApi_saved') : t('settings_agentApi_save')}
+              </motion.button>
             </div>
           </Section>
 

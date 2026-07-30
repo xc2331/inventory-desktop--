@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName, buildLocationTree, locationParts, pickImage } from '../lib/api'
+import { compressImageToBase64 } from '../lib/imageCompress'
 import { getCategoryIcon } from '../lib/categoryIcons'
 import { tsToDateInput, dateInputToTs } from '../lib/utils'
 import { EASE, EASE_SPRING } from '../lib/motion'
@@ -57,33 +58,44 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const [errors, setErrors] = useState({})
   const [treeOpen, setTreeOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [photoHint, setPhotoHint] = useState('')
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
-  // 点击浏览：在文件管理器中选择图片，自动赋值
+  // 点击浏览：选择本地图片后自动压缩为 Base64 存入 photo
   const handleBrowse = async () => {
     try {
+      setPhotoHint('')
       const res = await pickImage()
-      if (!res.canceled && res.path) set('photo', res.path)
+      if (res.canceled || !res.path) return
+      setPhotoHint('图片压缩中…')
+      const result = await compressImageToBase64(res.path)
+      if (result.ok) {
+        set('photo', result.data)
+        setPhotoHint(`已压缩至 ${result.sizeKB}KB`)
+      } else {
+        setPhotoHint(result.error)
+      }
     } catch (e) {
-      /* ignore */
+      setPhotoHint(e.message || '图片读取失败')
     }
   }
 
-  // 拖拽图片快速赋值：优先取本地文件路径，取不到则读为 data URL
-  const handleDrop = (e) => {
+  // 拖拽图片：自动压缩为 Base64 存入 photo
+  const handleDrop = async (e) => {
     e.preventDefault()
     setDragOver(false)
+    setPhotoHint('')
     const file = e.dataTransfer?.files?.[0]
     if (!file) return
-    if (file.path) {
-      set('photo', file.path)
-      return
-    }
-    if (file.type && file.type.startsWith('image/')) {
-      const reader = new FileReader()
-      reader.onload = () => set('photo', reader.result)
-      reader.readAsDataURL(file)
+    if (!file.type || !file.type.startsWith('image/')) return
+    setPhotoHint('图片压缩中…')
+    const result = await compressImageToBase64(file)
+    if (result.ok) {
+      set('photo', result.data)
+      setPhotoHint(`已压缩至 ${result.sizeKB}KB`)
+    } else {
+      setPhotoHint(result.error)
     }
   }
 
@@ -274,10 +286,18 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                     <input
                       type="text"
                       value={form.photo}
-                      onChange={(e) => set('photo', e.target.value)}
+                      onChange={(e) => {
+                        set('photo', e.target.value)
+                        setPhotoHint('')
+                      }}
                       placeholder={t('f_photo_dragHint')}
                       className="input h-8 py-1 text-xs"
                     />
+                    {photoHint && (
+                      <p className={cn('text-[11px]', photoHint.includes('失败') || photoHint.includes('超过') ? 'text-danger' : 'text-text-tertiary')}>
+                        {photoHint}
+                      </p>
+                    )}
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"

@@ -12,6 +12,7 @@ import Lightbox from './components/Lightbox'
 import ConfirmDialog from './components/ConfirmDialog'
 import Toast from './components/Toast'
 import SettingsView from './components/SettingsView'
+import StatisticsView from './components/StatisticsView'
 import CategoryManager from './components/CategoryManager'
 import LocationManager from './components/LocationManager'
 import BulkEditBar from './components/BulkEditBar'
@@ -52,7 +53,7 @@ function applyThemeClass(theme) {
 
 export default function App() {
   const { t, lang, setLang } = useI18n()
-  const [view, setView] = useState('items') // items | settings | categories | locations
+  const [view, setView] = useState('items') // items | settings | statistics | categories | locations
   const [items, setItems] = useState([])
   const [allItems, setAllItems] = useState([]) // 全量物品，用于位置计数（不受筛选影响）
   const [lightbox, setLightbox] = useState({ src: '', alt: '' })
@@ -403,6 +404,9 @@ export default function App() {
   handlersRef.current.ec = handleExportCSV
 
   // ---- 渲染 ----
+  const statisticsView = (
+    <StatisticsView onBack={() => setView('items')} />
+  )
   const settingsView = (
     <SettingsView
       theme={theme}
@@ -440,6 +444,18 @@ export default function App() {
 
   return (
     <AnimatePresence mode="wait">
+      {view === 'statistics' && (
+        <motion.div
+          key="statistics"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.25, ease: EASE }}
+          className="h-screen w-screen"
+        >
+          {statisticsView}
+        </motion.div>
+      )}
       {view === 'settings' && (
         <motion.div
           key="settings"
@@ -507,7 +523,9 @@ export default function App() {
         locations={locations}
         locationCounts={locationCounts}
         lang={lang}
+        activeView={view}
         onOpenSettings={() => setView('settings')}
+        onOpenStatistics={() => setView('statistics')}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar

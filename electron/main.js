@@ -457,14 +457,19 @@ ipcMain.handle('settings:resetDataDir', async () => {
   return { ok: true }
 })
 
-// 暴露/刷新外部 Agent API Token
+// 暴露/刷新外部 Agent API 配置
 ipcMain.handle('settings:getApiToken', () => {
   const s = readAppSettings()
-  if (!s.apiToken) {
+  if (!s.apiToken || typeof s.apiToken !== 'string' || s.apiToken.trim() === '') {
     s.apiToken = crypto.randomBytes(24).toString('hex')
     writeAppSettings(s)
   }
-  return { token: s.apiToken, port: s.apiPort || 3001 }
+  return {
+    token: s.apiToken,
+    port: Number(s.apiPort) || 3001,
+    host: s.apiHost || '127.0.0.1',
+    lanMode: s.apiLanMode === true
+  }
 })
 
 ipcMain.handle('settings:resetApiToken', () => {
@@ -472,7 +477,38 @@ ipcMain.handle('settings:resetApiToken', () => {
   s.apiToken = crypto.randomBytes(24).toString('hex')
   writeAppSettings(s)
   if (apiServer) apiServer.restart()
-  return { token: s.apiToken, port: s.apiPort || 3001 }
+  return {
+    token: s.apiToken,
+    port: Number(s.apiPort) || 3001,
+    host: s.apiHost || '127.0.0.1',
+    lanMode: s.apiLanMode === true
+  }
+})
+
+// 设置 Agent API 端口 / 局域网模式 / 自定义 Token
+ipcMain.handle('settings:setApiConfig', (_event, patch) => {
+  const s = readAppSettings()
+  if (patch.port !== undefined) {
+    const n = Number(patch.port)
+    s.apiPort = n > 0 && n < 65536 ? n : 3001
+  }
+  if (patch.host !== undefined) {
+    s.apiHost = patch.host === '0.0.0.0' ? '0.0.0.0' : '127.0.0.1'
+  }
+  if (patch.lanMode !== undefined) {
+    s.apiLanMode = patch.lanMode === true
+  }
+  if (patch.token !== undefined && typeof patch.token === 'string' && patch.token.trim().length >= 8) {
+    s.apiToken = patch.token.trim()
+  }
+  writeAppSettings(s)
+  if (apiServer) apiServer.restart()
+  return {
+    token: s.apiToken,
+    port: Number(s.apiPort) || 3001,
+    host: s.apiHost || '127.0.0.1',
+    lanMode: s.apiLanMode === true
+  }
 })
 
 // 选择文件夹对话框
