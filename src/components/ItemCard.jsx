@@ -63,10 +63,10 @@ export default function ItemCard({
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 16, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
       whileHover={cardHover}
-      transition={{ duration: 0.4, ease: EASE, delay: Math.min(index * 0.04, 0.32) }}
+      transition={{ duration: 0.3, ease: EASE, delay: Math.min(index * 0.025, 0.12) }}
       onClick={handleCardClick}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}

@@ -193,12 +193,12 @@ function CategoryTab({ data, t, lang, subView, setSubView }) {
     <div className="space-y-4">
       <SubTabs tabs={subTabs} active={subView} onChange={setSubView} />
       <AnimatePresence mode="wait">
-        <motion.div key={subView} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.25, ease: EASE }}>
+        <motion.div key={subView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: EASE }}>
           {subView === 'pie' && (
             <ChartCard title={t('stats_categoryPie')} icon={<PieIcon size={16} />}>
               <ResponsiveContainer width="100%" height={420}>
                 <PieChart>
-                  <Pie data={categoryData} dataKey="count" nameKey={lang === 'en' ? 'name_en' : 'name'} outerRadius={160} paddingAngle={2} stroke="none" isAnimationActive animationBegin={100} animationDuration={900}>
+                  <Pie data={categoryData} dataKey="count" nameKey={lang === 'en' ? 'name_en' : 'name'} outerRadius={160} paddingAngle={2} stroke="none" isAnimationActive animationBegin={100} animationDuration={500}>
                     {categoryData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                   </Pie>
                   <ReTooltip content={<CustomTooltip />} />
@@ -220,7 +220,7 @@ function CategoryTab({ data, t, lang, subView, setSubView }) {
                   <XAxis type="number" hide />
                   <YAxis dataKey={lang === 'en' ? 'name_en' : 'name'} type="category" width={110} tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
                   <ReTooltip content={<CustomTooltip />} cursor={{ fill: 'var(--color-primary-soft)' }} />
-                  <Bar dataKey="count" radius={[0, 10, 10, 0]} isAnimationActive animationDuration={1000}>
+                  <Bar dataKey="count" radius={[0, 10, 10, 0]} isAnimationActive animationDuration={500}>
                     {categoryData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                   </Bar>
                 </BarChart>
@@ -271,7 +271,7 @@ function LocationTab({ data, t, lang, subView, setSubView }) {
     <div className="space-y-4">
       <SubTabs tabs={subTabs} active={subView} onChange={setSubView} />
       <AnimatePresence mode="wait">
-        <motion.div key={subView} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.25, ease: EASE }}>
+        <motion.div key={subView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: EASE }}>
           {subView === 'bar' && (
             <ChartCard title={t('stats_locationBar')} icon={<BarChart2 size={16} />}>
               <ResponsiveContainer width="100%" height={420}>
@@ -286,7 +286,7 @@ function LocationTab({ data, t, lang, subView, setSubView }) {
                   <XAxis dataKey="name" tick={{ fill: 'var(--color-text-secondary)', fontSize: 11 }} angle={locationData.length > 6 ? 30 : 0} textAnchor={locationData.length > 6 ? 'start' : 'middle'} height={locationData.length > 6 ? 60 : 30} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <ReTooltip content={<CustomTooltip />} cursor={{ fill: 'var(--color-primary-soft)' }} />
-                  <Bar dataKey="count" fill="url(#locGrad2)" radius={[10, 10, 0, 0]} isAnimationActive animationDuration={1000} />
+                  <Bar dataKey="count" fill="url(#locGrad2)" radius={[10, 10, 0, 0]} isAnimationActive animationDuration={500} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -373,12 +373,12 @@ function ExpiryTab({ data, t, lang, subView, setSubView }) {
     <div className="space-y-4">
       <SubTabs tabs={subTabs} active={subView} onChange={setSubView} />
       <AnimatePresence mode="wait">
-        <motion.div key={subView} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.25, ease: EASE }}>
+        <motion.div key={subView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: EASE }}>
           {subView === 'donut' && (
             <ChartCard title={t('stats_expiryDonut')} icon={<CircleDollarSign size={16} />}>
               <ResponsiveContainer width="100%" height={420}>
                 <PieChart>
-                  <Pie data={expiryData} dataKey="count" nameKey={lang === 'en' ? 'name_en' : 'name'} innerRadius={100} outerRadius={160} paddingAngle={3} stroke="none" isAnimationActive animationDuration={900}>
+                  <Pie data={expiryData} dataKey="count" nameKey={lang === 'en' ? 'name_en' : 'name'} innerRadius={100} outerRadius={160} paddingAngle={3} stroke="none" isAnimationActive animationDuration={500}>
                     {expiryData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                   </Pie>
                   <ReTooltip content={<CustomTooltip />} />
@@ -395,7 +395,7 @@ function ExpiryTab({ data, t, lang, subView, setSubView }) {
                   <XAxis dataKey="label" tick={{ fill: 'var(--color-text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <ReTooltip content={<CustomTooltip />} />
-                  <Bar dataKey="count" radius={[10, 10, 0, 0]} isAnimationActive animationDuration={1000}>
+                  <Bar dataKey="count" radius={[10, 10, 0, 0]} isAnimationActive animationDuration={500}>
                     {timeline.map((entry, i) => <Cell key={i} fill={EXPIRY_COLORS[Object.keys(EXPIRY_COLORS)[i]] || COLORS[i]} />)}
                   </Bar>
                 </BarChart>
@@ -443,7 +443,7 @@ function StockTab({ data, t, lang, subView, setSubView }) {
     <div className="space-y-4">
       <SubTabs tabs={subTabs} active={subView} onChange={setSubView} />
       <AnimatePresence mode="wait">
-        <motion.div key={subView} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.25, ease: EASE }}>
+        <motion.div key={subView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: EASE }}>
           {subView === 'gauge' && (
             <ChartCard title={t('stats_stockGauge')} icon={<Activity size={16} />}>
               <div className="flex flex-col items-center justify-center py-6">
@@ -524,7 +524,7 @@ function TimeTab({ data, t, lang, subView, setSubView }) {
     <div className="space-y-4">
       <SubTabs tabs={subTabs} active={subView} onChange={setSubView} />
       <AnimatePresence mode="wait">
-        <motion.div key={subView} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.25, ease: EASE }}>
+        <motion.div key={subView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: EASE }}>
           {subView === 'line' && (
             <ChartCard title={t('stats_timeLine')} icon={<TrendingUp size={16} />}>
               <ResponsiveContainer width="100%" height={420}>
@@ -534,8 +534,8 @@ function TimeTab({ data, t, lang, subView, setSubView }) {
                   <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <ReTooltip content={<CustomTooltip />} />
                   <Legend verticalAlign="top" height={24} />
-                  <Line type="monotone" dataKey="created" name={t('stats_created')} stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: '#10b981' }} activeDot={{ r: 7 }} isAnimationActive animationDuration={1200} />
-                  <Line type="monotone" dataKey="updated" name={t('stats_updated')} stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4, fill: '#8b5cf6' }} activeDot={{ r: 7 }} isAnimationActive animationDuration={1200} />
+                  <Line type="monotone" dataKey="created" name={t('stats_created')} stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: '#10b981' }} activeDot={{ r: 7 }} isAnimationActive animationDuration={600} />
+                  <Line type="monotone" dataKey="updated" name={t('stats_updated')} stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4, fill: '#8b5cf6' }} activeDot={{ r: 7 }} isAnimationActive animationDuration={600} />
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -556,8 +556,8 @@ function TimeTab({ data, t, lang, subView, setSubView }) {
                   <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <ReTooltip content={<CustomTooltip />} />
                   <Legend verticalAlign="top" height={24} />
-                  <Bar dataKey="created" name={t('stats_created')} fill="#10b981" radius={[6, 6, 0, 0]} isAnimationActive animationDuration={1000} />
-                  <Bar dataKey="updated" name={t('stats_updated')} fill="#8b5cf6" radius={[6, 6, 0, 0]} isAnimationActive animationDuration={1000} />
+                  <Bar dataKey="created" name={t('stats_created')} fill="#10b981" radius={[6, 6, 0, 0]} isAnimationActive animationDuration={500} />
+                  <Bar dataKey="updated" name={t('stats_updated')} fill="#8b5cf6" radius={[6, 6, 0, 0]} isAnimationActive animationDuration={500} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -571,8 +571,8 @@ function TimeTab({ data, t, lang, subView, setSubView }) {
                   <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <ReTooltip content={<CustomTooltip />} />
                   <Legend verticalAlign="top" height={24} />
-                  <Bar dataKey="created" name={t('stats_created')} fill="#10b981" radius={[6, 6, 0, 0]} isAnimationActive animationDuration={1000} />
-                  <Line type="monotone" dataKey="updated" name={t('stats_updated')} stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 7 }} isAnimationActive animationDuration={1200} />
+                  <Bar dataKey="created" name={t('stats_created')} fill="#10b981" radius={[6, 6, 0, 0]} isAnimationActive animationDuration={500} />
+                  <Line type="monotone" dataKey="updated" name={t('stats_updated')} stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 7 }} isAnimationActive animationDuration={600} />
                 </ComposedChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -597,7 +597,7 @@ function QuantityTab({ data, t, lang, subView, setSubView }) {
     <div className="space-y-4">
       <SubTabs tabs={subTabs} active={subView} onChange={setSubView} />
       <AnimatePresence mode="wait">
-        <motion.div key={subView} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.25, ease: EASE }}>
+        <motion.div key={subView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: EASE }}>
           {subView === 'radar' && (
             <ChartCard title={t('stats_quantityRadar')} icon={<Activity size={16} />}>
               <ResponsiveContainer width="100%" height={460}>
@@ -607,8 +607,8 @@ function QuantityTab({ data, t, lang, subView, setSubView }) {
                   <PolarRadiusAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} axisLine={false} />
                   <ReTooltip content={<CustomTooltip />} />
                   <Legend verticalAlign="top" height={24} />
-                  <Radar name={t('stats_quantity')} dataKey="quantity" stroke="#f59e0b" strokeWidth={2} fill="#f59e0b" fillOpacity={0.35} isAnimationActive animationDuration={1200} />
-                  <Radar name={t('f_minQuantity')} dataKey="min" stroke="#ef4444" strokeWidth={2} fill="#ef4444" fillOpacity={0.15} isAnimationActive animationDuration={1200} />
+                  <Radar name={t('stats_quantity')} dataKey="quantity" stroke="#f59e0b" strokeWidth={2} fill="#f59e0b" fillOpacity={0.35} isAnimationActive animationDuration={600} />
+                  <Radar name={t('f_minQuantity')} dataKey="min" stroke="#ef4444" strokeWidth={2} fill="#ef4444" fillOpacity={0.15} isAnimationActive animationDuration={600} />
                 </RadarChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -621,8 +621,8 @@ function QuantityTab({ data, t, lang, subView, setSubView }) {
                   <XAxis type="number" hide />
                   <YAxis dataKey="name" type="category" width={120} tick={{ fill: 'var(--color-text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <ReTooltip content={<CustomTooltip />} cursor={{ fill: 'var(--color-primary-soft)' }} />
-                  <Bar dataKey="quantity" name={t('stats_quantity')} fill="#f59e0b" radius={[0, 10, 10, 0]} isAnimationActive animationDuration={1000} />
-                  <Bar dataKey="min" name={t('f_minQuantity')} fill="#ef4444" radius={[0, 10, 10, 0]} isAnimationActive animationDuration={1000} />
+                  <Bar dataKey="quantity" name={t('stats_quantity')} fill="#f59e0b" radius={[0, 10, 10, 0]} isAnimationActive animationDuration={500} />
+                  <Bar dataKey="min" name={t('f_minQuantity')} fill="#ef4444" radius={[0, 10, 10, 0]} isAnimationActive animationDuration={500} />
                   <Legend verticalAlign="top" height={24} />
                 </BarChart>
               </ResponsiveContainer>
@@ -637,7 +637,7 @@ function QuantityTab({ data, t, lang, subView, setSubView }) {
                   <YAxis type="number" dataKey="min" name={t('f_minQuantity')} tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <ZAxis type="number" dataKey="z" range={[60, 400]} />
                   <ReTooltip cursor={{ strokeDasharray: '3 3' }} content={<CustomTooltip />} />
-                  <Scatter name={t('stats_items')} data={scatterData} fill="#0ea5e9" isAnimationActive animationDuration={1200} />
+                  <Scatter name={t('stats_items')} data={scatterData} fill="#0ea5e9" isAnimationActive animationDuration={600} />
                 </ScatterChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -719,7 +719,7 @@ function MiniDonut({ data, nameKey, fixedColors, size = 320, inner = 70, outer =
   return (
     <ResponsiveContainer width="100%" height={size}>
       <PieChart>
-        <Pie data={data} dataKey="count" nameKey={nameKey} innerRadius={inner} outerRadius={outer} paddingAngle={2} stroke="none" isAnimationActive animationBegin={100} animationDuration={900}>
+        <Pie data={data} dataKey="count" nameKey={nameKey} innerRadius={inner} outerRadius={outer} paddingAngle={2} stroke="none" isAnimationActive animationBegin={100} animationDuration={500}>
           {data.map((entry, i) => <Cell key={i} fill={fixedColors ? entry.color || COLORS[i % COLORS.length] : COLORS[i % COLORS.length]} />)}
         </Pie>
         <ReTooltip content={<CustomTooltip showPercent={showPercent} total={total} />} />
@@ -747,8 +747,8 @@ function AreaChart({ data, t, large = false }) {
       <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
       <ReTooltip content={<CustomTooltip />} />
       <Legend verticalAlign="top" height={24} />
-      <Area type="monotone" dataKey="created" name={t('stats_created')} stroke="#10b981" strokeWidth={3} fill="url(#createdGrad)" dot={{ r: large ? 4 : 3, fill: '#10b981' }} activeDot={{ r: large ? 7 : 6 }} isAnimationActive animationDuration={1200} />
-      <Area type="monotone" dataKey="updated" name={t('stats_updated')} stroke="#8b5cf6" strokeWidth={3} fill="url(#updatedGrad)" dot={{ r: large ? 4 : 3, fill: '#8b5cf6' }} activeDot={{ r: large ? 7 : 6 }} isAnimationActive animationDuration={1200} />
+      <Area type="monotone" dataKey="created" name={t('stats_created')} stroke="#10b981" strokeWidth={3} fill="url(#createdGrad)" dot={{ r: large ? 4 : 3, fill: '#10b981' }} activeDot={{ r: large ? 7 : 6 }} isAnimationActive animationDuration={600} />
+      <Area type="monotone" dataKey="updated" name={t('stats_updated')} stroke="#8b5cf6" strokeWidth={3} fill="url(#updatedGrad)" dot={{ r: large ? 4 : 3, fill: '#8b5cf6' }} activeDot={{ r: large ? 7 : 6 }} isAnimationActive animationDuration={600} />
     </LineChart>
   )
 }

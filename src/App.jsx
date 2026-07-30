@@ -449,8 +449,8 @@ export default function App() {
           key="statistics"
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          transition={{ duration: 0.25, ease: EASE }}
+          exit={{ opacity: 0, x: -16 }}
+          transition={{ duration: 0.18, ease: EASE }}
           className="h-screen w-screen"
         >
           {statisticsView}
@@ -461,8 +461,8 @@ export default function App() {
           key="settings"
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          transition={{ duration: 0.25, ease: EASE }}
+          exit={{ opacity: 0, x: -16 }}
+          transition={{ duration: 0.18, ease: EASE }}
           className="h-screen w-screen"
         >
           {settingsView}
@@ -473,8 +473,8 @@ export default function App() {
           key="categories"
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          transition={{ duration: 0.25, ease: EASE }}
+          exit={{ opacity: 0, x: -16 }}
+          transition={{ duration: 0.18, ease: EASE }}
           className="h-screen w-screen"
         >
           {categoriesView}
@@ -485,8 +485,8 @@ export default function App() {
           key="locations"
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          transition={{ duration: 0.25, ease: EASE }}
+          exit={{ opacity: 0, x: -16 }}
+          transition={{ duration: 0.18, ease: EASE }}
           className="h-screen w-screen"
         >
           {locationsView}
@@ -498,7 +498,7 @@ export default function App() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.2, ease: EASE }}
+          transition={{ duration: 0.15, ease: EASE }}
           className="h-screen w-screen"
         >
       <div className="flex h-screen w-screen overflow-hidden bg-bg">

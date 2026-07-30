@@ -54,7 +54,7 @@ export default function Sidebar({
   if (collapsed) {
     return (
       <motion.aside
-        initial={{ width: 256 }}
+        initial={false}
         animate={{ width: 64 }}
         transition={{ duration: 0.3, ease: EASE }}
         className="flex shrink-0 flex-col border-r border-border bg-surface"
@@ -95,7 +95,7 @@ export default function Sidebar({
 
   return (
     <motion.aside
-      initial={{ width: 64 }}
+      initial={false}
       animate={{ width: 256 }}
       transition={{ duration: 0.3, ease: EASE }}
       className="flex w-64 shrink-0 flex-col border-r border-border bg-surface"
