@@ -844,7 +844,8 @@ app.whenReady().then(() => {
     getSettings: readAppSettings,
     writeAppSettings,
     resolveDbPath,
-    app
+    app,
+    getMainWindow: () => mainWindow
   })
   apiServer.start()
 

@@ -179,6 +179,20 @@ export default function App() {
     api.menu.onExportCsv(() => handlersRef.current.ec())
   }, [])
 
+  // Agent API 外部操作后通知前端刷新（解决 Agent 新建/修改/删除物品 UI 不同步问题）
+  useEffect(() => {
+    const remove = window.lingguang.agent.onDataChanged(async (payload) => {
+      await reload()
+      await refreshCounts()
+      if (payload.type === 'categories') {
+        await refreshCategories()
+      } else if (payload.type === 'locations') {
+        await refreshLocations()
+      }
+    })
+    return remove
+  }, [reload, refreshCounts, refreshCategories, refreshLocations])
+
   // 当前可见物品（含位置筛选）
   const filteredItems = useMemo(() => {
     if (!activeLocation || activeLocation.length === 0) return items

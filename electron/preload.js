@@ -60,5 +60,12 @@ contextBridge.exposeInMainWorld('lingguang', {
     onImport: (cb) => ipcRenderer.on('menu:import', cb),
     onExportJson: (cb) => ipcRenderer.on('menu:export-json', cb),
     onExportCsv: (cb) => ipcRenderer.on('menu:export-csv', cb)
+  },
+  agent: {
+    onDataChanged: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on('api:dataChanged', handler)
+      return () => ipcRenderer.removeListener('api:dataChanged', handler)
+    }
   }
 })

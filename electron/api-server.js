@@ -109,14 +109,26 @@ function fromInputItem(data, db) {
 }
 
 class ApiServer {
-  constructor({ db, getSettings, writeAppSettings, resolveDbPath, app }) {
+  constructor({ db, getSettings, writeAppSettings, resolveDbPath, app, getMainWindow }) {
     this.db = db
     this.getSettings = getSettings
     this.writeAppSettings = writeAppSettings
     this.resolveDbPath = resolveDbPath
     this.app = app
+    this.getMainWindow = getMainWindow
     this.server = null
     this.port = DEFAULT_PORT
+  }
+
+  notifyRenderer(type = 'data') {
+    try {
+      const win = this.getMainWindow ? this.getMainWindow() : null
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('api:dataChanged', { type, source: 'agent' })
+      }
+    } catch (e) {
+      console.error('[api-server] notify renderer failed:', e.message)
+    }
   }
 
   getSettingsObj() {
@@ -256,6 +268,7 @@ class ApiServer {
          VALUES (@id, @name, @item_no, @room, @position, @location, @quantity, @min_quantity, @photo, @category, @expiry_date, @created_at, @updated_at)`
       )
       .run(row)
+    this.notifyRenderer('items')
     json(res, 201, { item: toPhoneItem(row) })
   }
 
@@ -307,12 +320,14 @@ class ApiServer {
          expiry_date=@expiry_date, updated_at=@updated_at WHERE id=@id`
       )
       .run(next)
+    this.notifyRenderer('items')
     json(res, 200, { item: toPhoneItem(next) })
   }
 
   deleteItem(req, res, path) {
     const id = decodeURIComponent(path.slice('/api/items/'.length))
     const info = this.db.prepare('DELETE FROM items WHERE id = ?').run(id)
+    this.notifyRenderer('items')
     json(res, 200, { deleted: info.changes })
   }
 
@@ -351,6 +366,7 @@ class ApiServer {
       updated_at: now
     })
     const row = this.db.prepare('SELECT * FROM categories WHERE id = ?').get(id)
+    this.notifyRenderer('categories')
     json(res, 201, { category: row })
   }
 
@@ -382,6 +398,7 @@ class ApiServer {
       ).run(next)
     })
     tx()
+    this.notifyRenderer('categories')
     json(res, 200, { category: next, itemsSynced: next.key !== cur.key })
   }
 
@@ -402,6 +419,7 @@ class ApiServer {
       this.db.prepare('DELETE FROM categories WHERE id = ?').run(id)
     })
     tx()
+    this.notifyRenderer('categories')
     json(res, 200, { deleted: true, itemsMigrated: cat.key !== 'other' })
   }
 
@@ -418,6 +436,7 @@ class ApiServer {
       return info.changes
     })
     const migrated = tx()
+    this.notifyRenderer('categories')
     json(res, 200, { merged: true, migrated })
   }
 
@@ -447,6 +466,7 @@ class ApiServer {
       updated_at: now
     })
     const row = this.db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
+    this.notifyRenderer('locations')
     json(res, 201, { location: row })
   }
 
@@ -487,6 +507,7 @@ class ApiServer {
       })
     })
     tx()
+    this.notifyRenderer('locations')
     const row = this.db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
     json(res, 200, { location: row, itemsSynced: newName !== cur.name })
   }
@@ -514,6 +535,7 @@ class ApiServer {
     }
     const ph = toDelete.map(() => '?').join(',')
     this.db.prepare(`DELETE FROM locations WHERE id IN (${ph})`).run(...toDelete)
+    this.notifyRenderer('locations')
     json(res, 200, { deleted: toDelete.length })
   }
 
