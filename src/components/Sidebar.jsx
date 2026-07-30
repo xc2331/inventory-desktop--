@@ -59,7 +59,7 @@ export default function Sidebar({
         transition={{ duration: 0.3, ease: EASE }}
         className="flex shrink-0 flex-col border-r border-border bg-surface"
       >
-        <div className="flex h-14 items-center justify-center border-b border-border">
+        <div className="drag-region flex h-14 items-center justify-center border-b border-border">
           <div className="text-white">
             <Logo size={28} />
           </div>
@@ -100,7 +100,7 @@ export default function Sidebar({
       transition={{ duration: 0.3, ease: EASE }}
       className="flex w-64 shrink-0 flex-col border-r border-border bg-surface"
     >
-      <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
+      <div className="drag-region flex h-14 items-center gap-2.5 border-b border-border px-4">
         <div className="text-white">
           <Logo size={28} />
         </div>
