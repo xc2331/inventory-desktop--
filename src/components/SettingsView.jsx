@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle } from 'lucide-react'
+import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
 import { getSettings, getApiToken, resetApiToken, setApiConfig } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -15,7 +15,9 @@ const THEMES = [
 
 export default function SettingsView({
   theme,
+  animations,
   onChangeTheme,
+  onChangeAnimations,
   onBack,
   onChangeLang,
   onChangeDataDir,
@@ -144,6 +146,38 @@ export default function SettingsView({
                   </motion.button>
                 )
               })}
+            </div>
+          </Section>
+
+          {/* 动效开关 */}
+          <Section title={t('settings_animation')} desc={t('settings_animation_desc')}>
+            <div className="grid grid-cols-2 gap-2">
+              <motion.button
+                whileTap={{ scale: 0.96 }}
+                onClick={() => onChangeAnimations(true)}
+                className={cn(
+                  'relative flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition-smooth',
+                  animations
+                    ? 'border-primary bg-primary-soft text-primary'
+                    : 'border-border bg-surface text-text-secondary hover:bg-surface-hover'
+                )}
+              >
+                <Sparkles size={18} />
+                {t('settings_animation_on')}
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.96 }}
+                onClick={() => onChangeAnimations(false)}
+                className={cn(
+                  'relative flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition-smooth',
+                  !animations
+                    ? 'border-primary bg-primary-soft text-primary'
+                    : 'border-border bg-surface text-text-secondary hover:bg-surface-hover'
+                )}
+              >
+                <Monitor size={18} />
+                {t('settings_animation_off')}
+              </motion.button>
             </div>
           </Section>
 

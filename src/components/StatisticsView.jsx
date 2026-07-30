@@ -30,7 +30,7 @@ const TABS = [
   { key: 'time', icon: TrendingUp, labelKey: 'stats_byTime', color: '#14b8a6' }
 ]
 
-export default function StatisticsView({ onBack }) {
+export default function StatisticsView({ onBack, animations = true }) {
   const { t, lang } = useI18n()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -128,12 +128,12 @@ export default function StatisticsView({ onBack }) {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3, ease: EASE }}
             >
-              {activeTab === 'overview' && <OverviewTab data={data} t={t} lang={lang} />}
-              {activeTab === 'category' && <CategoryTab data={data} t={t} lang={lang} subView={subView.category} setSubView={(v) => setSubView((s) => ({ ...s, category: v }))} />}
-              {activeTab === 'location' && <LocationTab data={data} t={t} lang={lang} subView={subView.location} setSubView={(v) => setSubView((s) => ({ ...s, location: v }))} />}
-              {activeTab === 'expiry' && <ExpiryTab data={data} t={t} lang={lang} subView={subView.expiry} setSubView={(v) => setSubView((s) => ({ ...s, expiry: v }))} />}
-              {activeTab === 'stock' && <StockTab data={data} t={t} lang={lang} subView={subView.stock} setSubView={(v) => setSubView((s) => ({ ...s, stock: v }))} />}
-              {activeTab === 'time' && <TimeTab data={data} t={t} lang={lang} subView={subView.time} setSubView={(v) => setSubView((s) => ({ ...s, time: v }))} />}
+              {activeTab === 'overview' && <OverviewTab data={data} t={t} lang={lang} animations={animations} />}
+              {activeTab === 'category' && <CategoryTab data={data} t={t} lang={lang} subView={subView.category} setSubView={(v) => setSubView((s) => ({ ...s, category: v }))} animations={animations} />}
+              {activeTab === 'location' && <LocationTab data={data} t={t} lang={lang} subView={subView.location} setSubView={(v) => setSubView((s) => ({ ...s, location: v }))} animations={animations} />}
+              {activeTab === 'expiry' && <ExpiryTab data={data} t={t} lang={lang} subView={subView.expiry} setSubView={(v) => setSubView((s) => ({ ...s, expiry: v }))} animations={animations} />}
+              {activeTab === 'stock' && <StockTab data={data} t={t} lang={lang} subView={subView.stock} setSubView={(v) => setSubView((s) => ({ ...s, stock: v }))} animations={animations} />}
+              {activeTab === 'time' && <TimeTab data={data} t={t} lang={lang} subView={subView.time} setSubView={(v) => setSubView((s) => ({ ...s, time: v }))} animations={animations} />}
             </motion.div>
           </AnimatePresence>
 
@@ -146,7 +146,7 @@ export default function StatisticsView({ onBack }) {
 
 /* ================= 选项卡内容 ================= */
 
-function OverviewTab({ data, t, lang }) {
+function OverviewTab({ data, t, lang, animations }) {
   const categoryData = data?.categoryStats || []
   const expiryData = (data?.expiryStats || []).filter((d) => d.count > 0)
   const stockData = (data?.stockStats || []).filter((d) => d.count > 0)
@@ -176,7 +176,7 @@ function OverviewTab({ data, t, lang }) {
   )
 }
 
-function CategoryTab({ data, t, lang, subView, setSubView }) {
+function CategoryTab({ data, t, lang, subView, setSubView, animations }) {
   const categoryData = data?.categoryStats || []
   const total = data?.total || 1
 
@@ -218,7 +218,7 @@ function CategoryTab({ data, t, lang, subView, setSubView }) {
                   <XAxis type="number" hide />
                   <YAxis dataKey={lang === 'en' ? 'name_en' : 'name'} type="category" width={110} tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
                   <ReTooltip content={<CustomTooltip />} cursor={{ fill: 'var(--color-primary-soft)' }} />
-                  <Bar dataKey="count" radius={[0, 10, 10, 0]} isAnimationActive={false}>
+                  <Bar dataKey="count" radius={[0, 10, 10, 0]} isAnimationActive={animations} animationBegin={0} animationDuration={400} animationEasing="ease-out">
                     {categoryData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                   </Bar>
                 </BarChart>
@@ -341,7 +341,7 @@ function LocationTab({ data, t, lang, subView, setSubView }) {
   )
 }
 
-function ExpiryTab({ data, t, lang, subView, setSubView }) {
+function ExpiryTab({ data, t, lang, subView, setSubView, animations }) {
   const expiryData = (data?.expiryStats || []).filter((d) => d.count > 0)
   const items = data?.__rawItems || []
 
@@ -423,7 +423,7 @@ function ExpiryTab({ data, t, lang, subView, setSubView }) {
   )
 }
 
-function StockTab({ data, t, lang, subView, setSubView }) {
+function StockTab({ data, t, lang, subView, setSubView, animations }) {
   const stockData = (data?.stockStats || []).filter((d) => d.count > 0)
   const lowStockItems = useMemo(() => (data?.__rawItems || []).filter((it) => it.min_quantity > 0 && it.quantity <= it.min_quantity).sort((a, b) => a.quantity - b.quantity), [data])
 

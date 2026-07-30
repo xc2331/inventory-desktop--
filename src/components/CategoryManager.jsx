@@ -18,6 +18,7 @@ export default function CategoryManager({ categories, counts, lang, onBack, onCh
   const [editForm, setEditForm] = useState({})
   const [confirm, setConfirm] = useState({ open: false, id: null, name: '' })
   const [dupConfirm, setDupConfirm] = useState({ open: false, fromKey: '', toKey: '', name: '' })
+  const [editDupConfirm, setEditDupConfirm] = useState({ open: false, fromKey: '', toKey: '', name: '', editingId: null })
   const [iconPicker, setIconPicker] = useState({ open: false, target: null, current: '' })
 
   const handleAdd = async (e) => {
@@ -73,14 +74,46 @@ export default function CategoryManager({ categories, counts, lang, onBack, onCh
   }
 
   const handleSaveEdit = async () => {
+    const trimmedName = editForm.name.trim()
+    const trimmedKey = editForm.key.trim() || trimmedName
+    // 检测重名（排除当前正在编辑的分类本身）
+    const existing = categories.find(
+      (c) =>
+        c.id !== editingId &&
+        (c.name.toLowerCase() === trimmedName.toLowerCase() ||
+        (editForm.name_en && c.name_en && c.name_en.toLowerCase() === editForm.name_en.trim().toLowerCase()))
+    )
+    if (existing) {
+      setEditDupConfirm({
+        open: true,
+        fromKey: trimmedKey,
+        toKey: existing.key,
+        name: trimmedName,
+        editingId
+      })
+      return
+    }
     try {
       await updateCategory(editingId, {
-        key: editForm.key.trim() || editForm.name.trim(),
-        name: editForm.name.trim(),
+        key: trimmedKey,
+        name: trimmedName,
         name_en: editForm.name_en.trim(),
         icon: editForm.icon || ''
       })
       showToast(t('toast_renamed'))
+      setEditingId(null)
+      await onChanged()
+    } catch (err) {
+      showToast(t('toast_saveFail', { msg: err.message }), 'error')
+    }
+  }
+
+  const handleEditMerge = async () => {
+    const { fromKey, toKey, name } = editDupConfirm
+    setEditDupConfirm({ open: false, fromKey: '', toKey: '', name: '', editingId: null })
+    try {
+      const res = await mergeCategories(fromKey, toKey)
+      showToast(t('cat_dupMerged', { n: res.migrated }))
       setEditingId(null)
       await onChanged()
     } catch (err) {
@@ -351,6 +384,14 @@ export default function CategoryManager({ categories, counts, lang, onBack, onCh
         message={t('cat_dupMsg', { name: dupConfirm.name })}
         onConfirm={handleMerge}
         onCancel={() => setDupConfirm({ open: false, fromKey: '', toKey: '', name: '' })}
+      />
+
+      <ConfirmDialog
+        open={editDupConfirm.open}
+        title={t('cat_editDupTitle')}
+        message={t('cat_editDupMsg', { name: editDupConfirm.name })}
+        onConfirm={handleEditMerge}
+        onCancel={() => setEditDupConfirm({ open: false, fromKey: '', toKey: '', name: '', editingId: null })}
       />
 
       <IconPicker

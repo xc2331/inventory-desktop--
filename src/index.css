@@ -244,3 +244,14 @@ select {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* 设置页关闭动效：禁用 Recharts SVG 动画 + framer-motion 过渡 */
+.no-anim .recharts-wrapper *,
+.no-anim .recharts-surface *,
+.no-anim [class*="motion"] {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+.no-anim .chart-fade-in {
+  animation: none !important;
+}

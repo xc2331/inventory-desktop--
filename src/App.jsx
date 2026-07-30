@@ -73,13 +73,17 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [theme, setTheme] = useState('light')
+  const [animations, setAnimations] = useState(true)
 
-  // 初始化主题
+  // 初始化主题与动效
   useEffect(() => {
     getSettings().then((s) => {
-      const initial = s.theme || 'light'
-      setTheme(initial)
-      applyThemeClass(initial)
+      const initialTheme = s.theme || 'light'
+      setTheme(initialTheme)
+      applyThemeClass(initialTheme)
+      const anim = s.animations !== false
+      setAnimations(anim)
+      document.documentElement.classList.toggle('no-anim', !anim)
     })
   }, [])
 
@@ -371,6 +375,13 @@ export default function App() {
     applyThemeClass(nextTheme)
   }
 
+  // 设置页：切换动效
+  const handleChangeAnimations = async (on) => {
+    await setSettings({ animations: on })
+    setAnimations(on)
+    document.documentElement.classList.toggle('no-anim', !on)
+  }
+
   // 设置页：切换数据目录
   const handleChangeDataDir = async () => {
     const res = await pickFolder()
@@ -405,12 +416,14 @@ export default function App() {
 
   // ---- 渲染 ----
   const statisticsView = (
-    <StatisticsView onBack={() => setView('items')} />
+    <StatisticsView onBack={() => setView('items')} animations={animations} />
   )
   const settingsView = (
     <SettingsView
       theme={theme}
+      animations={animations}
       onChangeTheme={handleChangeTheme}
+      onChangeAnimations={handleChangeAnimations}
       onBack={() => setView('items')}
       onChangeLang={handleChangeLang}
       onChangeDataDir={handleChangeDataDir}
