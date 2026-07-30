@@ -597,6 +597,18 @@ ipcMain.handle('categories:reorder', (_event, { ids }) => {
   return { ok: true }
 })
 
+// 合并分类：将 fromKey 下的物品全部迁到 toKey，然后删除 fromKey 分类
+ipcMain.handle('categories:merge', (_event, { fromKey, toKey }) => {
+  if (!fromKey || !toKey || fromKey === toKey) return { ok: false, migrated: 0 }
+  const tx = db.transaction(() => {
+    const info = db.prepare('UPDATE items SET category = ?, updated_at = ? WHERE category = ?').run(toKey, Date.now(), fromKey)
+    db.prepare('DELETE FROM categories WHERE key = ?').run(fromKey)
+    return info.changes
+  })
+  const migrated = tx()
+  return { ok: true, migrated }
+})
+
 // ===== IPC：位置树 CRUD =====
 ipcMain.handle('locations:list', () => {
   return db.prepare('SELECT * FROM locations ORDER BY sort_order ASC, created_at ASC').all()

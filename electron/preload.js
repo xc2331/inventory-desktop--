@@ -47,7 +47,8 @@ contextBridge.exposeInMainWorld('lingguang', {
       ipcRenderer.invoke('categories:create', { key, name, name_en, icon }),
     update: (id, patch) => ipcRenderer.invoke('categories:update', { id, patch }),
     delete: (id) => ipcRenderer.invoke('categories:delete', { id }),
-    reorder: (ids) => ipcRenderer.invoke('categories:reorder', { ids })
+    reorder: (ids) => ipcRenderer.invoke('categories:reorder', { ids }),
+    merge: (fromKey, toKey) => ipcRenderer.invoke('categories:merge', { fromKey, toKey })
   },
   locations: {
     list: () => ipcRenderer.invoke('locations:list'),

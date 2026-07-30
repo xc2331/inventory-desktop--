@@ -261,6 +261,10 @@ export async function deleteCategory(id) {
   return api.categories.delete(id)
 }
 
+export async function mergeCategories(fromKey, toKey) {
+  return api.categories.merge(fromKey, toKey)
+}
+
 // 根据语言取分类显示名
 export function categoryDisplayName(cat, lang) {
   if (!cat) return ''

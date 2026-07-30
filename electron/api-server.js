@@ -178,8 +178,22 @@ class ApiServer {
         this.deleteItem(req, res, path)
       } else if (path === '/api/categories' && req.method === 'GET') {
         this.listCategories(req, res)
+      } else if (path === '/api/categories' && req.method === 'POST') {
+        this.createCategory(req, res)
+      } else if (path.startsWith('/api/categories/') && req.method === 'PATCH') {
+        this.updateCategory(req, res, path)
+      } else if (path.startsWith('/api/categories/') && req.method === 'DELETE') {
+        this.deleteCategory(req, res, path)
+      } else if (path === '/api/categories/merge' && req.method === 'POST') {
+        this.mergeCategories(req, res)
       } else if (path === '/api/locations' && req.method === 'GET') {
         this.listLocations(req, res)
+      } else if (path === '/api/locations' && req.method === 'POST') {
+        this.createLocation(req, res)
+      } else if (path.startsWith('/api/locations/') && req.method === 'PATCH') {
+        this.updateLocation(req, res, path)
+      } else if (path.startsWith('/api/locations/') && req.method === 'DELETE') {
+        this.deleteLocation(req, res, path)
       } else if (path === '/api/settings' && req.method === 'GET') {
         this.getSettingsEndpoint(req, res)
       } else {
@@ -310,6 +324,197 @@ class ApiServer {
   listLocations(req, res) {
     const rows = this.db.prepare('SELECT * FROM locations ORDER BY sort_order ASC, created_at ASC').all()
     json(res, 200, { locations: rows })
+  }
+
+  // ===== 分类 CRUD（Agent 可调用，修改时同步物品 category）=====
+
+  async createCategory(req, res) {
+    const data = await readBody(req)
+    if (!data.name) {
+      json(res, 400, { error: 'Bad request', message: 'name is required' })
+      return
+    }
+    const now = nowMs()
+    const id = crypto.randomUUID()
+    const maxOrder = this.db.prepare('SELECT MAX(sort_order) m FROM categories').get().m || 0
+    const key = (data.key || '').trim() || 'cat_' + id.slice(0, 8)
+    this.db.prepare(
+      'INSERT INTO categories (id,key,name,name_en,icon,sort_order,created_at,updated_at) VALUES (@id,@key,@name,@name_en,@icon,@sort_order,@created_at,@updated_at)'
+    ).run({
+      id,
+      key,
+      name: data.name || '',
+      name_en: data.name_en || '',
+      icon: data.icon || '',
+      sort_order: maxOrder + 1,
+      created_at: now,
+      updated_at: now
+    })
+    const row = this.db.prepare('SELECT * FROM categories WHERE id = ?').get(id)
+    json(res, 201, { category: row })
+  }
+
+  async updateCategory(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/categories/'.length))
+    const cur = this.db.prepare('SELECT * FROM categories WHERE id = ?').get(id)
+    if (!cur) {
+      json(res, 404, { error: 'Not found' })
+      return
+    }
+    const data = await readBody(req)
+    const next = {
+      ...cur,
+      key: data.key !== undefined ? String(data.key).trim() || cur.key : cur.key,
+      name: data.name !== undefined ? String(data.name) : cur.name,
+      name_en: data.name_en !== undefined ? String(data.name_en) : cur.name_en,
+      icon: data.icon !== undefined ? String(data.icon) : cur.icon,
+      updated_at: nowMs()
+    }
+    const tx = this.db.transaction(() => {
+      // 如果 key 变了，同步更新所有物品的 category 字段
+      if (next.key !== cur.key) {
+        this.db.prepare('UPDATE items SET category = ?, updated_at = ? WHERE category = ?').run(
+          next.key, nowMs(), cur.key
+        )
+      }
+      this.db.prepare(
+        'UPDATE categories SET key=@key,name=@name,name_en=@name_en,icon=@icon,updated_at=@updated_at WHERE id=@id'
+      ).run(next)
+    })
+    tx()
+    json(res, 200, { category: next, itemsSynced: next.key !== cur.key })
+  }
+
+  deleteCategory(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/categories/'.length))
+    const cat = this.db.prepare('SELECT * FROM categories WHERE id = ?').get(id)
+    if (!cat) {
+      json(res, 404, { error: 'Not found' })
+      return
+    }
+    const tx = this.db.transaction(() => {
+      // 将该分类下的物品归到 "other"
+      if (cat.key !== 'other') {
+        this.db.prepare('UPDATE items SET category = ?, updated_at = ? WHERE category = ?').run(
+          'other', nowMs(), cat.key
+        )
+      }
+      this.db.prepare('DELETE FROM categories WHERE id = ?').run(id)
+    })
+    tx()
+    json(res, 200, { deleted: true, itemsMigrated: cat.key !== 'other' })
+  }
+
+  async mergeCategories(req, res) {
+    const data = await readBody(req)
+    const { fromKey, toKey } = data
+    if (!fromKey || !toKey || fromKey === toKey) {
+      json(res, 400, { error: 'Bad request', message: 'fromKey and toKey are required and must differ' })
+      return
+    }
+    const tx = this.db.transaction(() => {
+      const info = this.db.prepare('UPDATE items SET category = ?, updated_at = ? WHERE category = ?').run(toKey, nowMs(), fromKey)
+      this.db.prepare('DELETE FROM categories WHERE key = ?').run(fromKey)
+      return info.changes
+    })
+    const migrated = tx()
+    json(res, 200, { merged: true, migrated })
+  }
+
+  // ===== 位置 CRUD（Agent 可调用，修改时同步物品 room/position/location）=====
+
+  async createLocation(req, res) {
+    const data = await readBody(req)
+    if (!data.name) {
+      json(res, 400, { error: 'Bad request', message: 'name is required' })
+      return
+    }
+    const now = nowMs()
+    const id = crypto.randomUUID()
+    const parentId = data.parentId || ''
+    const maxOrder =
+      this.db.prepare('SELECT MAX(sort_order) m FROM locations WHERE parent_id IS ? OR parent_id = ?').get(
+        parentId || null, parentId || ''
+      ).m || 0
+    this.db.prepare(
+      'INSERT INTO locations (id,name,parent_id,sort_order,created_at,updated_at) VALUES (@id,@name,@parent_id,@sort_order,@created_at,@updated_at)'
+    ).run({
+      id,
+      name: data.name || '',
+      parent_id: parentId,
+      sort_order: maxOrder + 1,
+      created_at: now,
+      updated_at: now
+    })
+    const row = this.db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
+    json(res, 201, { location: row })
+  }
+
+  async updateLocation(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/locations/'.length))
+    const cur = this.db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
+    if (!cur) {
+      json(res, 404, { error: 'Not found' })
+      return
+    }
+    const data = await readBody(req)
+    const newName = data.name !== undefined ? String(data.name) : cur.name
+    const newParentId = data.parentId !== undefined ? String(data.parentId) : cur.parent_id
+    const now = nowMs()
+
+    const tx = this.db.transaction(() => {
+      // 如果位置名称变了，同步更新引用该位置名的物品
+      if (newName !== cur.name) {
+        // 更新 room 字段（根位置）
+        if (!cur.parent_id) {
+          this.db.prepare('UPDATE items SET room = ?, updated_at = ? WHERE room = ?').run(newName, now, cur.name)
+        }
+        // 更新 position 字段（叶子位置）
+        this.db.prepare('UPDATE items SET position = ?, updated_at = ? WHERE position = ?').run(newName, now, cur.name)
+        // 更新 location 字段中的路径片段
+        const items = this.db.prepare('SELECT id, location FROM items WHERE location LIKE ?').all(`%${cur.name}%`)
+        const stmt = this.db.prepare('UPDATE items SET location = ?, updated_at = ? WHERE id = ?')
+        for (const it of items) {
+          const newLoc = it.location.split(/\s*>\s*/).map(p => p.trim() === cur.name ? newName : p).join(' > ')
+          if (newLoc !== it.location) stmt.run(newLoc, now, it.id)
+        }
+      }
+      this.db.prepare('UPDATE locations SET name=@name,parent_id=@parent_id,updated_at=@updated_at WHERE id=@id').run({
+        id,
+        name: newName,
+        parent_id: newParentId || '',
+        updated_at: now
+      })
+    })
+    tx()
+    const row = this.db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
+    json(res, 200, { location: row, itemsSynced: newName !== cur.name })
+  }
+
+  deleteLocation(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/locations/'.length))
+    const cur = this.db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
+    if (!cur) {
+      json(res, 404, { error: 'Not found' })
+      return
+    }
+    // 递归收集要删除的节点
+    const toDelete = [id]
+    let changed = true
+    while (changed) {
+      changed = false
+      const ph = toDelete.map(() => '?').join(',')
+      const children = this.db.prepare(`SELECT id, name FROM locations WHERE parent_id IN (${ph})`).all(...toDelete)
+      for (const c of children) {
+        if (!toDelete.includes(c.id)) {
+          toDelete.push(c.id)
+          changed = true
+        }
+      }
+    }
+    const ph = toDelete.map(() => '?').join(',')
+    this.db.prepare(`DELETE FROM locations WHERE id IN (${ph})`).run(...toDelete)
+    json(res, 200, { deleted: toDelete.length })
   }
 
   getSettingsEndpoint(req, res) {

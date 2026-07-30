@@ -224,6 +224,17 @@ select {
   }
 }
 
+/* 图表容器丝滑淡入：替代 Recharts JS 动画，用 GPU 加速的 opacity+transform */
+@layer utilities {
+  .chart-fade-in {
+    animation: chartFadeIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes chartFadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
 /* 减少动效偏好 */
 @media (prefers-reduced-motion: reduce) {
   *,

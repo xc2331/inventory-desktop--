@@ -27,8 +27,7 @@ const TABS = [
   { key: 'location', icon: MapPin, labelKey: 'stats_byLocation', color: '#0ea5e9' },
   { key: 'expiry', icon: CalendarClock, labelKey: 'stats_byExpiry', color: '#f97316' },
   { key: 'stock', icon: AlertTriangle, labelKey: 'stats_byStock', color: '#ef4444' },
-  { key: 'time', icon: TrendingUp, labelKey: 'stats_byTime', color: '#14b8a6' },
-  { key: 'quantity', icon: Activity, labelKey: 'stats_quantityRadar', color: '#f59e0b' }
+  { key: 'time', icon: TrendingUp, labelKey: 'stats_byTime', color: '#14b8a6' }
 ]
 
 export default function StatisticsView({ onBack }) {
@@ -37,7 +36,7 @@ export default function StatisticsView({ onBack }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
-  const [subView, setSubView] = useState({ category: 'pie', location: 'bar', expiry: 'donut', stock: 'gauge', time: 'line', quantity: 'radar' })
+  const [subView, setSubView] = useState({ category: 'pie', location: 'bar', expiry: 'donut', stock: 'gauge', time: 'line' })
 
   useEffect(() => {
     setLoading(true)
@@ -135,7 +134,6 @@ export default function StatisticsView({ onBack }) {
               {activeTab === 'expiry' && <ExpiryTab data={data} t={t} lang={lang} subView={subView.expiry} setSubView={(v) => setSubView((s) => ({ ...s, expiry: v }))} />}
               {activeTab === 'stock' && <StockTab data={data} t={t} lang={lang} subView={subView.stock} setSubView={(v) => setSubView((s) => ({ ...s, stock: v }))} />}
               {activeTab === 'time' && <TimeTab data={data} t={t} lang={lang} subView={subView.time} setSubView={(v) => setSubView((s) => ({ ...s, time: v }))} />}
-              {activeTab === 'quantity' && <QuantityTab data={data} t={t} lang={lang} subView={subView.quantity} setSubView={(v) => setSubView((s) => ({ ...s, quantity: v }))} />}
             </motion.div>
           </AnimatePresence>
 
@@ -220,7 +218,7 @@ function CategoryTab({ data, t, lang, subView, setSubView }) {
                   <XAxis type="number" hide />
                   <YAxis dataKey={lang === 'en' ? 'name_en' : 'name'} type="category" width={110} tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
                   <ReTooltip content={<CustomTooltip />} cursor={{ fill: 'var(--color-primary-soft)' }} />
-                  <Bar dataKey="count" radius={[0, 10, 10, 0]} isAnimationActive animationDuration={500}>
+                  <Bar dataKey="count" radius={[0, 10, 10, 0]} isAnimationActive={false}>
                     {categoryData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                   </Bar>
                 </BarChart>
@@ -583,71 +581,6 @@ function TimeTab({ data, t, lang, subView, setSubView }) {
   )
 }
 
-function QuantityTab({ data, t, lang, subView, setSubView }) {
-  const quantityData = data?.quantityStats || []
-  const scatterData = quantityData.map((it) => ({ ...it, z: it.quantity }))
-
-  const subTabs = [
-    { key: 'radar', icon: Activity, label: t('stats_radar') },
-    { key: 'bar', icon: BarChart2, label: t('stats_bar') },
-    { key: 'scatter', icon: Sparkles, label: t('stats_scatter') }
-  ]
-
-  return (
-    <div className="space-y-4">
-      <SubTabs tabs={subTabs} active={subView} onChange={setSubView} />
-      <AnimatePresence mode="wait">
-        <motion.div key={subView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: EASE }}>
-          {subView === 'radar' && (
-            <ChartCard title={t('stats_quantityRadar')} icon={<Activity size={16} />}>
-              <ResponsiveContainer width="100%" height={460}>
-                <RadarChart data={quantityData} outerRadius="65%">
-                  <PolarGrid stroke="var(--color-border)" />
-                  <PolarAngleAxis dataKey="name" tick={{ fill: 'var(--color-text-secondary)', fontSize: 10 }} />
-                  <PolarRadiusAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} axisLine={false} />
-                  <ReTooltip content={<CustomTooltip />} />
-                  <Legend verticalAlign="top" height={24} />
-                  <Radar name={t('stats_quantity')} dataKey="quantity" stroke="#f59e0b" strokeWidth={2} fill="#f59e0b" fillOpacity={0.35} isAnimationActive animationDuration={600} />
-                  <Radar name={t('f_minQuantity')} dataKey="min" stroke="#ef4444" strokeWidth={2} fill="#ef4444" fillOpacity={0.15} isAnimationActive animationDuration={600} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-          )}
-          {subView === 'bar' && (
-            <ChartCard title={t('stats_quantityBar')} icon={<BarChart2 size={16} />}>
-              <ResponsiveContainer width="100%" height={420}>
-                <BarChart data={quantityData} layout="vertical" margin={{ left: 16, right: 24, top: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" horizontal={false} />
-                  <XAxis type="number" hide />
-                  <YAxis dataKey="name" type="category" width={120} tick={{ fill: 'var(--color-text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <ReTooltip content={<CustomTooltip />} cursor={{ fill: 'var(--color-primary-soft)' }} />
-                  <Bar dataKey="quantity" name={t('stats_quantity')} fill="#f59e0b" radius={[0, 10, 10, 0]} isAnimationActive animationDuration={500} />
-                  <Bar dataKey="min" name={t('f_minQuantity')} fill="#ef4444" radius={[0, 10, 10, 0]} isAnimationActive animationDuration={500} />
-                  <Legend verticalAlign="top" height={24} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-          )}
-          {subView === 'scatter' && (
-            <ChartCard title={t('stats_quantityScatter')} icon={<Sparkles size={16} />}>
-              <ResponsiveContainer width="100%" height={420}>
-                <ScatterChart margin={{ left: 8, right: 24, top: 24, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis type="number" dataKey="quantity" name={t('stats_quantity')} tick={{ fill: 'var(--color-text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis type="number" dataKey="min" name={t('f_minQuantity')} tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <ZAxis type="number" dataKey="z" range={[60, 400]} />
-                  <ReTooltip cursor={{ strokeDasharray: '3 3' }} content={<CustomTooltip />} />
-                  <Scatter name={t('stats_items')} data={scatterData} fill="#0ea5e9" isAnimationActive animationDuration={600} />
-                </ScatterChart>
-              </ResponsiveContainer>
-            </ChartCard>
-          )}
-        </motion.div>
-      </AnimatePresence>
-    </div>
-  )
-}
-
 /* ================= 通用组件 ================= */
 
 function KpiCard({ icon, label, value, color, delay }) {
@@ -684,7 +617,7 @@ function ChartCard({ title, children, icon, delay, className }) {
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft text-primary">{icon}</span>
         <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
       </div>
-      {children}
+      <div className="chart-fade-in">{children}</div>
     </motion.div>
   )
 }
