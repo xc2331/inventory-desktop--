@@ -11,6 +11,12 @@ release-v4d/
 release-v4e/
 release-v4f/
 release-v5/
+release-v6/
+release-v7/
+release-v8/
+release-v9/
+release-v10/
+release-v11/
 release-temp/
 *.log
 .DS_Store

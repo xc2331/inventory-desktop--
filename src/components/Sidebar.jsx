@@ -8,7 +8,9 @@ import {
   Folder,
   Boxes,
   BarChart3,
-  HelpCircle
+  HelpCircle,
+  Sparkles,
+  Image
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName, buildLocationTree } from '../lib/api'
@@ -47,6 +49,8 @@ export default function Sidebar({
   onOpenSettings,
   onOpenStatistics,
   onOpenHelp,
+  onOpenMaterials,
+  onOpenLocationMap,
   activeView
 }) {
   const { t } = useI18n()
@@ -95,6 +99,8 @@ export default function Sidebar({
         </div>
 
         <div className="flex flex-col items-center gap-1 border-t border-border py-2">
+          <IconButton active={activeView === 'materials'} onClick={onOpenMaterials} icon={<Image size={18} />} label={t('nav_materials')} />
+          <IconButton active={activeView === 'locationMap'} onClick={onOpenLocationMap} icon={<MapPin size={18} />} label={t('nav_locationMap')} />
           <IconButton active={activeView === 'statistics'} onClick={onOpenStatistics} icon={<BarChart3 size={18} />} label={t('nav_statistics')} />
           <IconButton active={activeView === 'settings'} onClick={onOpenSettings} icon={<Settings size={18} />} label={t('nav_settings')} />
         </div>
@@ -184,6 +190,26 @@ export default function Sidebar({
         )}
       </div>
 
+      <button
+        onClick={onOpenMaterials}
+        className={cn(
+          'group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
+          activeView === 'materials' ? 'bg-primary-soft font-medium text-primary' : 'text-text-secondary'
+        )}
+      >
+        <Image size={16} className="transition-transform group-hover:scale-110" />
+        {t('nav_materials')}
+      </button>
+      <button
+        onClick={onOpenLocationMap}
+        className={cn(
+          'group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
+          activeView === 'locationMap' ? 'bg-primary-soft font-medium text-primary' : 'text-text-secondary'
+        )}
+      >
+        <MapPin size={16} className="transition-transform group-hover:scale-110" />
+        {t('nav_locationMap')}
+      </button>
       <button
         onClick={onOpenStatistics}
         className={cn(

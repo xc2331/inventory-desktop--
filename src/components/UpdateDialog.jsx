@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Download, Loader2, RefreshCw, CheckCircle2, AlertCircle, ArrowUpCircle } from 'lucide-react'
+import { Download, Loader2, RefreshCw, CheckCircle2, AlertCircle, ArrowUpCircle, ExternalLink } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { EASE, EASE_SPRING } from '../lib/motion'
 import { cn } from '../lib/cn'
@@ -12,7 +12,8 @@ export default function UpdateDialog({
   progress,
   onCheck,
   onDownload,
-  onClose
+  onClose,
+  onOpenExternal
 }) {
   const { t } = useI18n()
 
@@ -62,6 +63,11 @@ export default function UpdateDialog({
                       {t('update_releaseDate')}: {info.releaseDate}
                     </p>
                   )}
+                  {info.sourceName && (
+                    <p className="text-xs text-text-tertiary">
+                      更新源：{info.sourceName}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -79,9 +85,10 @@ export default function UpdateDialog({
                       transition={{ duration: 0.3, ease: EASE }}
                     />
                   </div>
-                  <p className="text-xs text-text-tertiary">
-                    {formatBytes(progress.downloaded)} / {formatBytes(progress.total)}
-                  </p>
+                  <div className="flex items-center justify-between text-xs text-text-tertiary">
+                    <span>{formatBytes(progress.downloaded)} / {formatBytes(progress.total)}</span>
+                    {info.sourceName && <span>来源：{info.sourceName}</span>}
+                  </div>
                 </div>
               )}
 
@@ -93,31 +100,68 @@ export default function UpdateDialog({
               )}
 
               {status === 'error' && (
-                <div className="mt-4 flex items-start gap-2 rounded-xl bg-danger/10 p-3 text-sm text-danger">
-                  <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                  <span>{info?.message || t('update_error')}</span>
+                <div className="mt-4 space-y-3 rounded-xl bg-danger/10 p-3 text-sm text-danger">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                    <span className="font-medium">{info?.message || t('update_error')}</span>
+                  </div>
+                  {info?.solution && (
+                    <p className="pl-6 text-xs leading-relaxed text-danger/80">
+                      解决方案：{info.solution}
+                    </p>
+                  )}
+                  {info?.manualUrls && onOpenExternal && (
+                    <div className="pl-6 flex flex-wrap gap-2 pt-1">
+                      <ManualBtn onClick={() => onOpenExternal(info.manualUrls.gitee)}>
+                        Gitee 手动下载
+                      </ManualBtn>
+                      <ManualBtn onClick={() => onOpenExternal(info.manualUrls.github)}>
+                        GitHub 手动下载
+                      </ManualBtn>
+                    </div>
+                  )}
                 </div>
               )}
 
               {status === 'notAvailable' && (
-                <div className="mt-4 flex items-center gap-2 text-sm text-text-secondary">
-                  <CheckCircle2 size={16} className="text-primary" />
-                  <span>{t('update_noUpdate')} ({info.currentVersion})</span>
+                <div className="mt-4 flex flex-col gap-2 text-sm text-text-secondary">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-primary" />
+                    <span>{t('update_noUpdate')} ({info.currentVersion})</span>
+                  </div>
+                  {info.sourceName && (
+                    <p className="pl-6 text-xs text-text-tertiary">检查源：{info.sourceName}</p>
+                  )}
                 </div>
               )}
             </div>
 
             <Footer
               status={status}
+              info={info}
               onCheck={onCheck}
               onDownload={onDownload}
               onClose={onClose}
+              onOpenExternal={onOpenExternal}
               t={t}
             />
           </motion.div>
         </motion.div>
       )}
     </AnimatePresence>
+  )
+}
+
+function ManualBtn({ children, onClick }) {
+  return (
+    <motion.button
+      whileTap={{ scale: 0.96 }}
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-lg border border-danger/30 bg-surface px-2.5 py-1.5 text-xs font-medium text-danger transition-smooth hover:bg-danger/10"
+    >
+      <ExternalLink size={12} />
+      {children}
+    </motion.button>
   )
 }
 
@@ -148,7 +192,7 @@ function Header({ status, info }) {
   )
 }
 
-function Footer({ status, onCheck, onDownload, onClose, t }) {
+function Footer({ status, info, onCheck, onDownload, onClose, onOpenExternal, t }) {
   const buttons = []
   if (status === 'idle' || status === 'error' || status === 'notAvailable') {
     buttons.push(
@@ -214,6 +258,17 @@ function Footer({ status, onCheck, onDownload, onClose, t }) {
           disabled={status === 'downloading'}
         >
           {t('btn_cancel')}
+        </motion.button>
+      )}
+      {status === 'error' && info?.manualUrls && onOpenExternal && (
+        <motion.button
+          key="manual-gitee"
+          whileTap={{ scale: 0.96 }}
+          onClick={() => onOpenExternal(info.manualUrls.gitee)}
+          className="flex items-center gap-1.5 rounded-xl border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-smooth hover:bg-danger/10"
+        >
+          <ExternalLink size={15} />
+          手动下载
         </motion.button>
       )}
       {buttons}

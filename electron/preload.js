@@ -32,6 +32,23 @@ contextBridge.exposeInMainWorld('lingguang', {
   items: {
     generateItemNo: () => ipcRenderer.invoke('items:generateItemNo')
   },
+  materials: {
+    list: (opts) => ipcRenderer.invoke('materials:list', opts),
+    get: (id) => ipcRenderer.invoke('materials:get', id),
+    create: (data) => ipcRenderer.invoke('materials:create', data),
+    update: (id, patch) => ipcRenderer.invoke('materials:update', { id, patch }),
+    delete: (id) => ipcRenderer.invoke('materials:delete', id)
+  },
+  qrUpload: {
+    start: () => ipcRenderer.invoke('qrUpload:start'),
+    stop: () => ipcRenderer.invoke('qrUpload:stop'),
+    getImage: () => ipcRenderer.invoke('qrUpload:getImage'),
+    onImage: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on('qrUpload:image', handler)
+      return () => ipcRenderer.removeListener('qrUpload:image', handler)
+    }
+  },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),
@@ -77,9 +94,11 @@ contextBridge.exposeInMainWorld('lingguang', {
   updater: {
     info: () => ipcRenderer.invoke('updater:info'),
     check: (opts) => ipcRenderer.invoke('updater:check', opts),
+    setSource: (sourceId) => ipcRenderer.invoke('updater:setSource', sourceId),
     setMirror: (url) => ipcRenderer.invoke('updater:setMirror', url),
     setAutoCheck: (enabled) => ipcRenderer.invoke('updater:setAutoCheck', enabled),
     download: () => ipcRenderer.invoke('updater:download'),
+    openExternal: (url) => ipcRenderer.invoke('updater:openExternal', url),
     onAvailable: (cb) => {
       const handler = (_e, payload) => cb(payload)
       ipcRenderer.on('updater:available', handler)

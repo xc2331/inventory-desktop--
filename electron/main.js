@@ -7,6 +7,7 @@ const Database = require('better-sqlite3')
 const { ApiServer } = require('./api-server')
 const { generateItemNo } = require('./item-no')
 const { Updater } = require('./updater')
+const { QRUploadServer } = require('./qr-upload')
 
 // 确保 Windows 任务栏正确显示应用图标与分组
 app.setAppUserModelId(app.getName())
@@ -18,6 +19,7 @@ const ICON_PATH = app.isPackaged
 let mainWindow = null
 let db = null
 let apiServer = null
+let qrUploadServer = null
 let tray = null
 let updater = null
 let isQuitting = false
@@ -84,6 +86,29 @@ const DEFAULT_CATEGORIES = [
   { key: 'other', name: '其他', name_en: 'Other', icon: '📦' }
 ]
 
+// 兼容旧数据库：检查并添加 items 表新增字段
+function ensureItemColumns(database) {
+  const cols = database.prepare("PRAGMA table_info(items)").all()
+  const existing = new Set(cols.map((c) => c.name))
+  const needed = [
+    { name: 'notes', def: "TEXT DEFAULT ''" },
+    { name: 'consume_rate', def: "REAL DEFAULT 0" },
+    { name: 'consume_unit', def: "TEXT DEFAULT 'day'" },
+    { name: 'consume_start_at', def: "INTEGER DEFAULT 0" },
+    { name: 'photo_meta', def: "TEXT DEFAULT ''" }
+  ]
+  for (const col of needed) {
+    if (!existing.has(col.name)) {
+      try {
+        database.exec(`ALTER TABLE items ADD COLUMN ${col.name} ${col.def}`)
+        console.log(`[migrate] 已添加列 items.${col.name}`)
+      } catch (e) {
+        console.error(`[migrate] 添加列 items.${col.name} 失败:`, e.message)
+      }
+    }
+  }
+}
+
 // 初始化数据库：建表、索引、种子数据
 function initDatabase() {
   backupDatabase()
@@ -103,11 +128,31 @@ function initDatabase() {
       photo TEXT DEFAULT '',
       category TEXT DEFAULT '',
       expiry_date INTEGER DEFAULT 0,
+      notes TEXT DEFAULT '',
+      consume_rate REAL DEFAULT 0,
+      consume_unit TEXT DEFAULT 'day',
+      consume_start_at INTEGER DEFAULT 0,
+      photo_meta TEXT DEFAULT '',
       created_at INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_items_name ON items(name);
     CREATE INDEX IF NOT EXISTS idx_items_category ON items(category);
+
+    CREATE TABLE IF NOT EXISTS materials (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT 'note',
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT DEFAULT '',
+      url TEXT DEFAULT '',
+      tags TEXT DEFAULT '',
+      photo TEXT DEFAULT '',
+      meta TEXT DEFAULT '',
+      created_at INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_materials_type ON materials(type);
+    CREATE INDEX IF NOT EXISTS idx_materials_title ON materials(title);
 
     CREATE TABLE IF NOT EXISTS categories (
       id TEXT PRIMARY KEY,
@@ -130,6 +175,9 @@ function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
   `)
+
+  // 兼容旧数据库：确保 items 表包含 v1.2.0 新增字段
+  ensureItemColumns(db)
 
   // 种子默认分类（仅在表为空时）
   const catCount = db.prepare('SELECT COUNT(*) c FROM categories').get().c
@@ -614,6 +662,87 @@ ipcMain.handle('items:generateItemNo', () => {
   return generateItemNo(db)
 })
 
+// ===== IPC：电子材料库 CRUD =====
+ipcMain.handle('materials:list', (_event, { type, keyword } = {}) => {
+  let sql = 'SELECT * FROM materials WHERE 1=1'
+  const params = []
+  if (type) {
+    sql += ' AND type = ?'
+    params.push(type)
+  }
+  if (keyword) {
+    sql += ' AND (title LIKE ? OR content LIKE ? OR tags LIKE ?)'
+    const like = `%${keyword}%`
+    params.push(like, like, like)
+  }
+  sql += ' ORDER BY updated_at DESC'
+  return db.prepare(sql).all(...params)
+})
+
+ipcMain.handle('materials:get', (_event, id) => {
+  return db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
+})
+
+ipcMain.handle('materials:create', (_event, data) => {
+  const now = Date.now()
+  const id = crypto.randomUUID()
+  db.prepare(
+    'INSERT INTO materials (id,type,title,content,url,tags,photo,meta,created_at,updated_at) VALUES (@id,@type,@title,@content,@url,@tags,@photo,@meta,@created_at,@updated_at)'
+  ).run({
+    id,
+    type: data.type || 'note',
+    title: data.title || '',
+    content: data.content || '',
+    url: data.url || '',
+    tags: data.tags || '',
+    photo: data.photo || '',
+    meta: data.meta || '',
+    created_at: now,
+    updated_at: now
+  })
+  return db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
+})
+
+ipcMain.handle('materials:update', (_event, { id, patch }) => {
+  const cur = db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
+  if (!cur) return null
+  const next = {
+    ...cur,
+    ...patch,
+    updated_at: Date.now()
+  }
+  db.prepare(
+    'UPDATE materials SET type=@type,title=@title,content=@content,url=@url,tags=@tags,photo=@photo,meta=@meta,updated_at=@updated_at WHERE id=@id'
+  ).run(next)
+  return next
+})
+
+ipcMain.handle('materials:delete', (_event, id) => {
+  db.prepare('DELETE FROM materials WHERE id = ?').run(id)
+  return { ok: true }
+})
+
+// ===== IPC：手机扫码传图 =====
+ipcMain.handle('qrUpload:start', async () => {
+  if (!qrUploadServer) {
+    qrUploadServer = new QRUploadServer({ getMainWindow: () => mainWindow })
+  }
+  return qrUploadServer.start()
+})
+
+ipcMain.handle('qrUpload:stop', () => {
+  if (qrUploadServer) {
+    qrUploadServer.stop()
+    qrUploadServer = null
+  }
+  return { ok: true }
+})
+
+ipcMain.handle('qrUpload:getImage', () => {
+  if (!qrUploadServer) return { image: null }
+  return { image: qrUploadServer.receivedImage }
+})
+
 // ===== IPC：分类 CRUD =====
 ipcMain.handle('categories:list', () => {
   return db.prepare('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC').all()
@@ -944,7 +1073,7 @@ app.whenReady().then(() => {
       }
     }
   )
-  const settings = readAppSettings()
+  // 启动后延迟自动检查更新（避免影响启动速度），复用上方已声明的 settings
   if (settings.autoCheckUpdate !== false) {
     setTimeout(() => {
       updater.checkForUpdates(true)
@@ -964,6 +1093,11 @@ app.on('before-quit', () => {
   isQuitting = true
   try {
     if (apiServer) apiServer.stop()
+  } catch (e) {
+    /* ignore */
+  }
+  try {
+    if (qrUploadServer) qrUploadServer.stop()
   } catch (e) {
     /* ignore */
   }

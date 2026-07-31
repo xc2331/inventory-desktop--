@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket } from 'lucide-react'
+import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket, Loader2 } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
 import { getSettings, getApiToken, resetApiToken, setApiConfig } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -30,7 +30,8 @@ export default function SettingsView({
   onExportCSV,
   onImport,
   updaterInfo,
-  onChangeUpdateMirror,
+  isCheckingUpdate,
+  onChangeUpdateSource,
   onChangeAutoCheckUpdate,
   onCheckUpdate
 }) {
@@ -349,29 +350,47 @@ export default function SettingsView({
                   <span className="font-mono font-medium text-text-primary">{updaterInfo?.currentVersion || '—'}</span>
                 </div>
                 <motion.button
-                  whileTap={{ scale: 0.97 }}
+                  whileTap={{ scale: isCheckingUpdate ? 1 : 0.97 }}
                   onClick={onCheckUpdate}
-                  className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+                  disabled={isCheckingUpdate}
+                  className={cn(
+                    'flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium transition-smooth',
+                    isCheckingUpdate
+                      ? 'cursor-not-allowed bg-surface text-text-tertiary'
+                      : 'bg-surface text-text-secondary hover:bg-surface-hover'
+                  )}
                 >
-                  <Download size={13} />
-                  {t('update_btn_check')}
+                  {isCheckingUpdate ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin" />
+                      <span>检查中…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={13} />
+                      {t('update_btn_check')}
+                    </>
+                  )}
                 </motion.button>
               </div>
 
-              {/* 镜像源 */}
+              {/* 更新源 */}
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-text-secondary">{t('settings_update_mirror')}</label>
+                <label className="text-xs font-medium text-text-secondary">{t('settings_update_source')}</label>
                 <select
-                  value={updaterInfo?.mirror || ''}
-                  onChange={(e) => onChangeUpdateMirror(e.target.value)}
+                  value={updaterInfo?.source || ''}
+                  onChange={(e) => onChangeUpdateSource(e.target.value)}
                   className="input h-9 w-full text-sm"
                 >
-                  {(updaterInfo?.mirrors || []).map((m) => (
-                    <option key={m.url} value={m.url}>
+                  {(updaterInfo?.sources || []).map((m) => (
+                    <option key={m.id} value={m.id}>
                       {m.name}
                     </option>
                   ))}
                 </select>
+                <p className="text-xs text-text-tertiary">
+                  首选源失败后，会自动尝试其他源。
+                </p>
               </div>
 
               {/* 自动检查开关 */}

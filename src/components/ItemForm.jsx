@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen } from 'lucide-react'
+import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen, Smartphone, ScanLine, Sparkles, Receipt, Boxes } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
-import { categoryDisplayName, buildLocationTree, locationParts, pickImage } from '../lib/api'
+import { categoryDisplayName, buildLocationTree, locationParts, pickImage, startQRUpload, stopQRUpload, onQRUploadImage } from '../lib/api'
 import { compressImageToBase64 } from '../lib/imageCompress'
 import { getCategoryIcon } from '../lib/categoryIcons'
 import { tsToDateInput, dateInputToTs } from '../lib/utils'
@@ -33,6 +33,10 @@ const EMPTY = {
   min_quantity: 0,
   expiry_date: '',
   photo: '',
+  notes: '',
+  consume_rate: 0,
+  consume_unit: 'day',
+  consume_start_at: '',
   _locId: ''
 }
 
@@ -52,6 +56,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       ...EMPTY,
       ...initial,
       expiry_date: tsToDateInput(initial.expiry_date),
+      consume_start_at: tsToDateInput(initial.consume_start_at),
       _locId: locId
     }
   })
@@ -59,8 +64,27 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const [treeOpen, setTreeOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [photoHint, setPhotoHint] = useState('')
+  const [qrState, setQrState] = useState({ url: '', status: 'idle' })
+  const [qrUnsubscribe, setQrUnsubscribe] = useState(null)
+
+  useEffect(() => {
+    return () => {
+      if (qrUnsubscribe) qrUnsubscribe()
+      stopQRUpload().catch(() => {})
+    }
+  }, [qrUnsubscribe])
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
+
+  // 清理二维码上传服务
+  const cleanupQR = async () => {
+    if (qrUnsubscribe) {
+      qrUnsubscribe()
+      setQrUnsubscribe(null)
+    }
+    await stopQRUpload().catch(() => {})
+    setQrState({ url: '', status: 'idle' })
+  }
 
   // 点击浏览：选择本地图片后自动压缩为 Base64 存入 photo
   const handleBrowse = async () => {
@@ -99,6 +123,35 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     }
   }
 
+  // 手机扫码传图
+  const startQR = async () => {
+    try {
+      setPhotoHint('')
+      setQrState({ url: '', status: 'starting' })
+      if (qrUnsubscribe) qrUnsubscribe()
+      const info = await startQRUpload()
+      setQrState({ url: info.url, status: 'waiting' })
+      const unsub = onQRUploadImage(({ image }) => {
+        setForm((f) => ({ ...f, photo: image }))
+        setQrState((s) => ({ ...s, status: 'success' }))
+        setPhotoHint(t('qrUpload_success'))
+      })
+      setQrUnsubscribe(unsub)
+    } catch (e) {
+      setQrState({ url: '', status: 'error' })
+      setPhotoHint(e.message || '启动失败')
+    }
+  }
+
+  const refreshQR = async () => {
+    await cleanupQR()
+    await startQR()
+  }
+
+  const stopQR = async () => {
+    await cleanupQR()
+  }
+
   const pickLocation = (id) => {
     const parts = locationParts(locations, id)
     setForm((f) => ({
@@ -127,7 +180,11 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       quantity: Number(form.quantity) || 0,
       min_quantity: Number(form.min_quantity) || 0,
       expiry_date: form.expiry_date ? dateInputToTs(form.expiry_date) : 0,
-      photo: form.photo.trim()
+      photo: form.photo.trim(),
+      notes: form.notes,
+      consume_rate: Number(form.consume_rate) || 0,
+      consume_unit: form.consume_unit,
+      consume_start_at: form.consume_start_at ? dateInputToTs(form.consume_start_at) : 0
     })
   }
 
@@ -264,63 +321,151 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                   onDragLeave={() => setDragOver(false)}
                   onDrop={handleDrop}
                   className={cn(
-                    'flex items-center gap-3 rounded-xl border-2 border-dashed p-2.5 transition-smooth',
+                    'flex flex-col gap-3 rounded-xl border-2 border-dashed p-3 transition-smooth',
                     dragOver
                       ? 'border-primary bg-primary-soft/40'
                       : 'border-border bg-surface hover:border-border-strong'
                   )}
                 >
-                  {form.photo ? (
-                    <img
-                      src={toPhotoSrc(form.photo)}
-                      alt="preview"
-                      className="h-14 w-14 shrink-0 rounded-lg object-cover ring-1 ring-border"
-                      onError={(e) => { e.target.style.display = 'none' }}
-                    />
-                  ) : (
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-bg text-text-tertiary">
-                      <ImageIcon size={22} />
-                    </div>
-                  )}
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <input
-                      type="text"
-                      value={form.photo}
-                      onChange={(e) => {
-                        set('photo', e.target.value)
-                        setPhotoHint('')
-                      }}
-                      placeholder={t('f_photo_dragHint')}
-                      className="input h-8 py-1 text-xs"
-                    />
-                    {photoHint && (
-                      <p className={cn('text-[11px]', photoHint.includes('失败') || photoHint.includes('超过') ? 'text-danger' : 'text-text-tertiary')}>
-                        {photoHint}
-                      </p>
+                  <div className="flex items-center gap-3">
+                    {form.photo ? (
+                      <img
+                        src={toPhotoSrc(form.photo)}
+                        alt="preview"
+                        className="h-14 w-14 shrink-0 rounded-lg object-cover ring-1 ring-border"
+                        onError={(e) => { e.target.style.display = 'none' }}
+                      />
+                    ) : (
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-bg text-text-tertiary">
+                        <ImageIcon size={22} />
+                      </div>
                     )}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={handleBrowse}
-                        className="flex items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-[11px] font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
-                      >
-                        <FolderOpen size={12} />
-                        {t('f_photo_browse')}
-                      </button>
-                      {form.photo && (
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <input
+                        type="text"
+                        value={form.photo}
+                        onChange={(e) => {
+                          set('photo', e.target.value)
+                          setPhotoHint('')
+                        }}
+                        placeholder={t('f_photo_dragHint')}
+                        className="input h-8 py-1 text-xs"
+                      />
+                      {photoHint && (
+                        <p className={cn('text-[11px]', photoHint.includes('失败') || photoHint.includes('超过') ? 'text-danger' : 'text-text-tertiary')}>
+                          {photoHint}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => set('photo', '')}
-                          className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-text-tertiary transition-smooth hover:text-danger"
+                          onClick={handleBrowse}
+                          className="flex items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-[11px] font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
                         >
-                          <X size={12} />
-                          {t('btn_delete')}
+                          <FolderOpen size={12} />
+                          {t('f_photo_browse')}
                         </button>
-                      )}
+                        <button
+                          type="button"
+                          onClick={qrState.status === 'idle' ? startQR : refreshQR}
+                          className="flex items-center gap-1 rounded-md bg-primary-soft px-2 py-1 text-[11px] font-medium text-primary transition-smooth hover:bg-primary-soft/80"
+                        >
+                          <Smartphone size={12} />
+                          {qrState.status === 'idle' ? t('qrUpload_start') : t('qrUpload_refresh')}
+                        </button>
+                        {qrState.status !== 'idle' && (
+                          <button
+                            type="button"
+                            onClick={stopQR}
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-text-tertiary transition-smooth hover:text-danger"
+                          >
+                            <X size={12} />
+                            {t('qrUpload_stop')}
+                          </button>
+                        )}
+                        {form.photo && (
+                          <button
+                            type="button"
+                            onClick={() => set('photo', '')}
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-text-tertiary transition-smooth hover:text-danger"
+                          >
+                            <X size={12} />
+                            {t('btn_delete')}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
+
+                  {qrState.url && (
+                    <div className="flex items-center gap-4 rounded-xl bg-bg p-3">
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrState.url)}`}
+                        alt="QR"
+                        className="h-24 w-24 rounded-lg ring-1 ring-border"
+                      />
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-text-secondary">{t('qrUpload_title')}</p>
+                        <p className="mt-1 text-[11px] text-text-tertiary">{t('qrUpload_desc')}</p>
+                        <p className={cn('mt-1 text-[11px] font-medium', qrState.status === 'success' ? 'text-primary' : 'text-text-tertiary')}>
+                          {qrState.status === 'success' ? t('qrUpload_success') : t('qrUpload_waiting')}
+                        </p>
+                        <p className="mt-1 text-[10px] text-text-tertiary/70">{t('qrUpload_tip')}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </Field>
+
+              <Field label={t('f_notes')} className="col-span-2">
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => set('notes', e.target.value)}
+                  rows={3}
+                  className="input resize-none"
+                  placeholder={t('f_notes')}
+                />
+              </Field>
+
+              <Field label={t('f_consumeRate')} className="col-span-2 sm:col-span-1">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.consume_rate}
+                  onChange={(e) => set('consume_rate', e.target.value)}
+                  className="input"
+                />
+                <span className="mt-1 block text-[11px] text-text-tertiary">{t('f_consumeRateHint')}</span>
+              </Field>
+
+              <div className="col-span-2 grid grid-cols-2 gap-3">
+                <Field label={t('f_consumeUnit')}>
+                  <select value={form.consume_unit} onChange={(e) => set('consume_unit', e.target.value)} className="input">
+                    <option value="day">{t('f_consumeUnit_day')}</option>
+                    <option value="week">{t('f_consumeUnit_week')}</option>
+                    <option value="month">{t('f_consumeUnit_month')}</option>
+                  </select>
+                </Field>
+                <Field label={t('f_consumeStart')}>
+                  <input type="date" value={form.consume_start_at} onChange={(e) => set('consume_start_at', e.target.value)} className="input" />
+                </Field>
+              </div>
+
+              {/* AI 能力占位入口 */}
+              <div className="col-span-2 rounded-xl border border-primary/20 bg-primary-soft/40 p-3">
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-primary">
+                  <Sparkles size={14} />
+                  {t('ai_title')}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <AIBadge icon={ScanLine} label={t('ai_segment')} />
+                  <AIBadge icon={Boxes} label={t('ai_recognize')} />
+                  <AIBadge icon={Receipt} label={t('ai_receipt')} />
+                  <AIBadge icon={Smartphone} label={t('ai_scan')} />
+                </div>
+                <p className="mt-2 text-[11px] text-text-tertiary">{t('ai_coming')}</p>
+              </div>
             </div>
           </div>
 
@@ -412,5 +557,14 @@ function MiniField({ label, children }) {
       <span className="mb-1 block text-[11px] font-medium text-text-tertiary">{label}</span>
       {children}
     </label>
+  )
+}
+
+function AIBadge({ icon: Icon, label }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-white/60 px-2 py-1 text-[10px] font-medium text-primary dark:bg-black/20">
+      <Icon size={11} />
+      {label}
+    </span>
   )
 }

@@ -19,6 +19,8 @@ import CategoryManager from './components/CategoryManager'
 import LocationManager from './components/LocationManager'
 import BulkEditBar from './components/BulkEditBar'
 import HelpView from './components/HelpView'
+import MaterialLibrary from './components/MaterialLibrary'
+import LocationMap from './components/LocationMap'
 import {
   fetchAllItems,
   searchItems,
@@ -49,9 +51,10 @@ import {
   winControl,
   getUpdaterInfo,
   checkUpdate,
-  setUpdateMirror,
+  setUpdateSource,
   setAutoCheckUpdate,
   downloadUpdate,
+  openUpdateExternal,
   onUpdateAvailable,
   onUpdateNotAvailable,
   onUpdateDownloadStart,
@@ -69,7 +72,7 @@ function applyThemeClass(theme) {
 
 export default function App() {
   const { t, lang, setLang } = useI18n()
-  const [view, setView] = useState('items') // items | settings | statistics | categories | locations
+  const [view, setView] = useState('items') // items | settings | statistics | categories | locations | materials | locationMap
   const [items, setItems] = useState([])
   const [allItems, setAllItems] = useState([]) // 全量物品，用于位置计数（不受筛选影响）
   const [lightbox, setLightbox] = useState({ src: '', alt: '' })
@@ -92,7 +95,7 @@ export default function App() {
   const [animations, setAnimations] = useState(true)
   const [closeAction, setCloseAction] = useState('')
   const [closePromptOpen, setClosePromptOpen] = useState(false)
-  const [updaterInfo, setUpdaterInfo] = useState({ currentVersion: '', mirror: '', mirrors: [], autoCheck: true })
+  const [updaterInfo, setUpdaterInfo] = useState({ currentVersion: '', source: '', sources: [], autoCheck: true })
   const [updateDialog, setUpdateDialog] = useState({ open: false, status: 'idle', info: null, progress: { downloaded: 0, total: 0, percent: 0 } })
 
   // 初始化主题、动效与关闭行为
@@ -481,9 +484,9 @@ export default function App() {
     await winControl.resolveCloseAction({ action, remember })
   }
 
-  // 软件更新：切换镜像源 / 自动检查 / 手动检查 / 下载安装
-  const handleChangeUpdateMirror = async (url) => {
-    await setUpdateMirror(url)
+  // 软件更新：切换更新源 / 自动检查 / 手动检查 / 下载安装
+  const handleChangeUpdateSource = async (sourceId) => {
+    await setUpdateSource(sourceId)
     const info = await getUpdaterInfo()
     setUpdaterInfo(info)
   }
@@ -504,6 +507,10 @@ export default function App() {
 
   const handleCloseUpdateDialog = () => {
     setUpdateDialog((d) => ({ ...d, open: false }))
+  }
+
+  const handleOpenUpdateExternal = async (url) => {
+    await openUpdateExternal(url)
   }
 
   // 设置页：切换数据目录
@@ -560,7 +567,8 @@ export default function App() {
       onExportCSV={handleExportCSV}
       onImport={handleImportJSON}
       updaterInfo={updaterInfo}
-      onChangeUpdateMirror={handleChangeUpdateMirror}
+      isCheckingUpdate={updateDialog.status === 'checking'}
+      onChangeUpdateSource={handleChangeUpdateSource}
       onChangeAutoCheckUpdate={handleChangeAutoCheckUpdate}
       onCheckUpdate={handleCheckUpdate}
     />
@@ -587,7 +595,8 @@ export default function App() {
   const helpView = <HelpView onBack={() => setView('items')} />
 
   return (
-    <AnimatePresence mode="wait">
+    <>
+      <AnimatePresence mode="wait">
       {view === 'statistics' && (
         <motion.div
           key="statistics"
@@ -648,6 +657,40 @@ export default function App() {
           {helpView}
         </motion.div>
       )}
+      {view === 'materials' && (
+        <motion.div
+          key="materials"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -16 }}
+          transition={{ duration: 0.18, ease: EASE }}
+          className="h-screen w-screen"
+        >
+          <MaterialLibrary onBack={() => setView('items')} />
+        </motion.div>
+      )}
+      {view === 'locationMap' && (
+        <motion.div
+          key="locationMap"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -16 }}
+          transition={{ duration: 0.18, ease: EASE }}
+          className="h-screen w-screen"
+        >
+          <LocationMap
+            items={allItems}
+            locations={locations}
+            onBack={() => setView('items')}
+            onSelectLocation={(path) => {
+              setActiveLocation(path)
+              setActiveCategory('')
+              setView('items')
+              exitBulkMode()
+            }}
+          />
+        </motion.div>
+      )}
       {view === 'items' && (
         <motion.div
           key="items"
@@ -683,6 +726,8 @@ export default function App() {
         onOpenSettings={() => setView('settings')}
         onOpenStatistics={() => setView('statistics')}
         onOpenHelp={() => setView('help')}
+        onOpenMaterials={() => setView('materials')}
+        onOpenLocationMap={() => setView('locationMap')}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar
@@ -777,22 +822,23 @@ export default function App() {
         onResolve={handleResolveCloseAction}
         onCancel={() => setClosePromptOpen(false)}
       />
-      <UpdateDialog
-        open={updateDialog.open}
-        status={updateDialog.status}
-        info={updateDialog.info}
-        progress={updateDialog.progress}
-        onCheck={handleCheckUpdate}
-        onDownload={handleDownloadUpdate}
-        onClose={handleCloseUpdateDialog}
-      />
       <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox({ src: '', alt: '' })} />
       <Toast toast={toast} onDone={() => setToast(null)} />
       </div>
         </motion.div>
       )}
     </AnimatePresence>
-  )
+    <UpdateDialog
+      open={updateDialog.open}
+      status={updateDialog.status}
+      info={updateDialog.info}
+      progress={updateDialog.progress}
+      onCheck={handleCheckUpdate}
+      onDownload={handleDownloadUpdate}
+      onClose={handleCloseUpdateDialog}
+      onOpenExternal={handleOpenUpdateExternal}
+    />
+  </>)
 
   function EmptyState({ onAdd, hasFilter }) {
     const Icon = hasFilter ? Search : PackageOpen

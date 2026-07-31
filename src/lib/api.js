@@ -176,13 +176,20 @@ export async function createItem(item) {
     photo: item.photo || '',
     category: normalizeCategoryKey(item.category, categories),
     expiry_date: Number(item.expiry_date) || 0,
+    notes: item.notes || '',
+    consume_rate: Number(item.consume_rate) || 0,
+    consume_unit: item.consume_unit || 'day',
+    consume_start_at: Number(item.consume_start_at) || 0,
+    photo_meta: item.photo_meta || '',
     created_at: item.created_at || now,
     updated_at: now
   }
   await api.db.execute({
     sql: `INSERT INTO items
-      (id, name, item_no, room, position, location, quantity, min_quantity, photo, category, expiry_date, created_at, updated_at)
-      VALUES (@id, @name, @item_no, @room, @position, @location, @quantity, @min_quantity, @photo, @category, @expiry_date, @created_at, @updated_at)`,
+      (id, name, item_no, room, position, location, quantity, min_quantity, photo, category, expiry_date,
+       notes, consume_rate, consume_unit, consume_start_at, photo_meta, created_at, updated_at)
+      VALUES (@id, @name, @item_no, @room, @position, @location, @quantity, @min_quantity, @photo, @category, @expiry_date,
+              @notes, @consume_rate, @consume_unit, @consume_start_at, @photo_meta, @created_at, @updated_at)`,
     binds: row
   })
   return row
@@ -201,13 +208,19 @@ export async function updateItem(id, patch) {
     min_quantity: Number(patch.min_quantity ?? cur.min_quantity) || 0,
     expiry_date: Number(patch.expiry_date ?? cur.expiry_date) || 0,
     category: patch.category !== undefined ? normalizeCategoryKey(patch.category, categories) : cur.category,
+    notes: patch.notes !== undefined ? patch.notes : cur.notes,
+    consume_rate: Number(patch.consume_rate ?? cur.consume_rate) || 0,
+    consume_unit: patch.consume_unit || cur.consume_unit || 'day',
+    consume_start_at: Number(patch.consume_start_at ?? cur.consume_start_at) || 0,
+    photo_meta: patch.photo_meta !== undefined ? patch.photo_meta : cur.photo_meta,
     updated_at: now
   }
   await api.db.execute({
     sql: `UPDATE items SET
       name=@name, item_no=@item_no, room=@room, position=@position, location=@location,
       quantity=@quantity, min_quantity=@min_quantity, photo=@photo, category=@category,
-      expiry_date=@expiry_date, updated_at=@updated_at WHERE id=@id`,
+      expiry_date=@expiry_date, notes=@notes, consume_rate=@consume_rate, consume_unit=@consume_unit,
+      consume_start_at=@consume_start_at, photo_meta=@photo_meta, updated_at=@updated_at WHERE id=@id`,
     binds: next
   })
   return next
@@ -473,6 +486,44 @@ export async function generateItemNo() {
   return api.items.generateItemNo()
 }
 
+// ===== 电子材料库 =====
+export async function fetchMaterials({ type, keyword } = {}) {
+  return api.materials.list({ type, keyword })
+}
+
+export async function getMaterial(id) {
+  return api.materials.get(id)
+}
+
+export async function createMaterial(data) {
+  return api.materials.create(data)
+}
+
+export async function updateMaterial(id, patch) {
+  return api.materials.update(id, patch)
+}
+
+export async function deleteMaterial(id) {
+  return api.materials.delete(id)
+}
+
+// ===== 手机扫码传图 =====
+export async function startQRUpload() {
+  return api.qrUpload.start()
+}
+
+export async function stopQRUpload() {
+  return api.qrUpload.stop()
+}
+
+export async function getQRUploadImage() {
+  return api.qrUpload.getImage()
+}
+
+export function onQRUploadImage(cb) {
+  return api.qrUpload.onImage(cb)
+}
+
 // ===== 窗口控制 =====
 export const winControl = {
   minimize: () => api.window.minimize(),
@@ -506,6 +557,10 @@ export async function checkUpdate(opts = { silent: false }) {
   return api.updater.check(opts)
 }
 
+export async function setUpdateSource(sourceId) {
+  return api.updater.setSource(sourceId)
+}
+
 export async function setUpdateMirror(url) {
   return api.updater.setMirror(url)
 }
@@ -516,6 +571,10 @@ export async function setAutoCheckUpdate(enabled) {
 
 export async function downloadUpdate() {
   return api.updater.download()
+}
+
+export async function openUpdateExternal(url) {
+  return api.updater.openExternal(url)
 }
 
 export function onUpdateAvailable(cb) {
