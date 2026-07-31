@@ -367,7 +367,9 @@ const DICT = {
     floorPlan_nameRequired: '请输入区域名称',
     floorPlan_createSubFail: '创建子位置失败：{msg}',
     floorPlan_unnamed: '未命名',
-    floorPlan_selectHint: '点击画布上的方块查看和编辑属性。'
+    floorPlan_selectHint: '点击画布上的方块查看和编辑属性。',
+    floorPlan_autoAdded: '已自动添加 {n} 个子位置',
+    floorPlan_noUnboundSubLocations: '当前没有未绑定到平面图的子位置'
   },
   en: {
     appTitle: 'Family Inventory',
@@ -734,7 +736,9 @@ const DICT = {
     floorPlan_nameRequired: 'Please enter an area name',
     floorPlan_createSubFail: 'Failed to create sub-location: {msg}',
     floorPlan_unnamed: 'Unnamed',
-    floorPlan_selectHint: 'Click a square on the canvas to view and edit its properties.'
+    floorPlan_selectHint: 'Click a square on the canvas to view and edit its properties.',
+    floorPlan_autoAdded: 'Auto-added {n} sub-locations',
+    floorPlan_noUnboundSubLocations: 'No sub-locations left to add to the floor plan'
   }
 }
 

@@ -39,11 +39,15 @@ export default function StatisticsView({ onBack, animations = true }) {
   const [subView, setSubView] = useState({ category: 'pie', location: 'bar', expiry: 'donut', stock: 'gauge', time: 'line' })
 
   useEffect(() => {
-    setLoading(true)
-    fetchStatistics()
-      .then((d) => { setData(d); setError('') })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
+    // 轻微延迟加载，让页面进入动效先完成，减少切换时的卡顿感
+    const tm = setTimeout(() => {
+      setLoading(true)
+      fetchStatistics()
+        .then((d) => { setData(d); setError('') })
+        .catch((e) => setError(e.message))
+        .finally(() => setLoading(false))
+    }, 80)
+    return () => clearTimeout(tm)
   }, [])
 
   const total = data?.total || 0

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Pencil, Trash2, Minus, Plus, MapPin, AlertTriangle, CalendarClock, Check, Image as ImageIcon } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
@@ -46,6 +46,11 @@ export default function ItemCard({
   const photoUrl = normalizePhotoUrl(item.photo)
   const hasPhoto = photoUrl && !imgErr
   const CategoryIcon = getCategoryIcon(cat)
+
+  // 图片地址变化时重置错误状态，避免扫码上传的大图初次加载失败后必须切换分类才显示
+  useEffect(() => {
+    setImgErr(false)
+  }, [photoUrl])
 
   const handleCardClick = () => {
     if (bulkMode) onToggleSelect(item.id)

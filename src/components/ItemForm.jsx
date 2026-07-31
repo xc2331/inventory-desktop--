@@ -177,10 +177,18 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       }
       const info = await startQRUpload()
       setQrState({ url: info.url, status: 'waiting' })
-      const unsub = onQRUploadImage(({ image }) => {
-        setForm((f) => ({ ...f, photo: image }))
-        setQrState((s) => ({ ...s, status: 'success' }))
-        setPhotoHint(t('qrUpload_success'))
+      const unsub = onQRUploadImage(async ({ image }) => {
+        setPhotoHint('图片压缩中…')
+        const result = await compressImageToBase64(image)
+        if (result.ok) {
+          setForm((f) => ({ ...f, photo: result.data }))
+          setQrState((s) => ({ ...s, status: 'success' }))
+          setPhotoHint(`${t('qrUpload_success')}（已压缩至 ${result.sizeKB}KB）`)
+        } else {
+          setForm((f) => ({ ...f, photo: image }))
+          setQrState((s) => ({ ...s, status: 'success' }))
+          setPhotoHint(`${t('qrUpload_success')}，${result.error}`)
+        }
       })
       qrUnsubscribe.current = unsub
     } catch (e) {

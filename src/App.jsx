@@ -100,6 +100,13 @@ export default function App() {
   const [updateDialog, setUpdateDialog] = useState({ open: false, status: 'idle', info: null, progress: { downloaded: 0, total: 0, percent: 0 } })
   const [floorPlanLocation, setFloorPlanLocation] = useState(null)
 
+  // 切换页面时清除悬浮层状态，避免回到物品页后重复显示弹窗/对话框/大图
+  useEffect(() => {
+    setToast(null)
+    setLightbox({ src: '', alt: '' })
+    setConfirm({ open: false, id: null, name: '' })
+  }, [view])
+
   // 初始化主题、动效与关闭行为
   useEffect(() => {
     getSettings().then((s) => {
@@ -602,11 +609,11 @@ export default function App() {
       {view === 'statistics' && (
         <motion.div
           key="statistics"
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -16 }}
-          transition={{ duration: 0.18, ease: EASE }}
-          className="h-screen w-screen"
+          exit={{ opacity: 0, x: -12 }}
+          transition={{ duration: 0.15, ease: EASE }}
+          className="h-screen w-screen will-change-transform"
         >
           {statisticsView}
         </motion.div>
@@ -614,11 +621,11 @@ export default function App() {
       {view === 'settings' && (
         <motion.div
           key="settings"
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -16 }}
-          transition={{ duration: 0.18, ease: EASE }}
-          className="h-screen w-screen"
+          exit={{ opacity: 0, x: -12 }}
+          transition={{ duration: 0.15, ease: EASE }}
+          className="h-screen w-screen will-change-transform"
         >
           {settingsView}
         </motion.div>
@@ -626,11 +633,11 @@ export default function App() {
       {view === 'categories' && (
         <motion.div
           key="categories"
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -16 }}
-          transition={{ duration: 0.18, ease: EASE }}
-          className="h-screen w-screen"
+          exit={{ opacity: 0, x: -12 }}
+          transition={{ duration: 0.15, ease: EASE }}
+          className="h-screen w-screen will-change-transform"
         >
           {categoriesView}
         </motion.div>
@@ -638,11 +645,11 @@ export default function App() {
       {view === 'locations' && (
         <motion.div
           key="locations"
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -16 }}
-          transition={{ duration: 0.18, ease: EASE }}
-          className="h-screen w-screen"
+          exit={{ opacity: 0, x: -12 }}
+          transition={{ duration: 0.15, ease: EASE }}
+          className="h-screen w-screen will-change-transform"
         >
           {locationsView}
         </motion.div>
@@ -650,11 +657,11 @@ export default function App() {
       {view === 'help' && (
         <motion.div
           key="help"
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -16 }}
-          transition={{ duration: 0.18, ease: EASE }}
-          className="h-screen w-screen"
+          exit={{ opacity: 0, x: -12 }}
+          transition={{ duration: 0.15, ease: EASE }}
+          className="h-screen w-screen will-change-transform"
         >
           {helpView}
         </motion.div>
@@ -662,11 +669,11 @@ export default function App() {
       {view === 'materials' && (
         <motion.div
           key="materials"
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -16 }}
-          transition={{ duration: 0.18, ease: EASE }}
-          className="h-screen w-screen"
+          exit={{ opacity: 0, x: -12 }}
+          transition={{ duration: 0.15, ease: EASE }}
+          className="h-screen w-screen will-change-transform"
         >
           <MaterialLibrary onBack={() => setView('items')} />
         </motion.div>
@@ -674,11 +681,11 @@ export default function App() {
       {view === 'locationMap' && (
         <motion.div
           key="locationMap"
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -16 }}
-          transition={{ duration: 0.18, ease: EASE }}
-          className="h-screen w-screen"
+          exit={{ opacity: 0, x: -12 }}
+          transition={{ duration: 0.15, ease: EASE }}
+          className="h-screen w-screen will-change-transform"
         >
           <LocationMap
             items={allItems}
@@ -700,11 +707,11 @@ export default function App() {
       {view === 'floorPlan' && floorPlanLocation && (
         <motion.div
           key="floorPlan"
-          initial={{ opacity: 0, x: 20 }}
+          initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -16 }}
-          transition={{ duration: 0.18, ease: EASE }}
-          className="h-screen w-screen"
+          exit={{ opacity: 0, x: -12 }}
+          transition={{ duration: 0.15, ease: EASE }}
+          className="h-screen w-screen will-change-transform"
         >
           <FloorPlanEditor
             locationId={floorPlanLocation.id}
@@ -731,8 +738,8 @@ export default function App() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.15, ease: EASE }}
-          className="h-screen w-screen"
+          transition={{ duration: 0.12, ease: EASE }}
+          className="h-screen w-screen will-change-transform"
         >
       <div className="flex h-screen w-screen overflow-hidden bg-bg">
       <Sidebar
@@ -857,11 +864,11 @@ export default function App() {
         onCancel={() => setClosePromptOpen(false)}
       />
       <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox({ src: '', alt: '' })} />
-      <Toast toast={toast} onDone={() => setToast(null)} />
       </div>
         </motion.div>
       )}
     </AnimatePresence>
+    <Toast toast={toast} onDone={() => setToast(null)} />
     <UpdateDialog
       open={updateDialog.open}
       status={updateDialog.status}

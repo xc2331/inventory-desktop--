@@ -211,9 +211,57 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
     addArea(rect)
   }
 
-  const addOffsetArea = () => {
-    const rect = findNonOverlappingPosition(plan.areas, DEFAULT_AREA_SIZE)
-    addArea(rect)
+  const autoAddUnboundSubLocations = () => {
+    const targets = unboundSubLocations
+    if (targets.length === 0) {
+      showToast(t('floorPlan_noUnboundSubLocations'))
+      return
+    }
+
+    const room = plan.room
+    const size = DEFAULT_AREA_SIZE
+    const gap = 2
+    const cols = Math.max(1, Math.floor((room.w - gap) / (size + gap)))
+    const allExisting = [...plan.areas]
+    const newAreas = []
+
+    const overlaps = (rect) => {
+      return allExisting.some((a) => !(rect.x + rect.w <= a.x || a.x + a.w <= rect.x || rect.y + rect.h <= a.y || a.y + a.h <= rect.y))
+    }
+
+    for (let i = 0; i < targets.length; i++) {
+      const col = i % cols
+      const row = Math.floor(i / cols)
+      let x = room.x + gap + col * (size + gap)
+      let y = room.y + gap + row * (size + gap)
+      x = clamp(x, room.x, room.x + room.w - size)
+      y = clamp(y, room.y, room.y + room.h - size)
+
+      let rect = { x: round2(x), y: round2(y), w: size, h: size }
+      if (overlaps(rect)) {
+        rect = findNonOverlappingPosition(allExisting, size)
+        rect.x = clamp(rect.x, room.x, room.x + room.w - size)
+        rect.y = clamp(rect.y, room.y, room.y + room.h - size)
+      }
+
+      const newArea = {
+        id: uid(),
+        x: round2(rect.x),
+        y: round2(rect.y),
+        w: round2(rect.w),
+        h: round2(rect.h),
+        colorIndex: nextAreaColor(allExisting),
+        label: targets[i].name,
+        bindLocationId: targets[i].id
+      }
+      allExisting.push(newArea)
+      newAreas.push(newArea)
+    }
+
+    if (newAreas.length > 0) {
+      setPlan((p) => ({ ...p, areas: [...p.areas, ...newAreas] }))
+      showToast(t('floorPlan_autoAdded', { n: newAreas.length }))
+    }
   }
 
   const updateArea = (id, patch) => {
@@ -277,9 +325,12 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
     const id = target.closest('[data-element-id]')?.dataset.elementId
     if (id) {
       setSelectedId(id)
-      const el = id === 'room' ? plan.room : plan.areas.find((a) => a.id === id)
-      const pos = toPercent(e.clientX, e.clientY)
-      actionRef.current = { type: 'move', id, startX: pos.x, startY: pos.y, origX: el.x, origY: el.y }
+      // 只有在「绘制」模式下才允许拖拽移动元素；「选择」模式仅用于查看和修改属性
+      if (drawMode) {
+        const el = id === 'room' ? plan.room : plan.areas.find((a) => a.id === id)
+        const pos = toPercent(e.clientX, e.clientY)
+        actionRef.current = { type: 'move', id, startX: pos.x, startY: pos.y, origX: el.x, origY: el.y }
+      }
       e.preventDefault()
       return
     }
@@ -431,7 +482,7 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
           />
           <div className="mx-1 h-5 w-px bg-border" />
           <ToolbarButton onClick={addCenterArea} icon={Plus} label={t('floorPlan_addCenter')} />
-          <ToolbarButton onClick={addOffsetArea} icon={Maximize2} label={t('floorPlan_addOffset')} />
+          <ToolbarButton onClick={autoAddUnboundSubLocations} icon={Boxes} label={t('floorPlan_addOffset')} />
           <ToolbarButton
             onClick={deleteSelected}
             disabled={selectedId === 'room' || !selectedId}
@@ -478,6 +529,7 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
               selected={selectedId === 'room'}
               style={ROOM_STYLE}
               label={locationName}
+              drawMode={drawMode}
               onResizeStart={onResizeStart}
             />
 
@@ -490,6 +542,7 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
                 selected={selectedId === area.id}
                 style={AREA_PALETTE[(area.colorIndex || 1) % AREA_PALETTE.length]}
                 label={area.label || unboundSubLocations.find((l) => l.id === area.bindLocationId)?.name || t('floorPlan_unnamed')}
+                drawMode={drawMode}
                 onResizeStart={onResizeStart}
                 onDoubleClick={() => {
                   if (area.bindLocationId) {
@@ -778,8 +831,9 @@ function PropertyRow({ icon: Icon, label, children }) {
   )
 }
 
-function PlanElement({ element, id, selected, style, label, onResizeStart, onDoubleClick }) {
+function PlanElement({ element, id, selected, style, label, drawMode, onResizeStart, onDoubleClick }) {
   const handles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+  const showHandles = selected && drawMode
   return (
     <div
       data-element-id={id}
@@ -801,7 +855,7 @@ function PlanElement({ element, id, selected, style, label, onResizeStart, onDou
       <div className={cn('pointer-events-none flex h-full w-full items-center justify-center p-1 text-center text-[10px] font-medium', style.text)}>
         <span className="line-clamp-2">{label}</span>
       </div>
-      {selected &&
+      {showHandles &&
         handles.map((h) => (
           <div
             key={h}

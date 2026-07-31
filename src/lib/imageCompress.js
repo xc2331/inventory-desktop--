@@ -47,10 +47,11 @@ export async function compressImageToBase64(source) {
     } else if (typeof source === 'string') {
       src = source.trim()
       if (!src) return { ok: false, error: 'empty source', sizeKB: 0 }
-      // 如果已经是 Base64 或网络 URL，直接返回原值
-      if (/^(data:|https?:|file:)/i.test(src)) {
+      // 网络 URL / 本地文件 URL 直接返回原值
+      if (/^(https?:|file:)/i.test(src)) {
         return { ok: true, data: src, sizeKB: estimateBase64SizeKB(src) }
       }
+      // data URL 继续走 canvas 压缩，避免手机扫码上传的原图过大
     }
 
     const img = await loadImage(src)

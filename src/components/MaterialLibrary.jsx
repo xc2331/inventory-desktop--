@@ -471,17 +471,23 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
     }
   }
 
+  const handleCardClick = () => {
+    if (bulkMode) onToggleSelect()
+  }
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: EASE }}
+      onClick={handleCardClick}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       className={cn(
         'group relative flex gap-3 rounded-2xl border bg-surface p-4 shadow-card transition-smooth',
-        selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-border-strong hover:shadow-float'
+        selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-border-strong hover:shadow-float',
+        bulkMode && 'cursor-pointer'
       )}
     >
       {bulkMode && (
