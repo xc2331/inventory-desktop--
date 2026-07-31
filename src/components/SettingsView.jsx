@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X } from 'lucide-react'
+import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
 import { getSettings, getApiToken, resetApiToken, setApiConfig } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -28,7 +28,11 @@ export default function SettingsView({
   onManageLocations,
   onExportJSON,
   onExportCSV,
-  onImport
+  onImport,
+  updaterInfo,
+  onChangeUpdateMirror,
+  onChangeAutoCheckUpdate,
+  onCheckUpdate
 }) {
   const { t, lang } = useI18n()
   const [dataDir, setDataDir] = useState('')
@@ -331,6 +335,58 @@ export default function SettingsView({
                 {apiSaved ? <Check size={15} /> : <Save size={15} />}
                 {apiSaved ? t('settings_agentApi_saved') : t('settings_agentApi_save')}
               </motion.button>
+            </div>
+          </Section>
+
+          {/* 软件更新 */}
+          <Section title={t('settings_update')} desc={t('settings_update_desc')}>
+            <div className="space-y-3">
+              {/* 当前版本 + 检查按钮 */}
+              <div className="flex items-center justify-between rounded-xl bg-bg px-3.5 py-2.5 text-sm">
+                <div className="flex items-center gap-2 text-text-secondary">
+                  <Rocket size={15} className="shrink-0 text-text-tertiary" />
+                  <span>{t('settings_update_current')}</span>
+                  <span className="font-mono font-medium text-text-primary">{updaterInfo?.currentVersion || '—'}</span>
+                </div>
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={onCheckUpdate}
+                  className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+                >
+                  <Download size={13} />
+                  {t('update_btn_check')}
+                </motion.button>
+              </div>
+
+              {/* 镜像源 */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-text-secondary">{t('settings_update_mirror')}</label>
+                <select
+                  value={updaterInfo?.mirror || ''}
+                  onChange={(e) => onChangeUpdateMirror(e.target.value)}
+                  className="input h-9 w-full text-sm"
+                >
+                  {(updaterInfo?.mirrors || []).map((m) => (
+                    <option key={m.url} value={m.url}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 自动检查开关 */}
+              <label className="flex cursor-pointer items-center justify-between rounded-xl bg-bg px-3.5 py-2.5 text-sm">
+                <span className="flex items-center gap-2 text-text-secondary">
+                  <RefreshCw size={15} className="text-text-tertiary" />
+                  {t('settings_update_autoCheck')}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={updaterInfo?.autoCheck !== false}
+                  onChange={(e) => onChangeAutoCheckUpdate(e.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                />
+              </label>
             </div>
           </Section>
 

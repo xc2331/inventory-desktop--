@@ -73,5 +73,47 @@ contextBridge.exposeInMainWorld('lingguang', {
       ipcRenderer.on('api:dataChanged', handler)
       return () => ipcRenderer.removeListener('api:dataChanged', handler)
     }
+  },
+  updater: {
+    info: () => ipcRenderer.invoke('updater:info'),
+    check: (opts) => ipcRenderer.invoke('updater:check', opts),
+    setMirror: (url) => ipcRenderer.invoke('updater:setMirror', url),
+    setAutoCheck: (enabled) => ipcRenderer.invoke('updater:setAutoCheck', enabled),
+    download: () => ipcRenderer.invoke('updater:download'),
+    onAvailable: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on('updater:available', handler)
+      return () => ipcRenderer.removeListener('updater:available', handler)
+    },
+    onNotAvailable: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on('updater:notAvailable', handler)
+      return () => ipcRenderer.removeListener('updater:notAvailable', handler)
+    },
+    onDownloadStart: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on('updater:downloadStart', handler)
+      return () => ipcRenderer.removeListener('updater:downloadStart', handler)
+    },
+    onProgress: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on('updater:progress', handler)
+      return () => ipcRenderer.removeListener('updater:progress', handler)
+    },
+    onDownloaded: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on('updater:downloaded', handler)
+      return () => ipcRenderer.removeListener('updater:downloaded', handler)
+    },
+    onInstalling: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on('updater:installing', handler)
+      return () => ipcRenderer.removeListener('updater:installing', handler)
+    },
+    onError: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on('updater:error', handler)
+      return () => ipcRenderer.removeListener('updater:error', handler)
+    }
   }
 })

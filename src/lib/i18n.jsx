@@ -240,7 +240,25 @@ const DICT = {
     closeAction_minimize: '最小化到任务栏托盘',
     closeAction_quit: '彻底退出应用',
     closeAction_remember: '记住选择，以后不再询问',
-    closeAction_note: '可随时在「设置」中更改此选项'
+    closeAction_note: '可随时在「设置」中更改此选项',
+    settings_update: '软件更新',
+    settings_update_desc: '检查新版本并通过镜像源下载升级，所有下载地址均走镜像源',
+    settings_update_current: '当前版本',
+    settings_update_mirror: '更新镜像源',
+    settings_update_autoCheck: '启动时自动检查更新',
+    update_title: '软件更新',
+    update_desc: '点击按钮检查是否有新版本',
+    update_checking: '正在检查更新…',
+    update_available: '发现新版本',
+    update_upToDate: '已是最新版本',
+    update_noUpdate: '当前已是最新版本',
+    update_current: '当前版本：',
+    update_releaseDate: '发布日期',
+    update_downloading: '正在下载更新…',
+    update_installing: '正在安装更新，应用即将重启…',
+    update_error: '检查或下载更新失败',
+    update_btn_check: '检查更新',
+    update_btn_download: '立即更新'
   },
   en: {
     appTitle: 'Family Inventory',
@@ -480,7 +498,25 @@ const DICT = {
     closeAction_minimize: 'Minimize to system tray',
     closeAction_quit: 'Quit the app completely',
     closeAction_remember: 'Remember and don\'t ask again',
-    closeAction_note: 'You can change this anytime in Settings'
+    closeAction_note: 'You can change this anytime in Settings',
+    settings_update: 'Software Update',
+    settings_update_desc: 'Check for new versions and upgrade via a mirror source; all download URLs use the mirror',
+    settings_update_current: 'Current version',
+    settings_update_mirror: 'Update mirror',
+    settings_update_autoCheck: 'Check for updates on startup',
+    update_title: 'Software Update',
+    update_desc: 'Click to check for new versions',
+    update_checking: 'Checking for updates…',
+    update_available: 'New version available',
+    update_upToDate: 'Up to date',
+    update_noUpdate: 'You are on the latest version',
+    update_current: 'Current: ',
+    update_releaseDate: 'Release date',
+    update_downloading: 'Downloading update…',
+    update_installing: 'Installing update, the app will restart shortly…',
+    update_error: 'Failed to check or download update',
+    update_btn_check: 'Check',
+    update_btn_download: 'Update Now'
   }
 }
 

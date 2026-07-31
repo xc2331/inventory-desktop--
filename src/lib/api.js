@@ -496,3 +496,52 @@ export async function resetApiToken() {
 export async function setApiConfig(patch) {
   return api.settings.setApiConfig(patch)
 }
+
+// ===== 软件内更新 =====
+export async function getUpdaterInfo() {
+  return api.updater.info()
+}
+
+export async function checkUpdate(opts = { silent: false }) {
+  return api.updater.check(opts)
+}
+
+export async function setUpdateMirror(url) {
+  return api.updater.setMirror(url)
+}
+
+export async function setAutoCheckUpdate(enabled) {
+  return api.updater.setAutoCheck(enabled)
+}
+
+export async function downloadUpdate() {
+  return api.updater.download()
+}
+
+export function onUpdateAvailable(cb) {
+  return api.updater.onAvailable(cb)
+}
+
+export function onUpdateNotAvailable(cb) {
+  return api.updater.onNotAvailable(cb)
+}
+
+export function onUpdateDownloadStart(cb) {
+  return api.updater.onDownloadStart(cb)
+}
+
+export function onUpdateProgress(cb) {
+  return api.updater.onProgress(cb)
+}
+
+export function onUpdateDownloaded(cb) {
+  return api.updater.onDownloaded(cb)
+}
+
+export function onUpdateInstalling(cb) {
+  return api.updater.onInstalling(cb)
+}
+
+export function onUpdateError(cb) {
+  return api.updater.onError(cb)
+}

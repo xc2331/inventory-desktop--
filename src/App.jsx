@@ -11,6 +11,7 @@ import ItemForm from './components/ItemForm'
 import Lightbox from './components/Lightbox'
 import ConfirmDialog from './components/ConfirmDialog'
 import CloseActionDialog from './components/CloseActionDialog'
+import UpdateDialog from './components/UpdateDialog'
 import Toast from './components/Toast'
 import SettingsView from './components/SettingsView'
 import StatisticsView from './components/StatisticsView'
@@ -45,7 +46,19 @@ import {
   generateItemNo,
   locationMatchesPath,
   buildLocationCounts,
-  winControl
+  winControl,
+  getUpdaterInfo,
+  checkUpdate,
+  setUpdateMirror,
+  setAutoCheckUpdate,
+  downloadUpdate,
+  onUpdateAvailable,
+  onUpdateNotAvailable,
+  onUpdateDownloadStart,
+  onUpdateProgress,
+  onUpdateDownloaded,
+  onUpdateInstalling,
+  onUpdateError
 } from './lib/api'
 
 function applyThemeClass(theme) {
@@ -79,6 +92,8 @@ export default function App() {
   const [animations, setAnimations] = useState(true)
   const [closeAction, setCloseAction] = useState('')
   const [closePromptOpen, setClosePromptOpen] = useState(false)
+  const [updaterInfo, setUpdaterInfo] = useState({ currentVersion: '', mirror: '', mirrors: [], autoCheck: true })
+  const [updateDialog, setUpdateDialog] = useState({ open: false, status: 'idle', info: null, progress: { downloaded: 0, total: 0, percent: 0 } })
 
   // 初始化主题、动效与关闭行为
   useEffect(() => {
@@ -106,6 +121,50 @@ export default function App() {
   useEffect(() => {
     const remove = winControl.onRequestCloseAction(() => setClosePromptOpen(true))
     return remove
+  }, [])
+
+  // 初始化更新器信息并监听更新事件
+  useEffect(() => {
+    getUpdaterInfo().then((info) => setUpdaterInfo(info))
+
+    const removes = []
+    removes.push(
+      onUpdateAvailable((payload) => {
+        setUpdateDialog({ open: true, status: 'available', info: payload, progress: { downloaded: 0, total: 0, percent: 0 } })
+      })
+    )
+    removes.push(
+      onUpdateNotAvailable((payload) => {
+        setUpdateDialog({ open: true, status: 'notAvailable', info: payload, progress: { downloaded: 0, total: 0, percent: 0 } })
+      })
+    )
+    removes.push(
+      onUpdateDownloadStart((payload) => {
+        setUpdateDialog((d) => ({ ...d, status: 'downloading', info: { ...d.info, ...payload }, progress: { downloaded: 0, total: payload.size || 0, percent: 0 } }))
+      })
+    )
+    removes.push(
+      onUpdateProgress((payload) => {
+        setUpdateDialog((d) => ({ ...d, progress: payload }))
+      })
+    )
+    removes.push(
+      onUpdateDownloaded(() => {
+        setUpdateDialog((d) => ({ ...d, status: 'installing' }))
+      })
+    )
+    removes.push(
+      onUpdateInstalling(() => {
+        setUpdateDialog((d) => ({ ...d, status: 'installing' }))
+      })
+    )
+    removes.push(
+      onUpdateError((payload) => {
+        setUpdateDialog((d) => ({ ...d, status: 'error', info: payload }))
+      })
+    )
+
+    return () => removes.forEach((fn) => fn())
   }, [])
 
   const showToast = useCallback((message, type = 'success') => {
@@ -422,6 +481,31 @@ export default function App() {
     await winControl.resolveCloseAction({ action, remember })
   }
 
+  // 软件更新：切换镜像源 / 自动检查 / 手动检查 / 下载安装
+  const handleChangeUpdateMirror = async (url) => {
+    await setUpdateMirror(url)
+    const info = await getUpdaterInfo()
+    setUpdaterInfo(info)
+  }
+
+  const handleChangeAutoCheckUpdate = async (enabled) => {
+    await setAutoCheckUpdate(enabled)
+    setUpdaterInfo((prev) => ({ ...prev, autoCheck: enabled }))
+  }
+
+  const handleCheckUpdate = async () => {
+    setUpdateDialog({ open: true, status: 'checking', info: null, progress: { downloaded: 0, total: 0, percent: 0 } })
+    await checkUpdate({ silent: false })
+  }
+
+  const handleDownloadUpdate = async () => {
+    await downloadUpdate()
+  }
+
+  const handleCloseUpdateDialog = () => {
+    setUpdateDialog((d) => ({ ...d, open: false }))
+  }
+
   // 设置页：切换数据目录
   const handleChangeDataDir = async () => {
     const res = await pickFolder()
@@ -475,6 +559,10 @@ export default function App() {
       onExportJSON={handleExportJSON}
       onExportCSV={handleExportCSV}
       onImport={handleImportJSON}
+      updaterInfo={updaterInfo}
+      onChangeUpdateMirror={handleChangeUpdateMirror}
+      onChangeAutoCheckUpdate={handleChangeAutoCheckUpdate}
+      onCheckUpdate={handleCheckUpdate}
     />
   )
   const categoriesView = (
@@ -688,6 +776,15 @@ export default function App() {
         open={closePromptOpen}
         onResolve={handleResolveCloseAction}
         onCancel={() => setClosePromptOpen(false)}
+      />
+      <UpdateDialog
+        open={updateDialog.open}
+        status={updateDialog.status}
+        info={updateDialog.info}
+        progress={updateDialog.progress}
+        onCheck={handleCheckUpdate}
+        onDownload={handleDownloadUpdate}
+        onClose={handleCloseUpdateDialog}
       />
       <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox({ src: '', alt: '' })} />
       <Toast toast={toast} onDone={() => setToast(null)} />

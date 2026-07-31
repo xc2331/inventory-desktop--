@@ -6,6 +6,7 @@ const crypto = require('crypto')
 const Database = require('better-sqlite3')
 const { ApiServer } = require('./api-server')
 const { generateItemNo } = require('./item-no')
+const { Updater } = require('./updater')
 
 // 确保 Windows 任务栏正确显示应用图标与分组
 app.setAppUserModelId(app.getName())
@@ -18,6 +19,7 @@ let mainWindow = null
 let db = null
 let apiServer = null
 let tray = null
+let updater = null
 let isQuitting = false
 
 const DB_FILENAME = 'inventory.db'
@@ -925,6 +927,29 @@ app.whenReady().then(() => {
     getMainWindow: () => mainWindow
   })
   apiServer.start()
+
+  // 初始化软件内更新器，启动后延迟自动检查（避免影响启动速度）
+  updater = new Updater(
+    () => mainWindow,
+    () => {
+      try {
+        if (apiServer) apiServer.stop()
+      } catch (e) {
+        /* ignore */
+      }
+      try {
+        if (db) db.close()
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  )
+  const settings = readAppSettings()
+  if (settings.autoCheckUpdate !== false) {
+    setTimeout(() => {
+      updater.checkForUpdates(true)
+    }, 8000)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
