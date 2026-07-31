@@ -8,10 +8,10 @@
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env DEV=true electron .\"",
     "build": "vite build",
-    "build:win": "vite build && electron-builder --win --publish never",
+    "build:win": "vite build && electron-builder --win --publish never && node scripts/make-update-info.js",
     "build:mac": "vite build && electron-builder --mac --publish never",
     "build:linux": "vite build && electron-builder --linux --publish never",
-    "release:win": "npm run build:win && node scripts/make-update-info.js",
+    "release:win": "npm run build:win",
     "release:all": "npm run release:win && node scripts/publish-gitee.js",
     "publish:gitee": "node scripts/publish-gitee.js",
     "publish:github": "node scripts/publish-github.js",

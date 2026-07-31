@@ -6,6 +6,7 @@ import { getSettings, getApiToken, resetApiToken, setApiConfig } from '../lib/ap
 import { cn } from '../lib/cn'
 import { EASE } from '../lib/motion'
 import PageHeader from './PageHeader'
+import RELEASE_NOTES from '../../release-notes.json'
 
 const THEMES = [
   { code: 'light', icon: Sun, labelKey: 'settings_theme_light' },
@@ -467,45 +468,6 @@ export default function SettingsView({
     </div>
   )
 }
-
-const RELEASE_NOTES = [
-  {
-    version: 'v1.2.2',
-    date: '2026-07-31',
-    items: [
-      '修复物品表单二维码服务启动后立即被关闭的问题，手机扫码上传现在可正常加载',
-      '修复生成二维码后点击「关闭服务」无效的问题',
-      '修复点击取消退出表单后可能出现的白屏问题',
-      '物品表单支持 Ctrl+V 粘贴剪贴板图片',
-      '电子材料库图片支持双击/点击大图查看',
-      '修复位置地图右侧抽屉物品缩略图显示异常'
-    ]
-  },
-  {
-    version: 'v1.2.1',
-    date: '2026-07-31',
-    items: [
-      '修复 frameless 窗口拖拽导致电子材料库/位置地图按钮无法点击的问题',
-      '修复 Agent 接口新增位置不同步',
-      '优化二维码局域网 IP 选择，提升同 Wi-Fi 下手机扫描成功率',
-      '电子材料库支持资源链接、批量编辑、双击打开、右键编辑',
-      '位置地图新增物品数量角标、空状态引导与使用提示',
-      '设置新增「更新日志/新功能」与「AI 能力说明」面板',
-      '新增「手机扫码传图」使用说明'
-    ]
-  },
-  {
-    version: 'v1.2.0',
-    date: '2026-07-28',
-    items: [
-      '新增电子材料库：集中管理证件照、网址、教程、菜谱等',
-      '新增位置地图可视化：按房间/位置查看物品分布',
-      '新增手机扫码传图：手机拍照或选图上传到电脑',
-      '新增外部 Agent API：AI 可通过 HTTP 接口查询或添加物品',
-      '新增软件内更新检查与自动下载'
-    ]
-  }
-]
 
 function ReleaseNotes() {
   const [openIndex, setOpenIndex] = useState(0)

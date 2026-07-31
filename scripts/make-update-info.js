@@ -21,6 +21,18 @@ const hash = crypto.createHash('sha512')
 hash.update(fs.readFileSync(filePath))
 const sha512 = hash.digest('hex')
 
+// 从 release-notes.json 读取当前版本的更新说明（数组第一个条目为最新版本）
+let releaseNotes = `Family Inventory v${version}`
+try {
+  const notes = require('../release-notes.json')
+  const current = Array.isArray(notes) ? notes.find((n) => n.version === `v${version}`) || notes[0] : null
+  if (current && Array.isArray(current.items)) {
+    releaseNotes = `${current.version} 更新内容：${current.items.join('；')}`
+  }
+} catch (e) {
+  console.warn('[release] 读取 release-notes.json 失败，使用默认更新说明')
+}
+
 const info = {
   version,
   releaseDate: new Date().toISOString(),
@@ -29,7 +41,7 @@ const info = {
   filename,
   size,
   sha512,
-  releaseNotes: 'v1.2.2 修复与优化：修复物品表单二维码服务启动后立即被关闭的问题；修复生成二维码后点击关闭服务无效的问题；修复取消退出表单后可能出现的白屏问题；物品表单支持 Ctrl+V 粘贴剪贴板图片；电子材料库图片支持双击/点击大图查看；修复位置地图右侧抽屉物品缩略图显示异常；新增位置地图平面图编辑功能，支持拖拽/缩放/绘制正方形、绑定或创建子位置。'
+  releaseNotes
 }
 
 const outPath = path.join(outputDir, 'update-info.json')
