@@ -1,6 +1,6 @@
 {
   "name": "family-inventory",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "家庭物资管家桌面版 - Family Inventory Desktop (Electron)",
   "main": "electron/main.js",
   "author": "xc2331",
@@ -53,7 +53,7 @@
       "**/node_modules/better-sqlite3/**"
     ],
     "directories": {
-      "output": "release-v11",
+      "output": "release-v12",
       "buildResources": "build"
     },
     "icon": "build/icon.ico",

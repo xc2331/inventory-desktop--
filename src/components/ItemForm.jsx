@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen, Smartphone, ScanLine, Sparkles, Receipt, Boxes } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
@@ -20,6 +20,26 @@ function toPhotoSrc(photo) {
     return withSlash.startsWith('/') ? 'file://' + withSlash : 'file:///' + withSlash
   }
   return 'file:///' + s.replace(/\\/g, '/')
+}
+
+// 从剪贴板事件中提取图片文件（没有则返回 null）
+function getImageFromClipboard(e) {
+  const dt = e.clipboardData
+  if (!dt) return null
+  if (dt.files && dt.files.length > 0) {
+    for (const file of dt.files) {
+      if (file.type && file.type.startsWith('image/')) return file
+    }
+  }
+  if (dt.items && dt.items.length > 0) {
+    for (const item of dt.items) {
+      if (item.type && item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) return file
+      }
+    }
+  }
+  return null
 }
 
 const EMPTY = {
@@ -65,22 +85,45 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const [dragOver, setDragOver] = useState(false)
   const [photoHint, setPhotoHint] = useState('')
   const [qrState, setQrState] = useState({ url: '', status: 'idle' })
-  const [qrUnsubscribe, setQrUnsubscribe] = useState(null)
+  const qrUnsubscribe = useRef(null)
 
+  // 组件卸载时关闭二维码服务
   useEffect(() => {
     return () => {
-      if (qrUnsubscribe) qrUnsubscribe()
+      if (qrUnsubscribe.current) {
+        qrUnsubscribe.current()
+        qrUnsubscribe.current = null
+      }
       stopQRUpload().catch(() => {})
     }
-  }, [qrUnsubscribe])
+  }, [])
+
+  // 监听 Ctrl+V 粘贴图片（仅在表单打开时生效）
+  useEffect(() => {
+    const handlePaste = async (e) => {
+      const file = getImageFromClipboard(e)
+      if (!file) return
+      e.preventDefault()
+      setPhotoHint('图片压缩中…')
+      const result = await compressImageToBase64(file)
+      if (result.ok) {
+        setForm((f) => ({ ...f, photo: result.data }))
+        setPhotoHint(`已压缩至 ${result.sizeKB}KB`)
+      } else {
+        setPhotoHint(result.error)
+      }
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [])
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
   // 清理二维码上传服务
   const cleanupQR = async () => {
-    if (qrUnsubscribe) {
-      qrUnsubscribe()
-      setQrUnsubscribe(null)
+    if (qrUnsubscribe.current) {
+      qrUnsubscribe.current()
+      qrUnsubscribe.current = null
     }
     await stopQRUpload().catch(() => {})
     setQrState({ url: '', status: 'idle' })
@@ -128,7 +171,10 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     try {
       setPhotoHint('')
       setQrState({ url: '', status: 'starting' })
-      if (qrUnsubscribe) qrUnsubscribe()
+      if (qrUnsubscribe.current) {
+        qrUnsubscribe.current()
+        qrUnsubscribe.current = null
+      }
       const info = await startQRUpload()
       setQrState({ url: info.url, status: 'waiting' })
       const unsub = onQRUploadImage(({ image }) => {
@@ -136,7 +182,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
         setQrState((s) => ({ ...s, status: 'success' }))
         setPhotoHint(t('qrUpload_success'))
       })
-      setQrUnsubscribe(unsub)
+      qrUnsubscribe.current = unsub
     } catch (e) {
       setQrState({ url: '', status: 'error' })
       setPhotoHint(e.message || '启动失败')

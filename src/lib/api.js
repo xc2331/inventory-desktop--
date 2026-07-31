@@ -540,6 +540,23 @@ export function onQRUploadImage(cb) {
   return api.qrUpload.onImage(cb)
 }
 
+// ===== 平面图 =====
+export async function fetchFloorPlan(locationId) {
+  return api.floorPlans.get(locationId)
+}
+
+export async function saveFloorPlan(locationId, plan) {
+  return api.floorPlans.set(locationId, plan)
+}
+
+export async function deleteFloorPlan(locationId) {
+  return api.floorPlans.delete(locationId)
+}
+
+export async function createFloorPlanSubLocation(parentId, name) {
+  return api.floorPlans.createSubLocation(parentId, name)
+}
+
 // ===== 窗口控制 =====
 export const winControl = {
   minimize: () => api.window.minimize(),

@@ -54,6 +54,47 @@ function resolveDbPath() {
   return path.join(app.getPath('userData'), DB_FILENAME)
 }
 
+function resolveDataDir() {
+  const s = readAppSettings()
+  if (s.dataDir && fs.existsSync(s.dataDir)) {
+    return s.dataDir
+  }
+  return app.getPath('userData')
+}
+
+const FLOOR_PLANS_FILE = 'floor-plans.json'
+
+function getFloorPlansPath() {
+  return path.join(resolveDataDir(), FLOOR_PLANS_FILE)
+}
+
+function readFloorPlans() {
+  try {
+    const raw = fs.readFileSync(getFloorPlansPath(), 'utf-8')
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && parsed.plans) return parsed
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.error('[floorPlans] read error:', e)
+  }
+  return { version: 1, plans: {} }
+}
+
+function writeFloorPlans(data) {
+  try {
+    fs.writeFileSync(getFloorPlansPath(), JSON.stringify(data, null, 2), 'utf-8')
+  } catch (e) {
+    console.error('[floorPlans] write error:', e)
+    throw e
+  }
+}
+
+function getDefaultFloorPlan() {
+  return {
+    room: { x: 10, y: 10, w: 80, h: 80, colorIndex: 0, label: '' },
+    areas: []
+  }
+}
+
 function getBackupPath(dbPath) {
   return dbPath + '.backup'
 }
@@ -912,6 +953,48 @@ ipcMain.handle('locations:delete', (_event, { id }) => {
   const ph = toDelete.map(() => '?').join(',')
   db.prepare(`DELETE FROM locations WHERE id IN (${ph})`).run(...toDelete)
   return { ok: true, deleted: toDelete.length }
+})
+
+// ===== IPC：平面图 CRUD =====
+ipcMain.handle('floorPlans:get', (_event, { locationId }) => {
+  const data = readFloorPlans()
+  return data.plans[locationId] || getDefaultFloorPlan()
+})
+
+ipcMain.handle('floorPlans:set', (_event, { locationId, plan }) => {
+  const data = readFloorPlans()
+  data.plans[locationId] = plan
+  writeFloorPlans(data)
+  return { ok: true }
+})
+
+ipcMain.handle('floorPlans:delete', (_event, { locationId }) => {
+  const data = readFloorPlans()
+  delete data.plans[locationId]
+  writeFloorPlans(data)
+  return { ok: true }
+})
+
+ipcMain.handle('floorPlans:createSubLocation', (_event, { parentId, name }) => {
+  if (!name || !name.trim()) throw new Error('名称不能为空')
+  const now = Date.now()
+  const id = crypto.randomUUID()
+  const maxOrder =
+    db.prepare('SELECT MAX(sort_order) m FROM locations WHERE parent_id IS ? OR parent_id = ?').get(
+      parentId || null,
+      parentId || ''
+    ).m || 0
+  db.prepare(
+    'INSERT INTO locations (id,name,parent_id,sort_order,created_at,updated_at) VALUES (@id,@name,@parent_id,@sort_order,@created_at,@updated_at)'
+  ).run({
+    id,
+    name: name.trim(),
+    parent_id: parentId || '',
+    sort_order: maxOrder + 1,
+    created_at: now,
+    updated_at: now
+  })
+  return db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
 })
 
 // ===== 导入辅助：自动创建缺失分类 =====

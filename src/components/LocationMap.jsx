@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, MapPin, Boxes, ChevronRight, X, Search, Info } from 'lucide-react'
+import { ArrowLeft, MapPin, Boxes, ChevronRight, X, Search, Info, LayoutGrid } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { EASE } from '../lib/motion'
 import { cn } from '../lib/cn'
@@ -22,7 +22,19 @@ function getRoomStyle(index) {
   return ROOM_PALETTE[index % ROOM_PALETTE.length]
 }
 
-export default function LocationMap({ items, locations, onBack, onSelectLocation }) {
+function normalizePhotoUrl(photo) {
+  if (!photo) return ''
+  const trimmed = photo.trim()
+  if (!trimmed) return ''
+  if (/^(data:|https?:|file:)/i.test(trimmed)) return trimmed
+  if (/^[a-z]:[\\/]/i.test(trimmed) || trimmed.startsWith('/')) {
+    const withSlash = trimmed.replace(/\\/g, '/')
+    return withSlash.startsWith('/') ? 'file://' + withSlash : 'file:///' + withSlash
+  }
+  return 'file:///' + trimmed.replace(/\\/g, '/')
+}
+
+export default function LocationMap({ items, locations, onBack, onSelectLocation, onEditFloorPlan }) {
   const { t } = useI18n()
   const [selectedRoom, setSelectedRoom] = useState(null)
   const [keyword, setKeyword] = useState('')
@@ -118,9 +130,24 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
                         <div className={cn('mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-white/70 dark:bg-black/20', style.text)}>
                           <Boxes size={20} />
                         </div>
-                        <span className={cn('flex h-7 min-w-[1.75rem] items-center justify-center rounded-full px-2 text-xs font-bold text-white shadow-sm', style.dot)}>
-                          {room.items.length}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {onEditFloorPlan && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const loc = locations.find((l) => l.name === room.name && !l.parent_id)
+                                if (loc) onEditFloorPlan(loc)
+                              }}
+                              title={t('locationMap_editFloorPlan')}
+                              className="flex h-7 w-7 items-center justify-center rounded-full bg-white/70 text-text-tertiary shadow-sm transition-smooth hover:bg-white hover:text-primary dark:bg-black/30 dark:hover:bg-black/50"
+                            >
+                              <LayoutGrid size={14} />
+                            </button>
+                          )}
+                          <span className={cn('flex h-7 min-w-[1.75rem] items-center justify-center rounded-full px-2 text-xs font-bold text-white shadow-sm', style.dot)}>
+                            {room.items.length}
+                          </span>
+                        </div>
                       </div>
                       <h3 className={cn('text-sm font-semibold', style.text)}>{room.name}</h3>
                       <p className="mt-0.5 text-2xl font-bold text-text-primary">{room.items.length}</p>
@@ -194,13 +221,7 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
                       }}
                       className="flex w-full items-center gap-3 rounded-xl border border-border bg-bg p-2.5 text-left transition-smooth hover:border-primary/30 hover:bg-primary-soft/30"
                     >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface text-text-tertiary ring-1 ring-border">
-                        {it.photo ? (
-                          <img src={it.photo.startsWith('data:') ? it.photo : `file:///${it.photo.replace(/\\/g, '/')}`} alt="" className="h-full w-full rounded-lg object-cover" />
-                        ) : (
-                          <Boxes size={16} />
-                        )}
-                      </div>
+                      <ItemThumb photo={it.photo} name={it.name} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-xs font-medium text-text-primary">{it.name}</p>
                         <p className="truncate text-[10px] text-text-tertiary">
@@ -229,6 +250,29 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
           )}
         </AnimatePresence>
       </div>
+    </div>
+  )
+}
+
+function ItemThumb({ photo, name }) {
+  const [err, setErr] = useState(false)
+  const src = normalizePhotoUrl(photo)
+  if (!src || err) {
+    return (
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface text-text-tertiary ring-1 ring-border">
+        <Boxes size={16} />
+      </div>
+    )
+  }
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface ring-1 ring-border">
+      <img
+        src={src}
+        alt={name || ''}
+        className="h-full w-full object-cover"
+        onError={() => setErr(true)}
+        draggable={false}
+      />
     </div>
   )
 }

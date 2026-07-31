@@ -45,6 +45,7 @@ import {
 import { compressImageToBase64 } from '../lib/imageCompress'
 import ConfirmDialog from './ConfirmDialog'
 import Toast from './Toast'
+import Lightbox from './Lightbox'
 
 const MATERIAL_TYPES = ['note', 'url', 'photo', 'recipe', 'tutorial', 'doc', 'other']
 
@@ -92,6 +93,13 @@ function isUrl(s) {
   return /^https?:\/\//i.test(s || '')
 }
 
+function isImageResource(s) {
+  if (!s) return false
+  if (/^data:image\//i.test(s)) return true
+  if (/\.(jpg|jpeg|png|gif|bmp|webp|svg)(\?.*)?$/i.test(s)) return true
+  return false
+}
+
 export default function MaterialLibrary({ onBack }) {
   const { t } = useI18n()
   const [items, setItems] = useState([])
@@ -105,6 +113,7 @@ export default function MaterialLibrary({ onBack }) {
 
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
+  const [lightbox, setLightbox] = useState({ src: '', alt: '' })
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type, id: Date.now() })
@@ -391,6 +400,7 @@ export default function MaterialLibrary({ onBack }) {
                     onToggleSelect={() => toggleSelect(item.id)}
                     onEdit={() => openEdit(item)}
                     onDelete={() => handleDelete(item)}
+                    onOpenLightbox={(src, alt) => setLightbox({ src, alt })}
                   />
                 ))}
               </div>
@@ -416,26 +426,33 @@ export default function MaterialLibrary({ onBack }) {
         onConfirm={confirmDelete}
         onCancel={() => setConfirm({ open: false, id: null, name: '', bulk: false, ids: [] })}
       />
+      <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox({ src: '', alt: '' })} />
       <Toast toast={toast} onDone={() => setToast(null)} />
     </div>
   )
 }
 
-function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDelete }) {
+function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox }) {
   const { t } = useI18n()
   const [menuOpen, setMenuOpen] = useState(false)
   const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
   const resource = item.photo || item.url || ''
+  const resourceIsImage = isImageResource(resource)
 
   const handleOpenResource = async (e) => {
     if (e) e.stopPropagation()
     if (!resource) return
+    if (resourceIsImage) {
+      const src = toPhotoSrc(resource)
+      if (src) onOpenLightbox(src, item.title)
+      return
+    }
     if (isUrl(resource)) {
       await openExternal(resource)
     } else if (isFolderPath(resource)) {
       await openPath(resource.replace(/^file:\/+/i, ''))
     } else {
-      // 图片：使用系统默认程序打开
+      // 其它文件：使用系统默认程序打开
       await openPath(resource.replace(/^file:\/+/i, ''))
     }
   }

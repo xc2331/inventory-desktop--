@@ -86,6 +86,12 @@ contextBridge.exposeInMainWorld('lingguang', {
     update: (id, patch) => ipcRenderer.invoke('locations:update', { id, patch }),
     delete: (id) => ipcRenderer.invoke('locations:delete', { id })
   },
+  floorPlans: {
+    get: (locationId) => ipcRenderer.invoke('floorPlans:get', { locationId }),
+    set: (locationId, plan) => ipcRenderer.invoke('floorPlans:set', { locationId, plan }),
+    delete: (locationId) => ipcRenderer.invoke('floorPlans:delete', { locationId }),
+    createSubLocation: (parentId, name) => ipcRenderer.invoke('floorPlans:createSubLocation', { parentId, name })
+  },
   menu: {
     onImport: (cb) => ipcRenderer.on('menu:import', cb),
     onExportJson: (cb) => ipcRenderer.on('menu:export-json', cb),

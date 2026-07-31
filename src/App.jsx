@@ -21,6 +21,7 @@ import BulkEditBar from './components/BulkEditBar'
 import HelpView from './components/HelpView'
 import MaterialLibrary from './components/MaterialLibrary'
 import LocationMap from './components/LocationMap'
+import FloorPlanEditor from './components/FloorPlanEditor'
 import {
   fetchAllItems,
   searchItems,
@@ -72,7 +73,7 @@ function applyThemeClass(theme) {
 
 export default function App() {
   const { t, lang, setLang } = useI18n()
-  const [view, setView] = useState('items') // items | settings | statistics | categories | locations | materials | locationMap
+  const [view, setView] = useState('items') // items | settings | statistics | categories | locations | materials | locationMap | floorPlan
   const [items, setItems] = useState([])
   const [allItems, setAllItems] = useState([]) // 全量物品，用于位置计数（不受筛选影响）
   const [lightbox, setLightbox] = useState({ src: '', alt: '' })
@@ -97,6 +98,7 @@ export default function App() {
   const [closePromptOpen, setClosePromptOpen] = useState(false)
   const [updaterInfo, setUpdaterInfo] = useState({ currentVersion: '', source: '', sources: [], autoCheck: true })
   const [updateDialog, setUpdateDialog] = useState({ open: false, status: 'idle', info: null, progress: { downloaded: 0, total: 0, percent: 0 } })
+  const [floorPlanLocation, setFloorPlanLocation] = useState(null)
 
   // 初始化主题、动效与关闭行为
   useEffect(() => {
@@ -683,6 +685,38 @@ export default function App() {
             locations={locations}
             onBack={() => setView('items')}
             onSelectLocation={(path) => {
+              setActiveLocation(path)
+              setActiveCategory('')
+              setView('items')
+              exitBulkMode()
+            }}
+            onEditFloorPlan={(loc) => {
+              setFloorPlanLocation(loc)
+              setView('floorPlan')
+            }}
+          />
+        </motion.div>
+      )}
+      {view === 'floorPlan' && floorPlanLocation && (
+        <motion.div
+          key="floorPlan"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -16 }}
+          transition={{ duration: 0.18, ease: EASE }}
+          className="h-screen w-screen"
+        >
+          <FloorPlanEditor
+            locationId={floorPlanLocation.id}
+            locationName={floorPlanLocation.name}
+            locations={locations}
+            items={allItems}
+            onBack={() => {
+              setFloorPlanLocation(null)
+              setView('locationMap')
+            }}
+            onSelectSubLocation={(path) => {
+              setFloorPlanLocation(null)
               setActiveLocation(path)
               setActiveCategory('')
               setView('items')

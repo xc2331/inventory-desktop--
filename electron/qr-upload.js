@@ -48,24 +48,31 @@ function parseMultipart(req, boundary) {
     req.on('data', (c) => chunks.push(c))
     req.on('end', () => {
       const buffer = Buffer.concat(chunks)
-      const delim = Buffer.from('--' + boundary)
+      const boundaryBuf = Buffer.from('--' + boundary)
       const parts = []
-      let start = buffer.indexOf(delim)
+      let start = buffer.indexOf(boundaryBuf)
       while (start !== -1) {
-        const end = buffer.indexOf(delim, start + delim.length)
-        const part = end === -1 ? buffer.slice(start) : buffer.slice(start, end)
+        const afterBoundary = start + boundaryBuf.length
+        // 到达结束边界 --boundary--\r\n
+        if (buffer.slice(afterBoundary, afterBoundary + 2).toString() === '--') break
+        const nextBoundary = buffer.indexOf(boundaryBuf, afterBoundary)
+        const part = nextBoundary === -1 ? buffer.slice(afterBoundary) : buffer.slice(afterBoundary, nextBoundary)
         const headerEnd = part.indexOf('\r\n\r\n')
         if (headerEnd !== -1) {
           const header = part.slice(0, headerEnd).toString()
-          const body = part.slice(headerEnd + 4)
-          // 去掉末尾的 \r\n 或 --\r\n
-          let data = body
-          if (data.slice(-2).toString() === '\r\n') data = data.slice(0, -2)
-          if (data.slice(-4).toString() === '--\r\n') data = data.slice(0, -4)
-          parts.push({ header, data })
+          // 正文只取到下一个 boundary 之前的 \r\n，避免混入 boundary 标记
+          const bodyStart = headerEnd + 4
+          let bodyEnd = part.indexOf(Buffer.from('\r\n--' + boundary), bodyStart)
+          if (bodyEnd === -1) bodyEnd = part.length
+          let body = part.slice(bodyStart, bodyEnd)
+          // 去除末尾换行
+          if (body.length >= 2 && body.slice(-2).toString() === '\r\n') {
+            body = body.slice(0, -2)
+          }
+          parts.push({ header, data: body })
         }
-        if (end === -1) break
-        start = end
+        if (nextBoundary === -1) break
+        start = nextBoundary
       }
       resolve(parts)
     })
@@ -77,6 +84,7 @@ class QRUploadServer {
   constructor({ getMainWindow }) {
     this.getMainWindow = getMainWindow
     this.server = null
+    this.connections = new Set()
     this.port = 0
     this.token = ''
     this.used = false
@@ -92,33 +100,53 @@ class QRUploadServer {
       this.token = crypto.randomUUID()
       this.used = false
       this.receivedImage = null
+      this.connections = new Set()
       this.server = http.createServer((req, res) => this.handle(req, res))
-      this.server.on('error', (e) => reject(e))
+      this.server.on('connection', (socket) => {
+        this.connections.add(socket)
+        socket.on('close', () => this.connections.delete(socket))
+      })
       // 优先使用固定端口 3002，方便用户一次性放行防火墙；被占用则回退到随机端口
-      const tryListen = (port) => {
-        this.server.listen(port, '0.0.0.0', () => {
-          this.port = this.server.address().port
-          const info = { port: this.port, url: this.getUrl(), token: this.token, ips: getLocalIps() }
-          console.log('[qr-upload] server started at', info.url)
-          resolve(info)
-        })
+      const onListen = () => {
+        this.port = this.server.address().port
+        const info = { port: this.port, url: this.getUrl(), token: this.token, ips: getLocalIps() }
+        console.log('[qr-upload] server started at', info.url)
+        resolve(info)
       }
-      this.server.once('error', (e) => {
-        if (e.code === 'EADDRINUSE') {
+      const onError = (e) => {
+        if (e.code === 'EADDRINUSE' && this.port === 0) {
+          // 3002 被占用，回退随机端口
           console.log('[qr-upload] port 3002 in use, falling back to random port')
-          this.server.removeAllListeners('error')
-          this.server.on('error', (e2) => reject(e2))
-          tryListen(0)
+          this.server.removeListener('error', onError)
+          this.server.once('error', (e2) => reject(e2))
+          this.server.listen(0, '0.0.0.0', onListen)
         } else {
           reject(e)
         }
+      }
+      this.server.once('error', onError)
+      this.server.listen(3002, '0.0.0.0', () => {
+        this.server.removeListener('error', onError)
+        this.server.on('error', (e) => console.error('[qr-upload] server error:', e))
+        onListen()
       })
-      tryListen(3002)
     })
   }
 
   stop() {
     if (this.server) {
+      try {
+        // 强制断开所有活跃连接，确保端口立即释放
+        if (typeof this.server.closeAllConnections === 'function') {
+          this.server.closeAllConnections()
+        }
+      } catch (e) {
+        /* ignore */
+      }
+      for (const socket of this.connections) {
+        try { socket.destroy() } catch (e) { /* ignore */ }
+      }
+      this.connections.clear()
       this.server.close()
       this.server = null
     }
