@@ -29,7 +29,7 @@ const info = {
   filename,
   size,
   sha512,
-  releaseNotes: 'v1.2.0：新增电子材料库、位置地图可视化、物品消耗速度与备注扩展、手机扫码传图、AI 识别能力入口。'
+  releaseNotes: 'v1.2.1 修复与优化：修复 frameless 窗口拖拽导致电子材料库/位置地图按钮无法点击的问题；修复 Agent 接口新增位置不同步；优化二维码局域网 IP 选择；电子材料库支持资源链接、批量编辑、双击打开、右键编辑；设置新增更新日志与 AI 能力说明面板。'
 }
 
 const outPath = path.join(outputDir, 'update-info.json')

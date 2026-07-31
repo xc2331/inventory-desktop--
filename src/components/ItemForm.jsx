@@ -191,41 +191,40 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const tree = buildLocationTree(locations)
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2, ease: EASE }}
-        className="fixed inset-0 z-[65] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm"
-        onClick={onClose}
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2, ease: EASE }}
+      className="fixed inset-0 z-[65] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.form
+        onSubmit={handleSubmit}
+        onClick={(e) => e.stopPropagation()}
+        initial={{ opacity: 0, scale: 0.95, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 6 }}
+        transition={{ duration: 0.32, ease: EASE_SPRING }}
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface shadow-float"
       >
-        <motion.form
-          onSubmit={handleSubmit}
-          onClick={(e) => e.stopPropagation()}
-          initial={{ opacity: 0, scale: 0.95, y: 12 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.97, y: 6 }}
-          transition={{ duration: 0.32, ease: EASE_SPRING }}
-          className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface shadow-float"
-        >
-          {/* 头部 */}
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface/95 px-5 py-3.5 backdrop-blur">
-            <h2 className="text-base font-semibold text-text-primary">
-              {initial ? t('form_editTitle') : t('form_addTitle')}
-            </h2>
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.9 }}
-              onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
-            >
-              <X size={17} />
-            </motion.button>
-          </div>
+        {/* 头部 */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface/95 px-5 py-3.5 backdrop-blur">
+          <h2 className="text-base font-semibold text-text-primary">
+            {initial ? t('form_editTitle') : t('form_addTitle')}
+          </h2>
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.9 }}
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+          >
+            <X size={17} />
+          </motion.button>
+        </div>
 
-          <div className="p-5">
-            <div className="grid grid-cols-2 gap-3.5">
+        <div className="p-5">
+          <div className="grid grid-cols-2 gap-3.5">
               <Field label={t('f_name')} required error={errors.name} className="col-span-2">
                 <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} className="input" autoFocus />
               </Field>
@@ -489,7 +488,6 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
           </div>
         </motion.form>
       </motion.div>
-    </AnimatePresence>
   )
 }
 

@@ -1,5 +1,5 @@
 // Electron 主进程：窗口、数据库（含分类/位置树/设置）、IPC、文件对话框、中文菜单
-const { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
@@ -646,6 +646,29 @@ ipcMain.handle('dialog:pickFolder', async () => {
   return { canceled: false, path: res.filePaths[0] }
 })
 
+// 打开外部链接或本地路径
+ipcMain.handle('shell:openExternal', async (_event, url) => {
+  if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+    await shell.openExternal(url)
+    return { ok: true }
+  }
+  return { ok: false, error: 'invalid url' }
+})
+
+ipcMain.handle('shell:openPath', async (_event, target) => {
+  if (typeof target !== 'string' || !target.trim()) return { ok: false, error: 'empty path' }
+  const normalized = path.normalize(target.trim())
+  if (!fs.existsSync(normalized)) return { ok: false, error: 'path not found' }
+  const result = await shell.openPath(normalized)
+  return { ok: result === '', error: result || undefined }
+})
+
+ipcMain.handle('shell:showItemInFolder', async (_event, target) => {
+  if (typeof target !== 'string' || !target.trim()) return { ok: false, error: 'empty path' }
+  shell.showItemInFolder(path.normalize(target.trim()))
+  return { ok: true }
+})
+
 // 选择图片文件对话框（返回路径，不读取内容）
 ipcMain.handle('dialog:pickImage', async () => {
   const res = await dialog.showOpenDialog(mainWindow, {
@@ -720,6 +743,20 @@ ipcMain.handle('materials:update', (_event, { id, patch }) => {
 ipcMain.handle('materials:delete', (_event, id) => {
   db.prepare('DELETE FROM materials WHERE id = ?').run(id)
   return { ok: true }
+})
+
+ipcMain.handle('materials:bulkDelete', (_event, ids) => {
+  if (!ids || ids.length === 0) return { deleted: 0 }
+  const ph = ids.map(() => '?').join(',')
+  const info = db.prepare(`DELETE FROM materials WHERE id IN (${ph})`).run(...ids)
+  return { deleted: info.changes || 0 }
+})
+
+ipcMain.handle('materials:bulkUpdateType', (_event, { ids, type }) => {
+  if (!ids || ids.length === 0) return { updated: 0 }
+  const ph = ids.map(() => '?').join(',')
+  const info = db.prepare(`UPDATE materials SET type = ?, updated_at = ? WHERE id IN (${ph})`).run(type, Date.now(), ...ids)
+  return { updated: info.changes || 0 }
 })
 
 // ===== IPC：手机扫码传图 =====

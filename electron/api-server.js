@@ -179,6 +179,60 @@ function levenshtein(a, b) {
   return dp[m]
 }
 
+function parseItemLocationPath(item) {
+  if (item.location) {
+    const parts = String(item.location).split(/\s*>\s*/).filter(Boolean)
+    if (parts.length) return parts
+  }
+  const path = []
+  if (item.room) path.push(String(item.room).trim())
+  if (item.position && item.position !== item.room) path.push(String(item.position).trim())
+  return path
+}
+
+function ensureLocationsFromItems(db, items) {
+  const now = nowMs()
+  const rows = db.prepare('SELECT * FROM locations').all()
+  const existing = new Map()
+  rows.forEach((r) => existing.set(`${r.parent_id || ''}|${r.name}`, r))
+
+  const createNode = (name, parentId) => {
+    const id = crypto.randomUUID()
+    const siblings =
+      db.prepare('SELECT MAX(sort_order) m FROM locations WHERE parent_id IS ? OR parent_id = ?')
+        .get(parentId || null, parentId || '').m || 0
+    db.prepare(
+      'INSERT INTO locations (id,name,parent_id,sort_order,created_at,updated_at) VALUES (@id,@name,@parent_id,@sort_order,@created_at,@updated_at)'
+    ).run({
+      id,
+      name,
+      parent_id: parentId || '',
+      sort_order: siblings + 1,
+      created_at: now,
+      updated_at: now
+    })
+    return { id, name, parent_id: parentId || '' }
+  }
+
+  let createdAny = false
+  for (const item of items) {
+    const path = parseItemLocationPath(item)
+    if (!path.length) continue
+    let parentId = ''
+    for (const name of path) {
+      const key = `${parentId}|${name}`
+      let node = existing.get(key)
+      if (!node) {
+        node = createNode(name, parentId)
+        existing.set(key, node)
+        createdAny = true
+      }
+      parentId = node.id
+    }
+  }
+  return createdAny
+}
+
 function findSimilarNode(name, candidates) {
   const n = String(name).trim().toLowerCase()
   if (!n) return null
@@ -379,7 +433,8 @@ class ApiServer {
     })
     tx()
 
-    if (created.length) this.notifyRenderer('locations')
+    // 无论是否新建节点，位置推断完成后都通知前端刷新位置树
+    this.notifyRenderer('locations')
     json(res, 200, { raw, path, matched, created })
   }
 
@@ -434,6 +489,9 @@ class ApiServer {
          VALUES (@id, @name, @item_no, @room, @position, @location, @quantity, @min_quantity, @photo, @category, @expiry_date, @created_at, @updated_at)`
       )
       .run(row)
+    // 自动把物品位置同步到位置树，保持 UI 一致
+    const createdLocations = ensureLocationsFromItems(this.db, [row])
+    if (createdLocations) this.notifyRenderer('locations')
     this.notifyRenderer('items')
     json(res, 201, { item: toPhoneItem(row) })
   }
@@ -486,6 +544,9 @@ class ApiServer {
          expiry_date=@expiry_date, updated_at=@updated_at WHERE id=@id`
       )
       .run(next)
+    // 自动把物品位置同步到位置树，保持 UI 一致
+    const createdLocations = ensureLocationsFromItems(this.db, [next])
+    if (createdLocations) this.notifyRenderer('locations')
     this.notifyRenderer('items')
     json(res, 200, { item: toPhoneItem(next) })
   }

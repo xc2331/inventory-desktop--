@@ -313,7 +313,17 @@ const DICT = {
     ai_recognize: '图像识别建议',
     ai_receipt: '票据批量录入',
     ai_scan: '条码 / NFC 扫描',
-    ai_coming: '后续版本接入外部视觉 API，当前可先上传照片备用'
+    ai_coming: '后续版本接入外部视觉 API，当前可先上传照片备用',
+    settings_whatsNew: '更新日志 / 新功能',
+    settings_whatsNew_desc: '查看每个版本的改动与使用提示',
+    settings_aiCapabilities: 'AI 能力说明',
+    settings_aiCapabilities_desc: '了解当前版本支持的 AI 识别能力',
+    settings_qrUploadGuide: '手机扫码传图说明',
+    settings_qrUploadGuide_desc: '手机与电脑在同一 Wi-Fi 下，扫码后拍照或选图上传',
+    locationMap_hint: '点击房间卡片查看该位置下的物品',
+    locationMap_emptyHint: '还没有物品记录位置。在「添加/编辑物品」时填写位置，即可在这里看到可视化分布。',
+    locationMap_totalRooms: '共 {n} 个位置',
+    locationMap_uncategorized: '未指定位置'
   },
   en: {
     appTitle: 'Family Inventory',
@@ -626,7 +636,17 @@ const DICT = {
     ai_recognize: 'Image Recognition',
     ai_receipt: 'Receipt Batch Entry',
     ai_scan: 'Barcode / NFC Scan',
-    ai_coming: 'External vision API integration coming in a future update; upload photos for now'
+    ai_coming: 'External vision API integration coming in a future update; upload photos for now',
+    settings_whatsNew: 'What\'s New',
+    settings_whatsNew_desc: 'See what changed and how to use new features in each version',
+    settings_aiCapabilities: 'AI Capabilities',
+    settings_aiCapabilities_desc: 'Learn about AI recognition features available in this version',
+    settings_qrUploadGuide: 'Phone QR Upload Guide',
+    settings_qrUploadGuide_desc: 'On the same Wi-Fi, scan the QR code and take or pick a photo',
+    locationMap_hint: 'Click a room card to view items stored there',
+    locationMap_emptyHint: 'No items have a location yet. Fill in the location when adding or editing an item to see it visualized here.',
+    locationMap_totalRooms: '{n} locations',
+    locationMap_uncategorized: 'Unspecified location'
   }
 }
 

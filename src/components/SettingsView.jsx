@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket, Loader2 } from 'lucide-react'
+import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket, Loader2, ScrollText, Cpu, Smartphone, ChevronDown, ChevronUp, Zap } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
 import { getSettings, getApiToken, resetApiToken, setApiConfig } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -409,6 +409,37 @@ export default function SettingsView({
             </div>
           </Section>
 
+          {/* 更新日志 / 新功能 */}
+          <Section title={t('settings_whatsNew')} desc={t('settings_whatsNew_desc')}>
+            <ReleaseNotes />
+          </Section>
+
+          {/* AI 能力说明 */}
+          <Section title={t('settings_aiCapabilities')} desc={t('settings_aiCapabilities_desc')}>
+            <div className="space-y-2">
+              <CapabilityRow icon={<Zap size={16} />} title={t('ai_segment')} status="coming" />
+              <CapabilityRow icon={<Cpu size={16} />} title={t('ai_recognize')} status="coming" />
+              <CapabilityRow icon={<ScrollText size={16} />} title={t('ai_receipt')} status="coming" />
+              <CapabilityRow icon={<Smartphone size={16} />} title={t('ai_scan')} status="coming" />
+            </div>
+            <p className="mt-3 flex items-start gap-1.5 text-xs text-text-tertiary/80">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              {t('ai_coming')}
+            </p>
+          </Section>
+
+          {/* 手机扫码传图说明 */}
+          <Section title={t('settings_qrUploadGuide')} desc={t('settings_qrUploadGuide_desc')}>
+            <ol className="list-decimal space-y-2 pl-4 text-xs leading-relaxed text-text-secondary">
+              <li>进入「电子材料库」或物品表单的图片字段，点击「手机扫码传图」。</li>
+              <li>确保手机与电脑连接同一 Wi-Fi。</li>
+              <li>用微信/浏览器扫描二维码，手机上会打开临时上传页。</li>
+              <li>拍照或从相册选择照片，上传成功后图片会自动填入当前表单。</li>
+              <li>二维码一次性有效，上传成功后自动失效；可点击刷新重新生成。</li>
+            </ol>
+            <p className="mt-3 text-xs text-text-tertiary">提示：若扫描后打不开，请检查电脑防火墙是否放行应用，或尝试切换网络。</p>
+          </Section>
+
           {/* 数据管理 */}
           <Section title={t('settings_dataManage')}>
             <div className="space-y-2">
@@ -433,6 +464,82 @@ export default function SettingsView({
           </Section>
         </motion.div>
       </main>
+    </div>
+  )
+}
+
+const RELEASE_NOTES = [
+  {
+    version: 'v1.2.1',
+    date: '2026-07-31',
+    items: [
+      '修复 frameless 窗口拖拽导致电子材料库/位置地图按钮无法点击的问题',
+      '修复 Agent 接口新增位置不同步',
+      '优化二维码局域网 IP 选择，提升同 Wi-Fi 下手机扫描成功率',
+      '电子材料库支持资源链接、批量编辑、双击打开、右键编辑',
+      '位置地图新增物品数量角标、空状态引导与使用提示',
+      '设置新增「更新日志/新功能」与「AI 能力说明」面板',
+      '新增「手机扫码传图」使用说明'
+    ]
+  },
+  {
+    version: 'v1.2.0',
+    date: '2026-07-28',
+    items: [
+      '新增电子材料库：集中管理证件照、网址、教程、菜谱等',
+      '新增位置地图可视化：按房间/位置查看物品分布',
+      '新增手机扫码传图：手机拍照或选图上传到电脑',
+      '新增外部 Agent API：AI 可通过 HTTP 接口查询或添加物品',
+      '新增软件内更新检查与自动下载'
+    ]
+  }
+]
+
+function ReleaseNotes() {
+  const [openIndex, setOpenIndex] = useState(0)
+  return (
+    <div className="space-y-2">
+      {RELEASE_NOTES.map((note, idx) => {
+        const open = openIndex === idx
+        return (
+          <div key={note.version} className="rounded-xl border border-border bg-bg overflow-hidden">
+            <button
+              onClick={() => setOpenIndex(open ? -1 : idx)}
+              className="flex w-full items-center justify-between px-3.5 py-2.5 text-left"
+            >
+              <span className="flex items-center gap-2 text-sm font-medium text-text-primary">
+                <span className="rounded-md bg-primary-soft px-1.5 py-0.5 text-xs text-primary">{note.version}</span>
+                <span className="text-xs text-text-tertiary">{note.date}</span>
+              </span>
+              {open ? <ChevronUp size={14} className="text-text-tertiary" /> : <ChevronDown size={14} className="text-text-tertiary" />}
+            </button>
+            {open && (
+              <ul className="space-y-1.5 px-3.5 pb-3 text-xs leading-relaxed text-text-secondary">
+                {note.items.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-primary" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function CapabilityRow({ icon, title, status }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-bg px-3.5 py-2.5 text-sm">
+      <span className="flex items-center gap-2 text-text-secondary">
+        <span className="text-primary">{icon}</span>
+        {title}
+      </span>
+      <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-tertiary">
+        {status === 'coming' ? '后续接入' : '已启用'}
+      </span>
     </div>
   )
 }

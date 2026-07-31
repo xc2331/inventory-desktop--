@@ -482,6 +482,14 @@ export async function pickImage() {
   return api.dialog.pickImage()
 }
 
+export async function openPath(target) {
+  return api.shell.openPath(target)
+}
+
+export async function openExternal(url) {
+  return api.shell.openExternal(url)
+}
+
 export async function generateItemNo() {
   return api.items.generateItemNo()
 }
@@ -505,6 +513,14 @@ export async function updateMaterial(id, patch) {
 
 export async function deleteMaterial(id) {
   return api.materials.delete(id)
+}
+
+export async function bulkDeleteMaterials(ids) {
+  return api.materials.bulkDelete(ids)
+}
+
+export async function bulkUpdateMaterialType(ids, type) {
+  return api.materials.bulkUpdateType(ids, type)
 }
 
 // ===== 手机扫码传图 =====

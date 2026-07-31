@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('lingguang', {
       ipcRenderer.invoke('file:save', { content, defaultName, filters }),
     open: ({ filters }) => ipcRenderer.invoke('file:open', { filters })
   },
+  shell: {
+    openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+    openPath: (target) => ipcRenderer.invoke('shell:openPath', target),
+    showItemInFolder: (target) => ipcRenderer.invoke('shell:showItemInFolder', target)
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (patch) => ipcRenderer.invoke('settings:set', patch),
@@ -37,7 +42,9 @@ contextBridge.exposeInMainWorld('lingguang', {
     get: (id) => ipcRenderer.invoke('materials:get', id),
     create: (data) => ipcRenderer.invoke('materials:create', data),
     update: (id, patch) => ipcRenderer.invoke('materials:update', { id, patch }),
-    delete: (id) => ipcRenderer.invoke('materials:delete', id)
+    delete: (id) => ipcRenderer.invoke('materials:delete', id),
+    bulkDelete: (ids) => ipcRenderer.invoke('materials:bulkDelete', ids),
+    bulkUpdateType: (ids, type) => ipcRenderer.invoke('materials:bulkUpdateType', { ids, type })
   },
   qrUpload: {
     start: () => ipcRenderer.invoke('qrUpload:start'),

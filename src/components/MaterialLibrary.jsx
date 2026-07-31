@@ -17,7 +17,13 @@ import {
   Edit2,
   ExternalLink,
   Tags,
-  Sparkles
+  Sparkles,
+  CheckSquare,
+  Square,
+  Folder,
+  Globe,
+  Check,
+  Monitor
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { EASE, EASE_SPRING } from '../lib/motion'
@@ -27,10 +33,14 @@ import {
   createMaterial,
   updateMaterial,
   deleteMaterial,
+  bulkDeleteMaterials,
+  bulkUpdateMaterialType,
   startQRUpload,
   stopQRUpload,
   onQRUploadImage,
-  pickImage
+  pickImage,
+  openPath,
+  openExternal
 } from '../lib/api'
 import { compressImageToBase64 } from '../lib/imageCompress'
 import ConfirmDialog from './ConfirmDialog'
@@ -39,20 +49,20 @@ import Toast from './Toast'
 const MATERIAL_TYPES = ['note', 'url', 'photo', 'recipe', 'tutorial', 'doc', 'other']
 
 const TYPE_META = {
-  note: { icon: FileText, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20' },
-  url: { icon: Link, color: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-900/20' },
-  photo: { icon: ImageIcon, color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-900/20' },
-  recipe: { icon: ChefHat, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/20' },
-  tutorial: { icon: GraduationCap, color: 'text-teal-500', bg: 'bg-teal-50 dark:bg-teal-900/20' },
-  doc: { icon: FolderOpen, color: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-900/20' },
-  other: { icon: Tags, color: 'text-stone-500', bg: 'bg-stone-50 dark:bg-stone-900/20' }
+  note: { icon: FileText, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20', labelKey: 'materials_type_note' },
+  url: { icon: Globe, color: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-900/20', labelKey: 'materials_type_url' },
+  photo: { icon: ImageIcon, color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-900/20', labelKey: 'materials_type_photo' },
+  recipe: { icon: ChefHat, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/20', labelKey: 'materials_type_recipe' },
+  tutorial: { icon: GraduationCap, color: 'text-teal-500', bg: 'bg-teal-50 dark:bg-teal-900/20', labelKey: 'materials_type_tutorial' },
+  doc: { icon: FolderOpen, color: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-900/20', labelKey: 'materials_type_doc' },
+  other: { icon: Tags, color: 'text-stone-500', bg: 'bg-stone-50 dark:bg-stone-900/20', labelKey: 'materials_type_other' }
 }
 
 function TypeIcon({ type, size = 16 }) {
   const meta = TYPE_META[type] || TYPE_META.other
   const Icon = meta.icon
   return (
-    <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', meta.bg)}>
+    <span className={cn('flex h-7 w-7 items-center justify-center rounded-lg', meta.bg)}>
       <Icon size={size} className={meta.color} />
     </span>
   )
@@ -70,6 +80,18 @@ function toPhotoSrc(photo) {
   return 'file:///' + s.replace(/\\/g, '/')
 }
 
+function isFolderPath(s) {
+  if (!s) return false
+  if (/^(data:|https?:|file:)/i.test(s)) return false
+  const clean = s.replace(/^file:\/+/i, '').replace(/\\/g, '/')
+  if (/\.[a-zA-Z0-9]{2,8}$/.test(clean)) return false
+  return true
+}
+
+function isUrl(s) {
+  return /^https?:\/\//i.test(s || '')
+}
+
 export default function MaterialLibrary({ onBack }) {
   const { t } = useI18n()
   const [items, setItems] = useState([])
@@ -78,8 +100,11 @@ export default function MaterialLibrary({ onBack }) {
   const [keyword, setKeyword] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [confirm, setConfirm] = useState({ open: false, id: null, name: '' })
+  const [confirm, setConfirm] = useState({ open: false, id: null, name: '', bulk: false, ids: [] })
   const [toast, setToast] = useState(null)
+
+  const [bulkMode, setBulkMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type, id: Date.now() })
@@ -101,6 +126,10 @@ export default function MaterialLibrary({ onBack }) {
     load()
   }, [load])
 
+  useEffect(() => {
+    if (!bulkMode) setSelectedIds(new Set())
+  }, [bulkMode])
+
   const handleSave = async (data) => {
     try {
       if (editing) {
@@ -119,45 +148,122 @@ export default function MaterialLibrary({ onBack }) {
   }
 
   const handleDelete = (item) => {
-    setConfirm({ open: true, id: item.id, name: item.title || t('materials_title') })
+    setConfirm({ open: true, id: item.id, name: item.title || t('materials_title'), bulk: false, ids: [] })
   }
 
   const confirmDelete = async () => {
-    const { id } = confirm
-    setConfirm({ open: false, id: null, name: '' })
+    const { id, bulk, ids } = confirm
+    setConfirm({ open: false, id: null, name: '', bulk: false, ids: [] })
     try {
-      await deleteMaterial(id)
-      showToast(t('materials_toast_deleted'))
+      if (bulk) {
+        const res = await bulkDeleteMaterials(ids)
+        showToast(t('toast_bulkDeleted', { n: res.deleted }))
+        setSelectedIds(new Set())
+      } else {
+        await deleteMaterial(id)
+        showToast(t('materials_toast_deleted'))
+      }
       load()
     } catch (e) {
       showToast(t('toast_deleteFail', { msg: e.message }), 'error')
     }
   }
 
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectAll = () => {
+    if (selectedIds.size === items.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(items.map((it) => it.id)))
+    }
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
+
+  const exitBulkMode = () => {
+    setBulkMode(false)
+    setSelectedIds(new Set())
+  }
+
+  const handleBulkDelete = () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setConfirm({ open: true, bulk: true, ids, name: t('confirm_bulkDeleteMsg', { n: ids.length }) })
+  }
+
+  const handleBulkChangeType = async (type) => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    try {
+      const res = await bulkUpdateMaterialType(ids, type)
+      showToast(t('materials_bulkTypeUpdated', { n: res.updated }))
+      setSelectedIds(new Set())
+      load()
+    } catch (e) {
+      showToast(t('toast_saveFail', { msg: e.message }), 'error')
+    }
+  }
+
+  const openAdd = () => {
+    setEditing(null)
+    setFormOpen(true)
+  }
+
+  const openEdit = (item) => {
+    setEditing(item)
+    setFormOpen(true)
+  }
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg">
       <header className="drag-region flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-5">
         <div className="flex items-center gap-3">
-          <motion.button
-            whileTap={{ scale: 0.92 }}
+          <button
+            type="button"
             onClick={onBack}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+            className="no-drag flex h-8 w-8 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
           >
             <ArrowLeft size={18} />
-          </motion.button>
+          </button>
           <div>
             <h1 className="text-sm font-semibold text-text-primary">{t('materials_title')}</h1>
             <p className="text-[11px] text-text-tertiary">{t('materials_subtitle')}</p>
           </div>
         </div>
-        <motion.button
-          whileTap={{ scale: 0.97 }}
-          onClick={() => { setEditing(null); setFormOpen(true) }}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover hover:shadow-card"
-        >
-          <Plus size={14} strokeWidth={2.5} />
-          {t('materials_add')}
-        </motion.button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (bulkMode) exitBulkMode()
+              else setBulkMode(true)
+            }}
+            className={cn(
+              'no-drag flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-smooth',
+              bulkMode
+                ? 'border-primary/40 bg-primary-soft text-primary'
+                : 'border-border bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+            )}
+          >
+            {bulkMode ? <CheckSquare size={14} /> : <Square size={14} />}
+            {t('bulk_select')}
+          </button>
+          <button
+            type="button"
+            onClick={openAdd}
+            className="no-drag flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover hover:shadow-card"
+          >
+            <Plus size={14} strokeWidth={2.5} />
+            {t('materials_add')}
+          </button>
+        </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
@@ -167,6 +273,7 @@ export default function MaterialLibrary({ onBack }) {
             {t('materials_type')}
           </div>
           <button
+            type="button"
             onClick={() => setTypeFilter('')}
             className={cn(
               'mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-smooth',
@@ -178,6 +285,7 @@ export default function MaterialLibrary({ onBack }) {
           </button>
           {MATERIAL_TYPES.map((type) => (
             <button
+              type="button"
               key={type}
               onClick={() => setTypeFilter(type)}
               className={cn(
@@ -206,18 +314,82 @@ export default function MaterialLibrary({ onBack }) {
             </div>
           </div>
 
+          {bulkMode && (
+            <div className="flex items-center justify-between border-b border-border bg-surface px-5 py-2">
+              <div className="flex items-center gap-2 text-xs text-text-secondary">
+                <button
+                  type="button"
+                  onClick={selectAll}
+                  className="flex items-center gap-1 rounded-md px-2 py-1 transition-smooth hover:bg-surface-hover"
+                >
+                  {selectedIds.size === items.length && items.length > 0 ? <CheckSquare size={13} className="text-primary" /> : <Square size={13} />}
+                  {t('bulk_selectAll')}
+                </button>
+                <span className="text-text-tertiary">{t('bulk_selected', { n: selectedIds.size })}</span>
+                {selectedIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    className="text-text-tertiary hover:text-text-secondary"
+                  >
+                    {t('bulk_clear')}
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {selectedIds.size > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleBulkChangeType(e.target.value)
+                        e.target.value = ''
+                      }
+                    }}
+                    className="input h-7 w-28 py-0 text-[11px]"
+                  >
+                    <option value="">{t('materials_bulkChangeType')}</option>
+                    {MATERIAL_TYPES.map((type) => (
+                      <option key={type} value={type}>{t(`materials_type_${type}`)}</option>
+                    ))}
+                  </select>
+                )}
+                {selectedIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleBulkDelete}
+                    className="flex h-7 items-center gap-1 rounded-md bg-danger-soft px-2.5 text-xs font-medium text-danger transition-smooth hover:bg-danger/10"
+                  >
+                    <Trash2 size={12} />
+                    {t('bulk_delete')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={exitBulkMode}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-secondary"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto p-5">
             {loading && items.length === 0 ? (
               <div className="flex h-full items-center justify-center text-sm text-text-tertiary">{t('loading')}</div>
             ) : items.length === 0 ? (
-              <EmptyState onAdd={() => { setEditing(null); setFormOpen(true) }} />
+              <EmptyState onAdd={openAdd} />
             ) : (
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {items.map((item) => (
                   <MaterialCard
                     key={item.id}
                     item={item}
-                    onEdit={() => { setEditing(item); setFormOpen(true) }}
+                    selected={selectedIds.has(item.id)}
+                    bulkMode={bulkMode}
+                    onToggleSelect={() => toggleSelect(item.id)}
+                    onEdit={() => openEdit(item)}
                     onDelete={() => handleDelete(item)}
                   />
                 ))}
@@ -239,20 +411,48 @@ export default function MaterialLibrary({ onBack }) {
 
       <ConfirmDialog
         open={confirm.open}
-        title={t('materials_delete')}
-        message={t('materials_deleteConfirm', { name: confirm.name })}
+        title={confirm.bulk ? t('confirm_bulkDeleteTitle') : t('materials_delete')}
+        message={confirm.bulk ? confirm.name : t('materials_deleteConfirm', { name: confirm.name })}
         onConfirm={confirmDelete}
-        onCancel={() => setConfirm({ open: false, id: null, name: '' })}
+        onCancel={() => setConfirm({ open: false, id: null, name: '', bulk: false, ids: [] })}
       />
       <Toast toast={toast} onDone={() => setToast(null)} />
     </div>
   )
 }
 
-function MaterialCard({ item, onEdit, onDelete }) {
+function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDelete }) {
   const { t } = useI18n()
   const [menuOpen, setMenuOpen] = useState(false)
   const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
+  const resource = item.photo || item.url || ''
+
+  const handleOpenResource = async (e) => {
+    if (e) e.stopPropagation()
+    if (!resource) return
+    if (isUrl(resource)) {
+      await openExternal(resource)
+    } else if (isFolderPath(resource)) {
+      await openPath(resource.replace(/^file:\/+/i, ''))
+    } else {
+      // 图片：使用系统默认程序打开
+      await openPath(resource.replace(/^file:\/+/i, ''))
+    }
+  }
+
+  const handleContextMenu = (e) => {
+    e.preventDefault()
+    onEdit()
+  }
+
+  const handleDoubleClick = () => {
+    if (bulkMode) return
+    if (resource) {
+      handleOpenResource()
+    } else {
+      onEdit()
+    }
+  }
 
   return (
     <motion.div
@@ -260,8 +460,22 @@ function MaterialCard({ item, onEdit, onDelete }) {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: EASE }}
-      className="group relative flex gap-3 rounded-2xl border border-border bg-surface p-4 shadow-card transition-smooth hover:shadow-float"
+      onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
+      className={cn(
+        'group relative flex gap-3 rounded-2xl border bg-surface p-4 shadow-card transition-smooth',
+        selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-border-strong hover:shadow-float'
+      )}
     >
+      {bulkMode && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleSelect() }}
+          className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border text-text-tertiary transition-smooth hover:border-primary hover:text-primary"
+        >
+          {selected && <Check size={13} className="text-primary" />}
+        </button>
+      )}
       <div className="shrink-0 pt-0.5">
         <TypeIcon type={item.type} size={18} />
       </div>
@@ -270,7 +484,8 @@ function MaterialCard({ item, onEdit, onDelete }) {
           <h3 className="truncate text-sm font-semibold text-text-primary">{item.title || t('materials_title')}</h3>
           <div className="relative">
             <button
-              onClick={() => setMenuOpen((o) => !o)}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o) }}
               className="flex h-6 w-6 items-center justify-center rounded-md text-text-tertiary opacity-0 transition-smooth hover:bg-surface-hover hover:text-text-primary group-hover:opacity-100"
             >
               <MoreHorizontal size={15} />
@@ -280,6 +495,7 @@ function MaterialCard({ item, onEdit, onDelete }) {
                 <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} />
                 <div className="absolute right-0 top-7 z-40 w-28 overflow-hidden rounded-xl border border-border bg-surface shadow-float">
                   <button
+                    type="button"
                     onClick={() => { setMenuOpen(false); onEdit() }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary transition-smooth hover:bg-surface-hover"
                   >
@@ -287,6 +503,7 @@ function MaterialCard({ item, onEdit, onDelete }) {
                     {t('materials_edit')}
                   </button>
                   <button
+                    type="button"
                     onClick={() => { setMenuOpen(false); onDelete() }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-xs text-danger transition-smooth hover:bg-danger-soft"
                   >
@@ -308,6 +525,7 @@ function MaterialCard({ item, onEdit, onDelete }) {
             href={item.url}
             target="_blank"
             rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
             className="mb-2 flex items-center gap-1 text-xs text-primary hover:underline"
           >
             <ExternalLink size={11} />
@@ -315,13 +533,16 @@ function MaterialCard({ item, onEdit, onDelete }) {
           </a>
         )}
 
-        {item.photo && (
-          <img
-            src={toPhotoSrc(item.photo)}
-            alt={item.title}
-            className="mb-2 h-28 w-full rounded-lg object-cover ring-1 ring-border"
-            onError={(e) => { e.target.style.display = 'none' }}
-          />
+        {resource && (
+          <button
+            type="button"
+            onClick={handleOpenResource}
+            className="mb-2 flex w-full items-center gap-2 overflow-hidden rounded-xl border border-border bg-bg p-2 text-left transition-smooth hover:border-primary/30 hover:bg-primary-soft/20"
+          >
+            <ResourcePreview resource={resource} />
+            <span className="min-w-0 flex-1 truncate text-[11px] text-text-secondary">{resource.replace(/^file:\/+/i, '').replace(/^[a-zA-Z]:[\\/]/, '')}</span>
+            <ExternalLink size={12} className="shrink-0 text-text-tertiary" />
+          </button>
         )}
 
         {tags.length > 0 && (
@@ -339,6 +560,39 @@ function MaterialCard({ item, onEdit, onDelete }) {
         </div>
       </div>
     </motion.div>
+  )
+}
+
+function ResourcePreview({ resource }) {
+  if (isUrl(resource)) {
+    return (
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500 dark:bg-indigo-900/20">
+        <Globe size={16} />
+      </span>
+    )
+  }
+  if (isFolderPath(resource)) {
+    return (
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-500 dark:bg-amber-900/20">
+        <Folder size={16} />
+      </span>
+    )
+  }
+  const src = toPhotoSrc(resource)
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt=""
+        className="h-8 w-8 shrink-0 rounded-lg object-cover ring-1 ring-border"
+        onError={(e) => { e.target.style.display = 'none' }}
+      />
+    )
+  }
+  return (
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface text-text-tertiary ring-1 ring-border">
+      <ImageIcon size={16} />
+    </span>
   )
 }
 
@@ -402,11 +656,12 @@ function MaterialForm({ initial, onSave, onClose }) {
 
   const refreshQR = async () => {
     await stopQRUpload().catch(() => {})
+    if (qrUnsubscribe.current) { qrUnsubscribe.current(); qrUnsubscribe.current = null }
     await startQR()
   }
 
   const stopQR = async () => {
-    if (qrUnsubscribe.current) qrUnsubscribe.current()
+    if (qrUnsubscribe.current) { qrUnsubscribe.current(); qrUnsubscribe.current = null }
     await stopQRUpload().catch(() => {})
     setQrState({ url: '', status: 'idle' })
   }
@@ -489,13 +744,18 @@ function MaterialForm({ initial, onSave, onClose }) {
             <Field label={t('materials_photo')} className="col-span-2">
               <div className="flex flex-col gap-3 rounded-xl border border-border bg-bg p-3">
                 {form.photo && (
-                  <img
-                    src={toPhotoSrc(form.photo)}
-                    alt="preview"
-                    className="h-32 w-full rounded-lg object-cover ring-1 ring-border"
-                    onError={(e) => { e.target.style.display = 'none' }}
-                  />
+                  <div className="flex items-center gap-3 rounded-lg bg-surface p-2 ring-1 ring-border">
+                    <ResourcePreview resource={form.photo} />
+                    <span className="min-w-0 flex-1 truncate text-xs text-text-secondary">{form.photo}</span>
+                  </div>
                 )}
+                <input
+                  type="text"
+                  value={form.photo}
+                  onChange={(e) => { set('photo', e.target.value); setPhotoHint('') }}
+                  placeholder={t('materials_photoPlaceholder')}
+                  className="input h-8 text-xs"
+                />
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
@@ -604,6 +864,7 @@ function EmptyState({ onAdd }) {
       <p className="mb-1 text-sm font-semibold text-text-secondary">{t('materials_empty')}</p>
       <p className="mb-5 max-w-xs text-xs text-text-tertiary">{t('materials_emptyTip')}</p>
       <button
+        type="button"
         onClick={onAdd}
         className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
       >

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, MapPin, Boxes, ChevronRight, X, Search } from 'lucide-react'
+import { ArrowLeft, MapPin, Boxes, ChevronRight, X, Search, Info } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { EASE } from '../lib/motion'
 import { cn } from '../lib/cn'
@@ -31,7 +31,7 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
     const map = new Map()
     items.forEach((it) => {
       const path = itemLocationPath(it)
-      const room = path[0] || t('loc_empty')
+      const room = path[0] || t('locationMap_uncategorized')
       if (!map.has(room)) map.set(room, { name: room, items: [], subLocations: new Map() })
       const roomData = map.get(room)
       roomData.items.push(it)
@@ -40,15 +40,12 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
         roomData.subLocations.set(sub, (roomData.subLocations.get(sub) || 0) + 1)
       }
     })
-
-    // 未指定位置的物品单独分组
-    const uncategorized = items.filter((it) => itemLocationPath(it).length === 0)
-    if (uncategorized.length > 0) {
-      map.set('__uncategorized', { name: t('loc_empty'), items: uncategorized, subLocations: new Map() })
-    }
-
     return Array.from(map.values()).sort((a, b) => b.items.length - a.items.length)
   }, [items, t])
+
+  const uncategorizedCount = useMemo(() => {
+    return items.filter((it) => itemLocationPath(it).length === 0).length
+  }, [items])
 
   const filteredItems = useMemo(() => {
     if (!selectedRoom) return []
@@ -70,13 +67,13 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+            className="no-drag flex h-8 w-8 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
           >
             <ArrowLeft size={18} />
           </button>
           <div>
             <h1 className="text-sm font-semibold text-text-primary">{t('nav_locationMap')}</h1>
-            <p className="text-[11px] text-text-tertiary">{t('stats_byLocation')} · {total} {t('stat_items')}</p>
+            <p className="text-[11px] text-text-tertiary">{t('stats_byLocation')} · {total} {t('stat_items')} · {t('locationMap_totalRooms', { n: rooms.length })}</p>
           </div>
         </div>
       </header>
@@ -84,14 +81,21 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
       <div className="flex flex-1 overflow-hidden">
         {/* 平面图：房间卡片网格 */}
         <main className="flex flex-1 flex-col overflow-hidden">
-          <div className="border-b border-border px-5 py-3">
-            <p className="text-xs text-text-tertiary">点击房间卡片查看该位置下的物品</p>
+          <div className="flex items-center justify-between border-b border-border px-5 py-3">
+            <p className="flex items-center gap-1.5 text-xs text-text-tertiary">
+              <Info size={13} />
+              {t('locationMap_hint')}
+            </p>
+            {uncategorizedCount > 0 && (
+              <p className="text-xs text-warn">{t('locationMap_uncategorized')}: {uncategorizedCount}</p>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto p-5">
             {rooms.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center text-sm text-text-tertiary">
-                <MapPin size={32} className="mb-3 opacity-50" />
-                {t('loc_empty')}
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center text-sm text-text-tertiary">
+                <MapPin size={40} className="mb-4 opacity-40" />
+                <p className="mb-2 font-medium text-text-secondary">{t('loc_empty')}</p>
+                <p className="max-w-xs text-xs leading-relaxed">{t('locationMap_emptyHint')}</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4">
@@ -110,8 +114,13 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
                         isSelected ? `ring-2 ring-primary ${style.border}` : style.border
                       )}
                     >
-                      <div className={cn('mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-white/70 dark:bg-black/20', style.text)}>
-                        <Boxes size={20} />
+                      <div className="flex w-full items-start justify-between">
+                        <div className={cn('mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-white/70 dark:bg-black/20', style.text)}>
+                          <Boxes size={20} />
+                        </div>
+                        <span className={cn('flex h-7 min-w-[1.75rem] items-center justify-center rounded-full px-2 text-xs font-bold text-white shadow-sm', style.dot)}>
+                          {room.items.length}
+                        </span>
                       </div>
                       <h3 className={cn('text-sm font-semibold', style.text)}>{room.name}</h3>
                       <p className="mt-0.5 text-2xl font-bold text-text-primary">{room.items.length}</p>
@@ -130,7 +139,6 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
                           )}
                         </div>
                       )}
-                      <span className={cn('absolute right-3 top-3 h-2 w-2 rounded-full', style.dot)} />
                     </motion.button>
                   )
                 })}

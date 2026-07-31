@@ -5,16 +5,41 @@ const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
 
-function getLocalIp() {
+const PREFERRED_NAMES = ['wi-fi', 'wifi', 'wlan', 'ethernet', 'eth', '本地连接', '以太网']
+const BLOCKED_NAMES = ['virtual', 'vmware', 'hyper-v', 'veth', 'docker', 'tun', 'tap', 'ppp', 'loopback']
+
+function scoreInterface(name) {
+  const lower = name.toLowerCase()
+  if (BLOCKED_NAMES.some((n) => lower.includes(n))) return -1
+  return PREFERRED_NAMES.reduce((s, pn) => (lower.includes(pn) ? s + 2 : s), 0)
+}
+
+function getInterfaceCandidates() {
   const interfaces = os.networkInterfaces()
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        return iface.address
-      }
+  const candidates = []
+  for (const [name, list] of Object.entries(interfaces)) {
+    const score = scoreInterface(name)
+    if (score < 0) continue
+    for (const iface of list) {
+      if (iface.family !== 'IPv4' || iface.internal) continue
+      const addr = iface.address
+      if (addr.startsWith('127.')) continue
+      if (addr.startsWith('169.254.')) continue
+      candidates.push({ name, address: addr, score })
     }
   }
-  return '127.0.0.1'
+  candidates.sort((a, b) => b.score - a.score)
+  return candidates
+}
+
+function getLocalIp() {
+  const candidates = getInterfaceCandidates()
+  console.log('[qr-upload] available IPs:', candidates)
+  return candidates.length > 0 ? candidates[0].address : '127.0.0.1'
+}
+
+function getLocalIps() {
+  return getInterfaceCandidates().map((c) => c.address)
 }
 
 function parseMultipart(req, boundary) {
@@ -61,7 +86,7 @@ class QRUploadServer {
   start() {
     return new Promise((resolve, reject) => {
       if (this.server) {
-        resolve({ port: this.port, url: this.getUrl(), token: this.token })
+        resolve({ port: this.port, url: this.getUrl(), token: this.token, ips: getLocalIps() })
         return
       }
       this.token = crypto.randomUUID()
@@ -69,12 +94,26 @@ class QRUploadServer {
       this.receivedImage = null
       this.server = http.createServer((req, res) => this.handle(req, res))
       this.server.on('error', (e) => reject(e))
-      this.server.listen(0, '0.0.0.0', () => {
-        this.port = this.server.address().port
-        const info = { port: this.port, url: this.getUrl(), token: this.token }
-        console.log('[qr-upload] server started at', info.url)
-        resolve(info)
+      // 优先使用固定端口 3002，方便用户一次性放行防火墙；被占用则回退到随机端口
+      const tryListen = (port) => {
+        this.server.listen(port, '0.0.0.0', () => {
+          this.port = this.server.address().port
+          const info = { port: this.port, url: this.getUrl(), token: this.token, ips: getLocalIps() }
+          console.log('[qr-upload] server started at', info.url)
+          resolve(info)
+        })
+      }
+      this.server.once('error', (e) => {
+        if (e.code === 'EADDRINUSE') {
+          console.log('[qr-upload] port 3002 in use, falling back to random port')
+          this.server.removeAllListeners('error')
+          this.server.on('error', (e2) => reject(e2))
+          tryListen(0)
+        } else {
+          reject(e)
+        }
       })
+      tryListen(3002)
     })
   }
 
@@ -176,6 +215,7 @@ class QRUploadServer {
   }
 
   mobilePage() {
+    const url = this.getUrl()
     return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -184,20 +224,21 @@ class QRUploadServer {
   <title>手机传图</title>
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #334155; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; background: #fbfaf8; color: #1c1917; }
     .wrap { max-width: 420px; margin: 0 auto; padding: 24px 16px; }
-    h1 { font-size: 20px; margin: 0 0 8px; color: #0f766e; }
-    p { margin: 0 0 20px; font-size: 14px; color: #64748b; line-height: 1.5; }
-    .card { background: #fff; border-radius: 16px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    h1 { font-size: 20px; margin: 0 0 8px; color: #059669; }
+    p { margin: 0 0 20px; font-size: 14px; color: #5c5751; line-height: 1.5; }
+    .card { background: #fff; border-radius: 20px; padding: 20px; box-shadow: 0 2px 8px rgba(28,25,23,0.05); border: 1px solid #e9e5de; }
     label { display: block; width: 100%; }
-    input[type="file"] { display: none; }
-    .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; border-radius: 12px; background: linear-gradient(135deg, #14b8a6, #0d9488); color: #fff; font-size: 16px; font-weight: 600; border: none; cursor: pointer; }
-    .btn.secondary { background: #f1f5f9; color: #475569; margin-top: 10px; }
-    .preview { width: 100%; border-radius: 12px; margin-top: 16px; display: none; }
+    input[type="file"] { position: fixed; left: -9999px; }
+    .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; border-radius: 14px; background: #059669; color: #fff; font-size: 16px; font-weight: 600; border: none; cursor: pointer; }
+    .btn.secondary { background: #f5f3f0; color: #5c5751; margin-top: 10px; }
+    .preview { width: 100%; border-radius: 14px; margin-top: 16px; display: none; }
     .status { margin-top: 16px; font-size: 14px; text-align: center; }
     .status.ok { color: #059669; }
-    .status.err { color: #dc2626; }
-    .tip { margin-top: 16px; padding: 12px; background: #f0fdfa; border-radius: 10px; font-size: 12px; color: #0f766e; }
+    .status.err { color: #be123c; }
+    .urlbox { margin-top: 16px; padding: 12px; background: #f5f3f0; border-radius: 12px; font-size: 12px; color: #78716c; word-break: break-all; }
+    .tip { margin-top: 16px; padding: 12px; background: #d1fae5; border-radius: 12px; font-size: 12px; color: #065f46; }
   </style>
 </head>
 <body>
@@ -206,27 +247,32 @@ class QRUploadServer {
     <p>选择拍照或从相册选图，上传后会自动同步到电脑端。</p>
     <div class="card">
       <label>
-        <input type="file" id="file" accept="image/*" capture="environment">
-        <div class="btn" id="takeBtn">拍照 / 选图</div>
+        <input type="file" id="cameraInput" accept="image/*" capture="environment">
+        <div class="btn" id="takeBtn">拍照上传</div>
       </label>
-      <button class="btn secondary" id="albumBtn">从相册选择</button>
+      <label>
+        <input type="file" id="albumInput" accept="image/*">
+        <button type="button" class="btn secondary" id="albumBtn">从相册选择</button>
+      </label>
       <img id="preview" class="preview" alt="preview">
       <div id="status" class="status"></div>
     </div>
-    <div class="tip">提示：上传成功后，电脑端会自动填充照片；如果失败，请检查手机和电脑是否在同一 Wi-Fi。</div>
+    <div class="urlbox">访问地址：${url}<br>若打不开，请检查电脑防火墙是否放行端口 ${this.port}。</div>
+    <div class="tip">提示：二维码一次性有效，上传成功后自动失效。如果失败，请检查手机和电脑是否在同一 Wi-Fi，并尝试关闭手机流量。</div>
   </div>
   <script>
-    const fileInput = document.getElementById('file');
+    const cameraInput = document.getElementById('cameraInput');
+    const albumInput = document.getElementById('albumInput');
     const takeBtn = document.getElementById('takeBtn');
     const albumBtn = document.getElementById('albumBtn');
     const preview = document.getElementById('preview');
     const status = document.getElementById('status');
 
-    takeBtn.addEventListener('click', () => fileInput.click());
-    albumBtn.addEventListener('click', () => { fileInput.removeAttribute('capture'); fileInput.click(); });
+    takeBtn.addEventListener('click', () => cameraInput.click());
+    albumBtn.addEventListener('click', () => albumInput.click());
 
-    fileInput.addEventListener('change', async () => {
-      const file = fileInput.files[0];
+    async function upload(input) {
+      const file = input.files[0];
       if (!file) return;
       preview.src = URL.createObjectURL(file);
       preview.style.display = 'block';
@@ -248,7 +294,10 @@ class QRUploadServer {
         status.textContent = '上传失败：' + e.message;
         status.className = 'status err';
       }
-    });
+    }
+
+    cameraInput.addEventListener('change', () => upload(cameraInput));
+    albumInput.addEventListener('change', () => upload(albumInput));
   </script>
 </body>
 </html>`
