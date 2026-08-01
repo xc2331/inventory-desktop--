@@ -158,4 +158,38 @@ async function recognizeImage({ image, db, settings }) {
   }
 }
 
-module.exports = { recognizeImage }
+async function fetchModels({ baseUrl, key }) {
+  const url = `${String(baseUrl || '').replace(/\/$/, '')}/models`
+  const authKey = String(key || '').trim()
+  if (!url || url === '/models') {
+    return { ok: false, error: '未配置 AI 接口地址（Base URL）' }
+  }
+  if (!authKey) {
+    return { ok: false, error: '未配置 AI 接口密钥（API Key）' }
+  }
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${authKey}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return { ok: false, error: `AI 接口返回 ${res.status}: ${text.slice(0, 200)}` }
+    }
+    const data = await res.json()
+    const list = Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : []
+    const models = list
+      .map((m) => (typeof m === 'string' ? m : m.id))
+      .filter(Boolean)
+      .sort()
+    return { ok: true, models }
+  } catch (e) {
+    console.error('[ai-service] fetchModels error:', e)
+    return { ok: false, error: e.message || '获取模型列表失败' }
+  }
+}
+
+module.exports = { recognizeImage, fetchModels }

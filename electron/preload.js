@@ -32,7 +32,8 @@ contextBridge.exposeInMainWorld('lingguang', {
   },
   dialog: {
     pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
-    pickImage: () => ipcRenderer.invoke('dialog:pickImage')
+    pickImage: () => ipcRenderer.invoke('dialog:pickImage'),
+    pickFile: () => ipcRenderer.invoke('dialog:pickFile')
   },
   items: {
     generateItemNo: () => ipcRenderer.invoke('items:generateItemNo')
@@ -59,7 +60,8 @@ contextBridge.exposeInMainWorld('lingguang', {
   ai: {
     getConfig: () => ipcRenderer.invoke('ai:getConfig'),
     setConfig: (patch) => ipcRenderer.invoke('ai:setConfig', patch),
-    recognize: (image) => ipcRenderer.invoke('ai:recognize', { image })
+    recognize: (image) => ipcRenderer.invoke('ai:recognize', { image }),
+    fetchModels: () => ipcRenderer.invoke('ai:fetchModels')
   },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
@@ -115,7 +117,13 @@ contextBridge.exposeInMainWorld('lingguang', {
     setSource: (sourceId) => ipcRenderer.invoke('updater:setSource', sourceId),
     setMirror: (url) => ipcRenderer.invoke('updater:setMirror', url),
     setAutoCheck: (enabled) => ipcRenderer.invoke('updater:setAutoCheck', enabled),
+    getDownloadDir: () => ipcRenderer.invoke('updater:getDownloadDir'),
+    setDownloadDir: (dir) => ipcRenderer.invoke('updater:setDownloadDir', dir),
+    pickDownloadDir: () => ipcRenderer.invoke('updater:pickDownloadDir'),
     download: () => ipcRenderer.invoke('updater:download'),
+    cancelDownload: () => ipcRenderer.invoke('updater:cancelDownload'),
+    installDownloaded: () => ipcRenderer.invoke('updater:installDownloaded'),
+    showDownloadInFolder: () => ipcRenderer.invoke('updater:showDownloadInFolder'),
     openExternal: (url) => ipcRenderer.invoke('updater:openExternal', url),
     onAvailable: (cb) => {
       const handler = (_e, payload) => cb(payload)

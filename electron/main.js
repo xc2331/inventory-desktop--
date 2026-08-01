@@ -8,7 +8,7 @@ const { ApiServer } = require('./api-server')
 const { generateItemNo } = require('./item-no')
 const { Updater } = require('./updater')
 const { QRUploadServer } = require('./qr-upload')
-const { recognizeImage } = require('./ai-service')
+const { recognizeImage, fetchModels } = require('./ai-service')
 
 // 确保 Windows 任务栏正确显示应用图标与分组
 app.setAppUserModelId(app.getName())
@@ -726,6 +726,11 @@ ipcMain.handle('ai:recognize', async (_event, { image }) => {
   return recognizeImage({ image, db, settings })
 })
 
+ipcMain.handle('ai:fetchModels', async () => {
+  const settings = readAppSettings()
+  return fetchModels({ baseUrl: settings.aiBaseUrl, key: settings.aiKey })
+})
+
 // 选择文件夹对话框
 ipcMain.handle('dialog:pickFolder', async () => {
   const res = await dialog.showOpenDialog(mainWindow, {
@@ -764,6 +769,17 @@ ipcMain.handle('dialog:pickImage', async () => {
     title: '选择图片',
     properties: ['openFile'],
     filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'] }]
+  })
+  if (res.canceled || res.filePaths.length === 0) return { canceled: true }
+  return { canceled: false, path: res.filePaths[0] }
+})
+
+// 选择任意文件对话框（用于电子材料库附加文档/链接等）
+ipcMain.handle('dialog:pickFile', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: '选择文件',
+    properties: ['openFile'],
+    filters: [{ name: '所有文件', extensions: ['*'] }]
   })
   if (res.canceled || res.filePaths.length === 0) return { canceled: true }
   return { canceled: false, path: res.filePaths[0] }

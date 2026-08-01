@@ -325,7 +325,7 @@ function fetchText(url, timeout = 15000) {
   })
 }
 
-function downloadFile(url, dest, onProgress, timeout = 120000) {
+function downloadFile(url, dest, onProgress, timeout = 120000, abortRef = null) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https:') ? https : http
     const file = fs.createWriteStream(dest)
@@ -341,11 +341,29 @@ function downloadFile(url, dest, onProgress, timeout = 120000) {
       reject(new Error('下载超时'))
     }, timeout)
 
+    // 支持外部取消下载
+    let abortCheck = null
+    if (abortRef) {
+      abortRef.file = file
+      abortCheck = setInterval(() => {
+        if (abortRef.canceled && !settled) {
+          settled = true
+          clearTimeout(timer)
+          file.close()
+          if (req) req.destroy()
+          if (fs.existsSync(dest)) fs.unlinkSync(dest)
+          reject(new Error('下载已取消'))
+        }
+      }, 100)
+    }
+
     req = client.get(url, { timeout }, (res) => {
+      if (abortRef) abortRef.req = req
       res.setTimeout(timeout, () => {
         if (settled) return
         settled = true
         clearTimeout(timer)
+        if (abortCheck) clearInterval(abortCheck)
         file.close()
         req.destroy()
         if (fs.existsSync(dest)) fs.unlinkSync(dest)
@@ -356,15 +374,17 @@ function downloadFile(url, dest, onProgress, timeout = 120000) {
         if (settled) return
         settled = true
         clearTimeout(timer)
+        if (abortCheck) clearInterval(abortCheck)
         file.close()
         if (fs.existsSync(dest)) fs.unlinkSync(dest)
         const redirectUrl = new URL(res.headers.location, url).href
-        return resolve(downloadFile(redirectUrl, dest, onProgress, timeout))
+        return resolve(downloadFile(redirectUrl, dest, onProgress, timeout, abortRef))
       }
       if (res.statusCode !== 200) {
         if (settled) return
         settled = true
         clearTimeout(timer)
+        if (abortCheck) clearInterval(abortCheck)
         file.close()
         return reject(new Error(`HTTP ${res.statusCode}`))
       }
@@ -379,6 +399,7 @@ function downloadFile(url, dest, onProgress, timeout = 120000) {
         if (settled) return
         settled = true
         clearTimeout(timer)
+        if (abortCheck) clearInterval(abortCheck)
         file.close()
         resolve({ total, downloaded })
       })
@@ -387,6 +408,7 @@ function downloadFile(url, dest, onProgress, timeout = 120000) {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      if (abortCheck) clearInterval(abortCheck)
       file.close()
       reject(err)
     })
@@ -394,6 +416,7 @@ function downloadFile(url, dest, onProgress, timeout = 120000) {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      if (abortCheck) clearInterval(abortCheck)
       file.close()
       req.destroy()
       if (fs.existsSync(dest)) fs.unlinkSync(dest)
@@ -456,7 +479,35 @@ class Updater {
     this.latestInfo = null
     this.downloadPath = ''
     this.isDownloading = false
+    this.currentDownload = null // { req, file, dest, canceled }
     this.registerIpc()
+  }
+
+  // 获取当前设置的下载目录，未设置则返回系统下载目录
+  getDownloadDir() {
+    const s = this.getSettings()
+    if (s.downloadDir && fs.existsSync(s.downloadDir)) return s.downloadDir
+    return app.getPath('downloads')
+  }
+
+  setDownloadDir(dir) {
+    const s = this.getSettings()
+    s.downloadDir = dir
+    writeAppSettings(s)
+  }
+
+  async pickDownloadDir() {
+    const win = this.getMainWindow()
+    const defaultPath = this.getDownloadDir()
+    const res = await dialog.showOpenDialog(win, {
+      title: '选择更新包保存位置',
+      defaultPath,
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (res.canceled || res.filePaths.length === 0) return { canceled: true }
+    const dir = res.filePaths[0]
+    this.setDownloadDir(dir)
+    return { canceled: false, path: dir }
   }
 
   send(channel, data) {
@@ -495,8 +546,12 @@ class Updater {
   }
 
   // 检查更新：silent=true 时只在发现新版本时通知，失败不弹错误
+  // 关键修复：不再在第一个可用源上就停止，而是收集所有可用源的版本信息后
+  // 取最高版本与当前版本比较。这样即使 Gitee 最新版落后，GitHub 上新版本
+  // 也能被正确发现。
   async checkForUpdates(silent = false) {
     const errors = []
+    const candidates = []
     const sources = this.getSourcesInPriorityOrder()
 
     for (const source of sources) {
@@ -505,47 +560,65 @@ class Updater {
         if (!info.version || !info.filename) {
           throw new Error('更新信息格式不正确')
         }
-        this.latestInfo = info
-        const hasUpdate = compareVersion(info.version, this.currentVersion) > 0
-        if (hasUpdate) {
-          this.send('available', {
-            currentVersion: this.currentVersion,
-            latestVersion: info.version,
-            releaseDate: info.releaseDate || '',
-            releaseNotes: info.releaseNotes || '',
-            downloadUrl: buildDownloadUrl(info),
-            filename: info.filename,
-            size: info.size || 0,
-            sourceName: source.name
-          })
-        } else if (!silent) {
-          this.send('notAvailable', { currentVersion: this.currentVersion, sourceName: source.name })
-        }
-        return { hasUpdate, info, source }
+        candidates.push({ info, source })
       } catch (e) {
         console.error(`[updater] 源 ${source.name} 失败:`, e.message)
         errors.push({ source: source.name, error: e.message })
       }
     }
 
-    console.error('[updater] 所有更新源均不可用')
-    const { message, solution } = humanizeUpdateError(
-      new Error('所有更新源均不可用'),
-      'check',
-      true
-    )
-    if (!silent) {
-      this.send('error', {
-        message,
-        solution,
-        errors,
-        manualUrls: buildManualUrls()
-      })
+    if (candidates.length === 0) {
+      console.error('[updater] 所有更新源均不可用')
+      const { message, solution } = humanizeUpdateError(
+        new Error('所有更新源均不可用'),
+        'check',
+        true
+      )
+      if (!silent) {
+        this.send('error', {
+          message,
+          solution,
+          errors,
+          manualUrls: buildManualUrls()
+        })
+      }
+      return { hasUpdate: false, error: new Error('所有更新源均不可用'), errors, message, solution }
     }
-    return { hasUpdate: false, error: new Error('所有更新源均不可用'), errors, message, solution }
+
+    // 从所有可用源中挑选版本号最高的；同版本时优先使用用户设置的首选源
+    const preferredId = this.getPreferredSourceId()
+    let best = candidates[0]
+    for (const c of candidates) {
+      const cmp = compareVersion(c.info.version, best.info.version)
+      if (cmp > 0) {
+        best = c
+      } else if (cmp === 0) {
+        if (c.source.id === preferredId && best.source.id !== preferredId) {
+          best = c
+        }
+      }
+    }
+
+    this.latestInfo = best.info
+    const hasUpdate = compareVersion(best.info.version, this.currentVersion) > 0
+    if (hasUpdate) {
+      this.send('available', {
+        currentVersion: this.currentVersion,
+        latestVersion: best.info.version,
+        releaseDate: best.info.releaseDate || '',
+        releaseNotes: best.info.releaseNotes || '',
+        downloadUrl: buildDownloadUrl(best.info),
+        filename: best.info.filename,
+        size: best.info.size || 0,
+        sourceName: best.source.name
+      })
+    } else if (!silent) {
+      this.send('notAvailable', { currentVersion: this.currentVersion, sourceName: best.source.name })
+    }
+    return { hasUpdate, info: best.info, source: best.source }
   }
 
-  // 下载并自动安装
+  // 下载更新包（下载前可让用户选择保存位置，下载完成后提示并等待用户确认安装）
   async downloadAndInstall() {
     if (!this.latestInfo) {
       this.send('error', { message: '请先检查更新' })
@@ -553,17 +626,25 @@ class Updater {
     }
     if (this.isDownloading) return
     this.isDownloading = true
+    this.currentDownload = { req: null, file: null, dest: '', canceled: false }
 
     try {
       const url = buildDownloadUrl(this.latestInfo)
       const filename = this.latestInfo.filename
-      const tempDir = app.getPath('temp')
-      const dest = path.join(tempDir, filename)
+
+      // 使用用户选择的下载目录（未设置则弹出选择框）
+      let downloadDir = this.getDownloadDir()
+      const s = this.getSettings()
+      if (!s.downloadDir) {
+        const picked = await this.pickDownloadDir()
+        if (!picked.canceled) downloadDir = picked.path
+      }
+      const dest = path.join(downloadDir, filename)
       this.downloadPath = dest
 
       if (fs.existsSync(dest)) fs.unlinkSync(dest)
 
-      this.send('downloadStart', { filename, size: this.latestInfo.size || 0, sourceName: this.latestInfo._source?.name })
+      this.send('downloadStart', { filename, size: this.latestInfo.size || 0, sourceName: this.latestInfo._source?.name, path: dest })
 
       await downloadFile(url, dest, (downloaded, total) => {
         this.send('progress', {
@@ -571,7 +652,7 @@ class Updater {
           total,
           percent: total ? Math.round((downloaded / total) * 100) : 0
         })
-      })
+      }, 120000, this.currentDownload)
 
       // 校验 sha512
       if (this.latestInfo.sha512) {
@@ -582,15 +663,61 @@ class Updater {
         }
       }
 
+      // 下载完成：通知渲染进程显示保存位置，等待用户确认安装
       this.send('downloaded', { filename, path: dest, version: this.latestInfo.version })
-      this.install(dest)
     } catch (e) {
-      console.error('[updater] 下载失败:', e.message)
-      const { message, solution } = humanizeUpdateError(e, 'download')
-      this.send('error', { message, solution, manualUrls: buildManualUrls() })
+      if (this.currentDownload?.canceled) {
+        this.send('error', { message: '下载已取消', solution: '您可随时重新点击「立即更新」再次下载。' })
+      } else {
+        console.error('[updater] 下载失败:', e.message)
+        const { message, solution } = humanizeUpdateError(e, 'download')
+        this.send('error', { message, solution, manualUrls: buildManualUrls() })
+      }
     } finally {
       this.isDownloading = false
+      this.currentDownload = null
     }
+  }
+
+  cancelDownload() {
+    if (this.currentDownload) {
+      this.currentDownload.canceled = true
+      if (this.currentDownload.req) {
+        try {
+          this.currentDownload.req.destroy()
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      if (this.currentDownload.file) {
+        try {
+          this.currentDownload.file.close()
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      return { ok: true }
+    }
+    return { ok: false, message: '当前没有正在下载的任务' }
+  }
+
+  // 安装已下载的更新包
+  installDownloaded() {
+    if (this.isDownloading) return { ok: false, message: '正在下载中，请等待下载完成' }
+    if (!this.downloadPath || !fs.existsSync(this.downloadPath)) {
+      return { ok: false, message: '找不到已下载的更新文件' }
+    }
+    this.install(this.downloadPath)
+    return { ok: true }
+  }
+
+  // 打开下载目录并选中文件
+  showDownloadInFolder() {
+    if (this.downloadPath && fs.existsSync(this.downloadPath)) {
+      shell.showItemInFolder(path.normalize(this.downloadPath))
+      return { ok: true }
+    }
+    return { ok: false, message: '找不到更新文件' }
   }
 
   // 生成 PowerShell 脚本完成旧 exe 替换并启动新版本
@@ -656,7 +783,8 @@ Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue
       currentVersion: this.currentVersion,
       source: this.getPreferredSourceId(),
       sources: UPDATE_SOURCES,
-      autoCheck: this.getSettings().autoCheckUpdate !== false
+      autoCheck: this.getSettings().autoCheckUpdate !== false,
+      downloadDir: this.getDownloadDir()
     }))
 
     ipcMain.handle('updater:check', (_event, { silent } = {}) => {
@@ -695,8 +823,36 @@ Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue
       return { ok: true, autoCheck: s.autoCheckUpdate }
     })
 
+    // 获取/设置/选择下载目录
+    ipcMain.handle('updater:getDownloadDir', () => {
+      return { ok: true, path: this.getDownloadDir() }
+    })
+
+    ipcMain.handle('updater:setDownloadDir', (_event, dir) => {
+      if (typeof dir === 'string' && dir.trim()) {
+        this.setDownloadDir(dir.trim())
+      }
+      return { ok: true, path: this.getDownloadDir() }
+    })
+
+    ipcMain.handle('updater:pickDownloadDir', () => {
+      return this.pickDownloadDir()
+    })
+
     ipcMain.handle('updater:download', () => {
       return this.downloadAndInstall()
+    })
+
+    ipcMain.handle('updater:cancelDownload', () => {
+      return this.cancelDownload()
+    })
+
+    ipcMain.handle('updater:installDownloaded', () => {
+      return this.installDownloaded()
+    })
+
+    ipcMain.handle('updater:showDownloadInFolder', () => {
+      return this.showDownloadInFolder()
     })
 
     ipcMain.handle('updater:openExternal', (_event, url) => {

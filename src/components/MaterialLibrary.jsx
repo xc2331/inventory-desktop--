@@ -39,6 +39,8 @@ import {
   stopQRUpload,
   onQRUploadImage,
   pickImage,
+  pickFile,
+  pickFolder,
   openPath,
   openExternal
 } from '../lib/api'
@@ -435,9 +437,16 @@ export default function MaterialLibrary({ onBack }) {
 function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox }) {
   const { t } = useI18n()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [imgErr, setImgErr] = useState(false)
   const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
   const resource = item.photo || item.url || ''
   const resourceIsImage = isImageResource(resource)
+  const photoSrc = resourceIsImage ? toPhotoSrc(resource) : ''
+
+  // 资源变化时重置图片错误状态
+  useEffect(() => {
+    setImgErr(false)
+  }, [photoSrc])
 
   const handleOpenResource = async (e) => {
     if (e) e.stopPropagation()
@@ -485,26 +494,81 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       className={cn(
-        'group relative flex gap-3 rounded-2xl border bg-surface p-4 shadow-card transition-smooth',
+        'card-hover group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card transition-smooth',
         selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-border-strong hover:shadow-float',
-        bulkMode && 'cursor-pointer'
+        bulkMode && 'cursor-pointer',
+        resourceIsImage && !bulkMode && 'cursor-zoom-in'
       )}
     >
-      {bulkMode && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onToggleSelect() }}
-          className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border text-text-tertiary transition-smooth hover:border-primary hover:text-primary"
-        >
-          {selected && <Check size={13} className="text-primary" />}
-        </button>
-      )}
-      <div className="shrink-0 pt-0.5">
-        <TypeIcon type={item.type} size={18} />
+      {/* 顶部大图区：有图片时占大头，无图片时显示类型大图标 */}
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-bg">
+        {resourceIsImage && photoSrc && !imgErr ? (
+          <>
+            <img
+              src={photoSrc}
+              alt={item.title || ''}
+              className="img-zoom h-full w-full object-cover"
+              onError={() => setImgErr(true)}
+              draggable={false}
+              onDragStart={(e) => e.preventDefault()}
+            />
+            <span className="pointer-events-none absolute bottom-2 right-2 z-10 rounded-full bg-black/25 p-1.5 text-white backdrop-blur-sm opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+              <ImageIcon size={14} />
+            </span>
+          </>
+        ) : (
+          <div className="img-zoom flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface-hover to-bg text-text-tertiary/70">
+            <TypeIcon type={item.type} size={40} />
+          </div>
+        )}
+
+        {/* 批量勾选 */}
+        {bulkMode && (
+          <div
+            className={cn(
+              'absolute left-2.5 top-2.5 z-20 flex h-6 w-6 items-center justify-center rounded-full border-2 shadow-sm transition-smooth',
+              selected
+                ? 'border-primary bg-primary text-white'
+                : 'border-white/80 bg-surface/80 text-transparent backdrop-blur group-hover:border-primary'
+            )}
+          >
+            <Check size={13} strokeWidth={3} />
+          </div>
+        )}
+
+        {/* 类型标签 */}
+        <span className="absolute left-2.5 top-2.5 z-10 inline-flex max-w-[70%] items-center gap-1 truncate rounded-full bg-surface/92 px-2 py-1 text-[11px] font-medium text-text-secondary shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface">
+          <TypeIcon type={item.type} size={12} />
+          <span className="truncate">{t(`materials_type_${item.type}`)}</span>
+        </span>
+
+        {/* 操作按钮组 */}
+        <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-surface/88 p-1 shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onEdit() }}
+            title={t('materials_edit')}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-text-tertiary transition-smooth hover:bg-primary-soft hover:text-primary"
+          >
+            <Edit2 size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDelete() }}
+            title={t('materials_delete')}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-text-tertiary transition-smooth hover:bg-danger-soft hover:text-danger"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
-      <div className="min-w-0 flex-1">
+
+      {/* 内容区 */}
+      <div className="flex flex-1 flex-col p-4">
         <div className="mb-1 flex items-start justify-between gap-2">
-          <h3 className="truncate text-sm font-semibold text-text-primary">{item.title || t('materials_title')}</h3>
+          <h3 className="truncate text-[15px] font-semibold leading-tight text-text-primary" title={item.title || ''}>
+            {item.title || t('materials_title')}
+          </h3>
           <div className="relative">
             <button
               type="button"
@@ -556,7 +620,7 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
           </a>
         )}
 
-        {resource && (
+        {resource && !resourceIsImage && (
           <button
             type="button"
             onClick={handleOpenResource}
@@ -569,7 +633,7 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
         )}
 
         {tags.length > 0 && (
-          <div className="mb-1 flex flex-wrap gap-1">
+          <div className="mb-1 mt-auto flex flex-wrap gap-1 pt-1">
             {tags.map((tag, i) => (
               <span key={i} className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-tertiary">
                 {tag}
@@ -642,7 +706,7 @@ function MaterialForm({ initial, onSave, onClose }) {
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
-  const handleBrowse = async () => {
+  const handleBrowseImage = async () => {
     try {
       setPhotoHint('')
       const res = await pickImage()
@@ -657,6 +721,30 @@ function MaterialForm({ initial, onSave, onClose }) {
       }
     } catch (e) {
       setPhotoHint(e.message || '图片读取失败')
+    }
+  }
+
+  const handleBrowseFile = async () => {
+    try {
+      setPhotoHint('')
+      const res = await pickFile()
+      if (res.canceled || !res.path) return
+      set('photo', res.path)
+      setPhotoHint('已选择文件')
+    } catch (e) {
+      setPhotoHint(e.message || '文件读取失败')
+    }
+  }
+
+  const handleBrowseFolder = async () => {
+    try {
+      setPhotoHint('')
+      const res = await pickFolder()
+      if (res.canceled || !res.path) return
+      set('photo', res.path)
+      setPhotoHint('已选择文件夹')
+    } catch (e) {
+      setPhotoHint(e.message || '文件夹读取失败')
     }
   }
 
@@ -764,7 +852,7 @@ function MaterialForm({ initial, onSave, onClose }) {
               />
             </Field>
 
-            <Field label={t('materials_photo')} className="col-span-2">
+            <Field label={t('materials_source')} className="col-span-2">
               <div className="flex flex-col gap-3 rounded-xl border border-border bg-bg p-3">
                 {form.photo && (
                   <div className="flex items-center gap-3 rounded-lg bg-surface p-2 ring-1 ring-border">
@@ -776,17 +864,33 @@ function MaterialForm({ initial, onSave, onClose }) {
                   type="text"
                   value={form.photo}
                   onChange={(e) => { set('photo', e.target.value); setPhotoHint('') }}
-                  placeholder={t('materials_photoPlaceholder')}
+                  placeholder={t('materials_sourcePlaceholder')}
                   className="input h-8 text-xs"
                 />
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleBrowse}
+                    onClick={handleBrowseImage}
                     className="flex items-center gap-1 rounded-md bg-surface-hover px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
                   >
                     <ImageIcon size={12} />
                     {t('f_photo_browse')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBrowseFile}
+                    className="flex items-center gap-1 rounded-md bg-surface-hover px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
+                  >
+                    <FileText size={12} />
+                    {t('materials_browseFile')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBrowseFolder}
+                    className="flex items-center gap-1 rounded-md bg-surface-hover px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
+                  >
+                    <Folder size={12} />
+                    {t('materials_browseFolder')}
                   </button>
                   <button
                     type="button"

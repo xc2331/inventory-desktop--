@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket, Loader2, ScrollText, Cpu, Smartphone, ChevronDown, ChevronUp, Zap, Eye, EyeOff } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
-import { getSettings, getApiToken, resetApiToken, setApiConfig, getAIConfig, setAIConfig } from '../lib/api'
+import { getSettings, getApiToken, resetApiToken, setApiConfig, getAIConfig, setAIConfig, fetchAIModels } from '../lib/api'
 import { cn } from '../lib/cn'
 import { EASE } from '../lib/motion'
 import PageHeader from './PageHeader'
@@ -47,6 +47,9 @@ export default function SettingsView({
   const [aiForm, setAiForm] = useState({ baseUrl: '', key: '', model: 'gpt-4o-mini' })
   const [aiSaved, setAiSaved] = useState(false)
   const [showAiKey, setShowAiKey] = useState(false)
+  const [aiModels, setAiModels] = useState([])
+  const [aiModelsLoading, setAiModelsLoading] = useState(false)
+  const [aiModelsError, setAiModelsError] = useState('')
 
   useEffect(() => {
     getSettings().then((s) => {
@@ -115,6 +118,38 @@ export default function SettingsView({
     setAiForm(next)
     setAiSaved(true)
     setTimeout(() => setAiSaved(false), 1500)
+  }
+
+  const handleFetchModels = async () => {
+    setAiModelsError('')
+    setAiModelsLoading(true)
+    // 先把当前输入框里的 baseUrl/key 保存到主进程设置中，fetchModels 会读取主进程配置
+    await setAIConfig({
+      baseUrl: aiForm.baseUrl.trim(),
+      key: aiForm.key.trim(),
+      model: aiForm.model.trim() || 'gpt-4o-mini'
+    })
+    try {
+      const res = await fetchAIModels()
+      if (!res.ok) {
+        setAiModelsError(t('ai_fetchModels_fail', { msg: res.error || 'unknown' }))
+        setAiModels([])
+      } else if (!res.models || res.models.length === 0) {
+        setAiModelsError(t('ai_fetchModels_empty'))
+        setAiModels([])
+      } else {
+        setAiModels(res.models)
+        // 如果当前模型不在列表中，默认选中第一个
+        if (!res.models.includes(aiForm.model.trim())) {
+          setAiForm((f) => ({ ...f, model: res.models[0] }))
+        }
+      }
+    } catch (e) {
+      setAiModelsError(t('ai_fetchModels_fail', { msg: e.message || 'unknown' }))
+      setAiModels([])
+    } finally {
+      setAiModelsLoading(false)
+    }
   }
 
   return (
@@ -444,15 +479,47 @@ export default function SettingsView({
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-text-secondary">{t('settings_aiVision_model')}</label>
+              <label className="text-xs font-medium text-text-secondary">{t('settings_aiVision_model')}</label>
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={aiForm.model}
                   onChange={(e) => setAiForm((f) => ({ ...f, model: e.target.value }))}
                   placeholder={t('settings_aiVision_modelPlaceholder')}
-                  className="input h-9 w-full text-xs"
+                  className="input h-9 flex-1 text-xs"
                 />
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleFetchModels}
+                  disabled={aiModelsLoading || !aiForm.baseUrl.trim() || !aiForm.key.trim()}
+                  title={t('ai_fetchModels')}
+                  className={cn(
+                    'flex h-9 shrink-0 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-smooth',
+                    aiModelsLoading || !aiForm.baseUrl.trim() || !aiForm.key.trim()
+                      ? 'cursor-not-allowed border-border bg-surface text-text-tertiary'
+                      : 'border-border bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                  )}
+                >
+                  {aiModelsLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                  {aiModelsLoading ? t('ai_fetchModels_loading') : t('ai_fetchModels')}
+                </motion.button>
               </div>
+              {aiModels.length > 0 && (
+                <select
+                  value={aiForm.model}
+                  onChange={(e) => setAiForm((f) => ({ ...f, model: e.target.value }))}
+                  className="input h-9 w-full text-xs"
+                >
+                  {aiModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              )}
+              {aiModelsError && (
+                <p className="text-xs text-danger">{aiModelsError}</p>
+              )}
+            </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-text-secondary">{t('settings_aiVision_key')}</label>
                 <div className="flex items-center gap-2">

@@ -482,6 +482,10 @@ export async function pickImage() {
   return api.dialog.pickImage()
 }
 
+export async function pickFile() {
+  return api.dialog.pickFile()
+}
+
 export async function openPath(target) {
   return api.shell.openPath(target)
 }
@@ -553,6 +557,10 @@ export async function recognizeImageWithAI(image) {
   return api.ai.recognize(image)
 }
 
+export async function fetchAIModels() {
+  return api.ai.fetchModels()
+}
+
 // ===== 平面图 =====
 export async function fetchFloorPlan(locationId) {
   return api.floorPlans.get(locationId)
@@ -617,6 +625,30 @@ export async function setAutoCheckUpdate(enabled) {
 
 export async function downloadUpdate() {
   return api.updater.download()
+}
+
+export async function cancelDownloadUpdate() {
+  return api.updater.cancelDownload()
+}
+
+export async function installDownloadedUpdate() {
+  return api.updater.installDownloaded()
+}
+
+export async function showUpdateInFolder() {
+  return api.updater.showDownloadInFolder()
+}
+
+export async function getUpdateDownloadDir() {
+  return api.updater.getDownloadDir()
+}
+
+export async function setUpdateDownloadDir(dir) {
+  return api.updater.setDownloadDir(dir)
+}
+
+export async function pickUpdateDownloadDir() {
+  return api.updater.pickDownloadDir()
 }
 
 export async function openUpdateExternal(url) {

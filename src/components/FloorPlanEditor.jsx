@@ -195,8 +195,19 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
         setPlan(p)
         setOriginal(JSON.parse(JSON.stringify(p)))
       })
-      .catch((e) => showToast(e.message || t('floorPlan_loadFail'), 'error'))
-      .finally(() => setLoading(false))
+      .catch((e) => {
+        console.error('[FloorPlanEditor] 加载平面图失败:', e)
+        showToast(e.message || t('floorPlan_loadFail'), 'error')
+        // 加载失败也给出默认平面图，避免 plan 为 null 导致渲染崩溃白屏
+        const p = ensurePlan(null)
+        if (mounted) {
+          setPlan(p)
+          setOriginal(JSON.parse(JSON.stringify(p)))
+        }
+      })
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
     return () => {
       mounted = false
     }
@@ -260,6 +271,7 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
   }
 
   const addArea = (rect, thenSelect = true, override = {}) => {
+    if (!plan) return
     const maxZ = plan.areas.length ? Math.max(...plan.areas.map((a) => a.zIndex || 0)) : 0
     const newArea = {
       id: uid(),
@@ -281,11 +293,13 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
   }
 
   const addCenterArea = () => {
+    if (!plan) return
     const rect = { x: 50 - DEFAULT_AREA_SIZE / 2, y: 50 - DEFAULT_AREA_SIZE / 2, w: DEFAULT_AREA_SIZE, h: DEFAULT_AREA_SIZE }
     addArea(rect)
   }
 
   const autoAddUnboundSubLocations = () => {
+    if (!plan) return
     const targets = unboundSubLocations
     if (targets.length === 0) {
       showToast(t('floorPlan_noUnboundSubLocations'))
@@ -555,7 +569,7 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
   }
 
   const onMouseDown = (e) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || !plan) return
     const target = e.target
     if (target.closest('[data-resize-handle]')) return
     const id = target.closest('[data-element-id]')?.dataset.elementId
@@ -564,6 +578,7 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
       // 只有在「绘制」模式下才允许拖拽移动元素；「选择」模式仅用于查看和修改属性
       if (drawMode) {
         const el = id === 'room' ? plan.room : plan.areas.find((a) => a.id === id)
+        if (!el) return
         const pos = toPercent(e.clientX, e.clientY)
         actionRef.current = { type: 'move', id, startX: pos.x, startY: pos.y, origX: el.x, origY: el.y }
       }
@@ -583,21 +598,25 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
   const onResizeStart = (e, id, handle) => {
     e.stopPropagation()
     e.preventDefault()
+    if (!plan) return
     const el = id === 'room' ? plan.room : plan.areas.find((a) => a.id === id)
+    if (!el) return
     actionRef.current = { type: 'resize', id, handle, orig: { ...el } }
     setSelectedId(id)
   }
 
   const onMouseMove = (e) => {
-    if (!actionRef.current) return
+    if (!actionRef.current || !plan) return
     const pos = toPercent(e.clientX, e.clientY)
     const action = actionRef.current
 
     if (action.type === 'move') {
       const dx = pos.x - action.startX
       const dy = pos.y - action.startY
-      const nx = clamp(action.origX + dx, 0, 100 - (action.id === 'room' ? plan.room.w : plan.areas.find((a) => a.id === action.id).w))
-      const ny = clamp(action.origY + dy, 0, 100 - (action.id === 'room' ? plan.room.h : plan.areas.find((a) => a.id === action.id).h))
+      const targetEl = action.id === 'room' ? plan.room : plan.areas.find((a) => a.id === action.id)
+      if (!targetEl) return
+      const nx = clamp(action.origX + dx, 0, 100 - targetEl.w)
+      const ny = clamp(action.origY + dy, 0, 100 - targetEl.h)
       if (action.id === 'room') {
         updateRoom({ x: round2(nx), y: round2(ny) })
       } else {
@@ -668,6 +687,31 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-bg">
         <div className="text-sm text-text-tertiary">{t('floorPlan_loading')}…</div>
+      </div>
+    )
+  }
+
+  if (!plan) {
+    return (
+      <div className="flex h-screen w-screen flex-col items-center justify-center gap-3 bg-bg p-6 text-center">
+        <p className="text-sm text-text-secondary">{t('floorPlan_loadFail')}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setLoading(true)
+            fetchFloorPlan(locationId)
+              .then((data) => {
+                const p = ensurePlan(data)
+                setPlan(p)
+                setOriginal(JSON.parse(JSON.stringify(p)))
+              })
+              .catch((e) => showToast(e.message || t('floorPlan_loadFail'), 'error'))
+              .finally(() => setLoading(false))
+          }}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
+        >
+          {t('btn_retry')}
+        </button>
       </div>
     )
   }

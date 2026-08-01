@@ -55,6 +55,11 @@ import {
   setUpdateSource,
   setAutoCheckUpdate,
   downloadUpdate,
+  cancelDownloadUpdate,
+  installDownloadedUpdate,
+  showUpdateInFolder,
+  getUpdateDownloadDir,
+  pickUpdateDownloadDir,
   openUpdateExternal,
   onUpdateAvailable,
   onUpdateNotAvailable,
@@ -97,7 +102,7 @@ export default function App() {
   const [closeAction, setCloseAction] = useState('')
   const [closePromptOpen, setClosePromptOpen] = useState(false)
   const [updaterInfo, setUpdaterInfo] = useState({ currentVersion: '', source: '', sources: [], autoCheck: true })
-  const [updateDialog, setUpdateDialog] = useState({ open: false, status: 'idle', info: null, progress: { downloaded: 0, total: 0, percent: 0 } })
+  const [updateDialog, setUpdateDialog] = useState({ open: false, status: 'idle', info: null, progress: { downloaded: 0, total: 0, percent: 0 }, downloadPath: '' })
   const [floorPlanLocation, setFloorPlanLocation] = useState(null)
 
   // 切换页面时清除悬浮层状态，避免回到物品页后重复显示弹窗/对话框/大图
@@ -161,8 +166,8 @@ export default function App() {
       })
     )
     removes.push(
-      onUpdateDownloaded(() => {
-        setUpdateDialog((d) => ({ ...d, status: 'installing' }))
+      onUpdateDownloaded((payload) => {
+        setUpdateDialog((d) => ({ ...d, status: 'downloaded', downloadPath: payload?.path || '' }))
       })
     )
     removes.push(
@@ -511,7 +516,27 @@ export default function App() {
   }
 
   const handleDownloadUpdate = async () => {
+    // 下载目录选择由主进程在首次下载时弹出
     await downloadUpdate()
+  }
+
+  const handleCancelDownloadUpdate = async () => {
+    await cancelDownloadUpdate()
+  }
+
+  const handleInstallDownloadedUpdate = async () => {
+    await installDownloadedUpdate()
+  }
+
+  const handleShowUpdateInFolder = async () => {
+    await showUpdateInFolder()
+  }
+
+  const handlePickUpdateDownloadDir = async () => {
+    const res = await pickUpdateDownloadDir()
+    if (!res.canceled) {
+      setUpdaterInfo((prev) => ({ ...prev, downloadDir: res.path }))
+    }
   }
 
   const handleCloseUpdateDialog = () => {
@@ -605,281 +630,289 @@ export default function App() {
 
   return (
     <>
-      <AnimatePresence mode="wait">
-      {view === 'statistics' && (
-        <motion.div
-          key="statistics"
-          initial={{ opacity: 0, x: 16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -12 }}
-          transition={{ duration: 0.15, ease: EASE }}
-          className="h-screen w-screen will-change-transform"
-        >
-          {statisticsView}
-        </motion.div>
-      )}
-      {view === 'settings' && (
-        <motion.div
-          key="settings"
-          initial={{ opacity: 0, x: 16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -12 }}
-          transition={{ duration: 0.15, ease: EASE }}
-          className="h-screen w-screen will-change-transform"
-        >
-          {settingsView}
-        </motion.div>
-      )}
-      {view === 'categories' && (
-        <motion.div
-          key="categories"
-          initial={{ opacity: 0, x: 16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -12 }}
-          transition={{ duration: 0.15, ease: EASE }}
-          className="h-screen w-screen will-change-transform"
-        >
-          {categoriesView}
-        </motion.div>
-      )}
-      {view === 'locations' && (
-        <motion.div
-          key="locations"
-          initial={{ opacity: 0, x: 16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -12 }}
-          transition={{ duration: 0.15, ease: EASE }}
-          className="h-screen w-screen will-change-transform"
-        >
-          {locationsView}
-        </motion.div>
-      )}
-      {view === 'help' && (
-        <motion.div
-          key="help"
-          initial={{ opacity: 0, x: 16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -12 }}
-          transition={{ duration: 0.15, ease: EASE }}
-          className="h-screen w-screen will-change-transform"
-        >
-          {helpView}
-        </motion.div>
-      )}
-      {view === 'materials' && (
-        <motion.div
-          key="materials"
-          initial={{ opacity: 0, x: 16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -12 }}
-          transition={{ duration: 0.15, ease: EASE }}
-          className="h-screen w-screen will-change-transform"
-        >
-          <MaterialLibrary onBack={() => setView('items')} />
-        </motion.div>
-      )}
-      {view === 'locationMap' && (
-        <motion.div
-          key="locationMap"
-          initial={{ opacity: 0, x: 16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -12 }}
-          transition={{ duration: 0.15, ease: EASE }}
-          className="h-screen w-screen will-change-transform"
-        >
-          <LocationMap
-            items={allItems}
-            locations={locations}
-            onBack={() => setView('items')}
-            onSelectLocation={(path) => {
-              setActiveLocation(path)
-              setActiveCategory('')
-              setView('items')
-              exitBulkMode()
-            }}
-            onEditFloorPlan={(loc) => {
-              setFloorPlanLocation(loc)
-              setView('floorPlan')
-            }}
-          />
-        </motion.div>
-      )}
-      {view === 'floorPlan' && floorPlanLocation && (
-        <motion.div
-          key="floorPlan"
-          initial={{ opacity: 0, x: 16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -12 }}
-          transition={{ duration: 0.15, ease: EASE }}
-          className="h-screen w-screen will-change-transform"
-        >
-          <FloorPlanEditor
-            locationId={floorPlanLocation.id}
-            locationName={floorPlanLocation.name}
-            locations={locations}
-            items={allItems}
-            onBack={() => {
-              setFloorPlanLocation(null)
-              setView('locationMap')
-            }}
-            onSelectSubLocation={(path) => {
-              setFloorPlanLocation(null)
-              setActiveLocation(path)
-              setActiveCategory('')
-              setView('items')
-              exitBulkMode()
-            }}
-          />
-        </motion.div>
-      )}
-      {view === 'items' && (
-        <motion.div
-          key="items"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.12, ease: EASE }}
-          className="h-screen w-screen will-change-transform"
-        >
-      <div className="flex h-screen w-screen overflow-hidden bg-bg">
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        activeCategory={activeCategory}
-        onSelectCategory={(c) => {
-          setActiveCategory(c)
-          setActiveLocation([])
-          setView('items')
-          exitBulkMode()
-        }}
-        activeLocation={activeLocation}
-        onSelectLocation={(path) => {
-          setActiveLocation(path)
-          setActiveCategory('')
-          setView('items')
-          exitBulkMode()
-        }}
-        counts={counts}
-        categories={categories}
-        locations={locations}
-        locationCounts={locationCounts}
-        lang={lang}
-        activeView={view}
-        onOpenSettings={() => setView('settings')}
-        onOpenStatistics={() => setView('statistics')}
-        onOpenHelp={() => setView('help')}
-        onOpenMaterials={() => setView('materials')}
-        onOpenLocationMap={() => setView('locationMap')}
-      />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <TopBar
-          keyword={keywordInput}
-          onKeywordChange={setKeywordInput}
-          onAdd={handleOpenNew}
-          onImport={handleImportJSON}
-          onExportJSON={handleExportJSON}
-          onExportCSV={handleExportCSV}
-          activeCategory={activeCategory}
-          activeLocation={activeLocation}
-          categories={categories}
-          lang={lang}
-          bulkMode={bulkMode}
-          onToggleBulk={() => {
-            if (bulkMode) exitBulkMode()
-            else setBulkMode(true)
-          }}
-          onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
-          sidebarCollapsed={sidebarCollapsed}
-          total={total}
-          lowStock={lowStock}
-          expiringSoon={expiringSoon}
-        />
-        <main className="relative flex flex-1 flex-col overflow-y-auto p-6">
-          <AnimatePresence>
-            {bulkMode && (
-              <div className="mb-4">
-                <BulkEditBar
-                  selectedCount={selectedIds.size}
-                  total={filteredItems.length}
-                  categories={categories}
-                  lang={lang}
-                  onSelectAll={handleSelectAll}
-                  onClear={handleClearSelection}
-                  onChangeCategory={handleBulkChangeCategory}
-                  onDelete={handleBulkDelete}
-                  onClose={exitBulkMode}
-                />
-              </div>
-            )}
-          </AnimatePresence>
-          {loading && items.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-text-tertiary">
-              <Loader2 size={28} className="animate-spin" />
-              <span className="text-sm">{t('loading')}</span>
-            </div>
-          ) : filteredItems.length === 0 ? (
-            <EmptyState onAdd={handleOpenNew} hasFilter={!!keyword || !!activeCategory || activeLocation.length > 0} />
-          ) : (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {filteredItems.map((it, i) => (
-                <ItemCard
-                  key={it.id}
-                  item={it}
-                  categories={categories}
-                  lang={lang}
-                  onAdjust={handleAdjust}
-                  onEdit={handleOpenEdit}
-                  onDelete={handleAskDelete}
-                  onDoubleClick={(src, name) => setLightbox({ src, alt: name })}
-                  selected={selectedIds.has(it.id)}
-                  onToggleSelect={toggleSelect}
-                  bulkMode={bulkMode}
-                  index={i}
-                />
-              ))}
-            </div>
+      <div className="relative h-screen w-screen overflow-hidden bg-bg">
+        <AnimatePresence>
+          {view === 'statistics' && (
+            <motion.div
+              key="statistics"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.1, ease: EASE }}
+              className="absolute inset-0 will-change-transform"
+            >
+              {statisticsView}
+            </motion.div>
           )}
-        </main>
-      </div>
+          {view === 'settings' && (
+            <motion.div
+              key="settings"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.1, ease: EASE }}
+              className="absolute inset-0 will-change-transform"
+            >
+              {settingsView}
+            </motion.div>
+          )}
+          {view === 'categories' && (
+            <motion.div
+              key="categories"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.1, ease: EASE }}
+              className="absolute inset-0 will-change-transform"
+            >
+              {categoriesView}
+            </motion.div>
+          )}
+          {view === 'locations' && (
+            <motion.div
+              key="locations"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.1, ease: EASE }}
+              className="absolute inset-0 will-change-transform"
+            >
+              {locationsView}
+            </motion.div>
+          )}
+          {view === 'help' && (
+            <motion.div
+              key="help"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.1, ease: EASE }}
+              className="absolute inset-0 will-change-transform"
+            >
+              {helpView}
+            </motion.div>
+          )}
+          {view === 'materials' && (
+            <motion.div
+              key="materials"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.1, ease: EASE }}
+              className="absolute inset-0 will-change-transform"
+            >
+              <MaterialLibrary onBack={() => setView('items')} />
+            </motion.div>
+          )}
+          {view === 'locationMap' && (
+            <motion.div
+              key="locationMap"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.1, ease: EASE }}
+              className="absolute inset-0 will-change-transform"
+            >
+              <LocationMap
+                items={allItems}
+                locations={locations}
+                onBack={() => setView('items')}
+                onSelectLocation={(path) => {
+                  setActiveLocation(path)
+                  setActiveCategory('')
+                  setView('items')
+                  exitBulkMode()
+                }}
+                onEditFloorPlan={(loc) => {
+                  setFloorPlanLocation(loc)
+                  setView('floorPlan')
+                }}
+              />
+            </motion.div>
+          )}
+          {view === 'floorPlan' && floorPlanLocation && (
+            <motion.div
+              key="floorPlan"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.1, ease: EASE }}
+              className="absolute inset-0 will-change-transform"
+            >
+              <FloorPlanEditor
+                locationId={floorPlanLocation.id}
+                locationName={floorPlanLocation.name}
+                locations={locations}
+                items={allItems}
+                onBack={() => {
+                  setFloorPlanLocation(null)
+                  setView('locationMap')
+                }}
+                onSelectSubLocation={(path) => {
+                  setFloorPlanLocation(null)
+                  setActiveLocation(path)
+                  setActiveCategory('')
+                  setView('items')
+                  exitBulkMode()
+                }}
+              />
+            </motion.div>
+          )}
+          {view === 'items' && (
+            <motion.div
+              key="items"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.08, ease: EASE }}
+              className="absolute inset-0 will-change-transform"
+            >
+              <div className="flex h-screen w-screen overflow-hidden bg-bg">
+                <Sidebar
+                  collapsed={sidebarCollapsed}
+                  activeCategory={activeCategory}
+                  onSelectCategory={(c) => {
+                    setActiveCategory(c)
+                    setActiveLocation([])
+                    setView('items')
+                    exitBulkMode()
+                  }}
+                  activeLocation={activeLocation}
+                  onSelectLocation={(path) => {
+                    setActiveLocation(path)
+                    setActiveCategory('')
+                    setView('items')
+                    exitBulkMode()
+                  }}
+                  counts={counts}
+                  categories={categories}
+                  locations={locations}
+                  locationCounts={locationCounts}
+                  lang={lang}
+                  activeView={view}
+                  onOpenSettings={() => setView('settings')}
+                  onOpenStatistics={() => setView('statistics')}
+                  onOpenHelp={() => setView('help')}
+                  onOpenMaterials={() => setView('materials')}
+                  onOpenLocationMap={() => setView('locationMap')}
+                />
+                <div className="flex flex-1 flex-col overflow-hidden">
+                  <TopBar
+                    keyword={keywordInput}
+                    onKeywordChange={setKeywordInput}
+                    onAdd={handleOpenNew}
+                    onImport={handleImportJSON}
+                    onExportJSON={handleExportJSON}
+                    onExportCSV={handleExportCSV}
+                    activeCategory={activeCategory}
+                    activeLocation={activeLocation}
+                    categories={categories}
+                    lang={lang}
+                    bulkMode={bulkMode}
+                    onToggleBulk={() => {
+                      if (bulkMode) exitBulkMode()
+                      else setBulkMode(true)
+                    }}
+                    onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+                    sidebarCollapsed={sidebarCollapsed}
+                    total={total}
+                    lowStock={lowStock}
+                    expiringSoon={expiringSoon}
+                  />
+                  <main className="relative flex flex-1 flex-col overflow-y-auto p-6">
+                    <AnimatePresence>
+                      {bulkMode && (
+                        <div className="mb-4">
+                          <BulkEditBar
+                            selectedCount={selectedIds.size}
+                            total={filteredItems.length}
+                            categories={categories}
+                            lang={lang}
+                            onSelectAll={handleSelectAll}
+                            onClear={handleClearSelection}
+                            onChangeCategory={handleBulkChangeCategory}
+                            onDelete={handleBulkDelete}
+                            onClose={exitBulkMode}
+                          />
+                        </div>
+                      )}
+                    </AnimatePresence>
+                    {loading && items.length === 0 ? (
+                      <div className="flex h-full flex-col items-center justify-center gap-3 text-text-tertiary">
+                        <Loader2 size={28} className="animate-spin" />
+                        <span className="text-sm">{t('loading')}</span>
+                      </div>
+                    ) : filteredItems.length === 0 ? (
+                      <EmptyState onAdd={handleOpenNew} hasFilter={!!keyword || !!activeCategory || activeLocation.length > 0} />
+                    ) : (
+                      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                        {filteredItems.map((it, i) => (
+                          <ItemCard
+                            key={it.id}
+                            item={it}
+                            categories={categories}
+                            lang={lang}
+                            onAdjust={handleAdjust}
+                            onEdit={handleOpenEdit}
+                            onDelete={handleAskDelete}
+                            onDoubleClick={(src, name) => setLightbox({ src, alt: name })}
+                            selected={selectedIds.has(it.id)}
+                            onToggleSelect={toggleSelect}
+                            bulkMode={bulkMode}
+                            index={i}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </main>
+                </div>
 
-      {formOpen && (
-        <ItemForm
-          initial={editingItem}
-          categories={categories}
-          locations={locations}
-          lang={lang}
-          onSave={handleSave}
-          onClose={() => setFormOpen(false)}
-        />
-      )}
-      <ConfirmDialog
-        open={confirm.open}
-        title={confirm.bulk ? t('confirm_bulkDeleteTitle') : t('confirm_deleteTitle')}
-        message={confirm.name}
-        onConfirm={confirm.bulk ? handleConfirmBulkDelete : handleConfirmDelete}
-        onCancel={() => setConfirm({ open: false, id: null, name: '' })}
-      />
-      <CloseActionDialog
-        open={closePromptOpen}
-        onResolve={handleResolveCloseAction}
-        onCancel={() => setClosePromptOpen(false)}
-      />
-      <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox({ src: '', alt: '' })} />
+                {formOpen && (
+                  <ItemForm
+                    initial={editingItem}
+                    categories={categories}
+                    locations={locations}
+                    lang={lang}
+                    onSave={handleSave}
+                    onClose={() => setFormOpen(false)}
+                  />
+                )}
+                <ConfirmDialog
+                  open={confirm.open}
+                  title={confirm.bulk ? t('confirm_bulkDeleteTitle') : t('confirm_deleteTitle')}
+                  message={confirm.name}
+                  onConfirm={confirm.bulk ? handleConfirmBulkDelete : handleConfirmDelete}
+                  onCancel={() => setConfirm({ open: false, id: null, name: '' })}
+                />
+                <CloseActionDialog
+                  open={closePromptOpen}
+                  onResolve={handleResolveCloseAction}
+                  onCancel={() => setClosePromptOpen(false)}
+                />
+                <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox({ src: '', alt: '' })} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-    <Toast toast={toast} onDone={() => setToast(null)} />
-    <UpdateDialog
-      open={updateDialog.open}
-      status={updateDialog.status}
-      info={updateDialog.info}
-      progress={updateDialog.progress}
-      onCheck={handleCheckUpdate}
-      onDownload={handleDownloadUpdate}
-      onClose={handleCloseUpdateDialog}
-      onOpenExternal={handleOpenUpdateExternal}
-    />
-  </>)
+      <Toast toast={toast} onDone={() => setToast(null)} />
+      <UpdateDialog
+        open={updateDialog.open}
+        status={updateDialog.status}
+        info={updateDialog.info}
+        progress={updateDialog.progress}
+        downloadPath={updateDialog.downloadPath}
+        onCheck={handleCheckUpdate}
+        onDownload={handleDownloadUpdate}
+        onCancelDownload={handleCancelDownloadUpdate}
+        onInstall={handleInstallDownloadedUpdate}
+        onShowInFolder={handleShowUpdateInFolder}
+        onPickDownloadDir={handlePickUpdateDownloadDir}
+        onClose={handleCloseUpdateDialog}
+        onOpenExternal={handleOpenUpdateExternal}
+      />
+    </>
+  )
 
   function EmptyState({ onAdd, hasFilter }) {
     const Icon = hasFilter ? Search : PackageOpen

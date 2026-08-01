@@ -1,27 +1,39 @@
 import { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Download, Loader2, RefreshCw, CheckCircle2, AlertCircle, ArrowUpCircle, ExternalLink } from 'lucide-react'
+import { Download, Loader2, RefreshCw, CheckCircle2, AlertCircle, ArrowUpCircle, ExternalLink, FolderOpen, Play, FolderInput } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { EASE, EASE_SPRING } from '../lib/motion'
 import { cn } from '../lib/cn'
 
 export default function UpdateDialog({
   open,
-  status, // 'idle' | 'checking' | 'downloading' | 'installing' | 'error' | 'notAvailable'
+  status, // 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'error' | 'notAvailable'
   info,
   progress,
+  downloadPath,
   onCheck,
   onDownload,
+  onCancelDownload,
+  onInstall,
+  onShowInFolder,
+  onPickDownloadDir,
   onClose,
   onOpenExternal
 }) {
   const { t } = useI18n()
+  const [pathCopied, setPathCopied] = useState(false)
 
   useEffect(() => {
-    if (!open && status !== 'idle') {
-      // 由外部控制关闭，不自动重置
-    }
-  }, [open, status])
+    if (!open) setPathCopied(false)
+  }, [open])
+
+  const copyPath = () => {
+    if (!downloadPath) return
+    navigator.clipboard.writeText(downloadPath).then(() => {
+      setPathCopied(true)
+      setTimeout(() => setPathCopied(false), 2000)
+    })
+  }
 
   return (
     <AnimatePresence>
@@ -68,6 +80,9 @@ export default function UpdateDialog({
                       更新源：{info.sourceName}
                     </p>
                   )}
+                  <p className="rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+                    点击「立即更新」后，会先弹出窗口让你选择更新包保存位置（首次），然后开始下载。
+                  </p>
                 </div>
               )}
 
@@ -88,6 +103,43 @@ export default function UpdateDialog({
                   <div className="flex items-center justify-between text-xs text-text-tertiary">
                     <span>{formatBytes(progress.downloaded)} / {formatBytes(progress.total)}</span>
                     {info.sourceName && <span>来源：{info.sourceName}</span>}
+                  </div>
+                  {info.path && (
+                    <p className="truncate text-[11px] text-text-tertiary" title={info.path}>
+                      保存到：{info.path}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {status === 'downloaded' && (
+                <div className="mt-5 space-y-3">
+                  <div className="flex items-center gap-2 text-sm text-text-secondary">
+                    <CheckCircle2 size={18} className="text-primary" />
+                    <span>更新包已下载完成</span>
+                  </div>
+                  <div className="rounded-xl bg-bg p-3">
+                    <p className="mb-1 text-xs text-text-tertiary">文件位置：</p>
+                    <div className="flex items-start gap-2">
+                      <p
+                        className="flex-1 cursor-pointer break-all text-xs text-text-secondary hover:text-primary"
+                        title="点击复制路径"
+                        onClick={copyPath}
+                      >
+                        {downloadPath || info?.path || '—'}
+                      </p>
+                      {pathCopied && (
+                        <span className="shrink-0 text-[11px] text-primary">已复制</span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onShowInFolder}
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary transition-smooth hover:text-primary-hover"
+                    >
+                      <FolderOpen size={12} />
+                      在文件夹中显示
+                    </button>
                   </div>
                 </div>
               )}
@@ -139,8 +191,13 @@ export default function UpdateDialog({
             <Footer
               status={status}
               info={info}
+              downloadPath={downloadPath}
               onCheck={onCheck}
               onDownload={onDownload}
+              onCancelDownload={onCancelDownload}
+              onInstall={onInstall}
+              onShowInFolder={onShowInFolder}
+              onPickDownloadDir={onPickDownloadDir}
               onClose={onClose}
               onOpenExternal={onOpenExternal}
               t={t}
@@ -154,14 +211,14 @@ export default function UpdateDialog({
 
 function ManualBtn({ children, onClick }) {
   return (
-    <motion.button
-      whileTap={{ scale: 0.96 }}
+    <button
+      type="button"
       onClick={onClick}
       className="inline-flex items-center gap-1 rounded-lg border border-danger/30 bg-surface px-2.5 py-1.5 text-xs font-medium text-danger transition-smooth hover:bg-danger/10"
     >
       <ExternalLink size={12} />
       {children}
-    </motion.button>
+    </button>
   )
 }
 
@@ -172,6 +229,7 @@ function Header({ status, info }) {
     checking: { icon: <Loader2 size={22} className="animate-spin" />, title: t('update_checking') },
     available: { icon: <ArrowUpCircle size={22} className="text-primary" />, title: t('update_available') },
     downloading: { icon: <Download size={22} className="text-primary" />, title: t('update_downloading') },
+    downloaded: { icon: <CheckCircle2 size={22} className="text-primary" />, title: '下载完成' },
     installing: { icon: <Loader2 size={22} className="animate-spin text-primary" />, title: t('update_installing') },
     error: { icon: <AlertCircle size={22} className="text-danger" />, title: t('update_title') },
     notAvailable: { icon: <CheckCircle2 size={22} className="text-primary" />, title: t('update_upToDate') }
@@ -192,86 +250,131 @@ function Header({ status, info }) {
   )
 }
 
-function Footer({ status, info, onCheck, onDownload, onClose, onOpenExternal, t }) {
-  const buttons = []
-  if (status === 'idle' || status === 'error' || status === 'notAvailable') {
-    buttons.push(
-      <motion.button
-        key="check"
-        whileTap={{ scale: 0.96 }}
-        onClick={onCheck}
-        className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
-      >
-        <RefreshCw size={15} />
-        {t('update_btn_check')}
-      </motion.button>
-    )
-  }
-  if (status === 'available') {
-    buttons.push(
-      <motion.button
-        key="download"
-        whileTap={{ scale: 0.96 }}
-        onClick={onDownload}
-        className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
-      >
-        <Download size={15} />
-        {t('update_btn_download')}
-      </motion.button>
-    )
-  }
-  if (status === 'downloading') {
-    buttons.push(
-      <motion.button
-        key="downloading"
-        disabled
-        className="flex items-center gap-1.5 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-text-tertiary opacity-60"
-      >
-        <Loader2 size={15} className="animate-spin" />
-        {t('update_downloading')}
-      </motion.button>
-    )
-  }
-  if (status === 'installing') {
-    buttons.push(
-      <motion.button
-        key="installing"
-        disabled
-        className="flex items-center gap-1.5 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-text-tertiary opacity-60"
-      >
-        <Loader2 size={15} className="animate-spin" />
-        {t('update_installing')}
-      </motion.button>
-    )
-  }
+function Footer({
+  status,
+  info,
+  downloadPath,
+  onCheck,
+  onDownload,
+  onCancelDownload,
+  onInstall,
+  onShowInFolder,
+  onPickDownloadDir,
+  onClose,
+  onOpenExternal,
+  t
+}) {
+  const canClose = status !== 'installing'
+  const isDownloading = status === 'downloading'
+  const isDownloaded = status === 'downloaded'
 
   return (
-    <div className="flex justify-end gap-2 border-t border-border bg-bg/50 px-6 py-3.5">
-      {status !== 'installing' && (
-        <motion.button
-          whileTap={{ scale: 0.96 }}
-          onClick={onClose}
+    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-bg/50 px-6 py-3.5">
+      {/* 取消/关闭按钮 */}
+      {canClose && (
+        <button
+          type="button"
+          onClick={isDownloading ? onCancelDownload : onClose}
           className={cn(
             'rounded-xl border border-border px-4 py-2 text-sm font-medium transition-smooth',
-            status === 'downloading' ? 'opacity-50' : 'bg-surface text-text-secondary hover:bg-surface-hover'
+            isDownloading
+              ? 'bg-surface text-text-secondary hover:bg-danger-soft hover:text-danger hover:border-danger/30'
+              : 'bg-surface text-text-secondary hover:bg-surface-hover'
           )}
-          disabled={status === 'downloading'}
         >
-          {t('btn_cancel')}
-        </motion.button>
+          {isDownloading ? '取消下载' : t('btn_cancel')}
+        </button>
       )}
+
+      {/* 下载位置设置 */}
+      {(status === 'idle' || status === 'available' || status === 'notAvailable' || status === 'error') && onPickDownloadDir && (
+        <button
+          type="button"
+          onClick={onPickDownloadDir}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+        >
+          <FolderInput size={14} />
+          下载位置
+        </button>
+      )}
+
+      {/* 手动下载按钮 */}
       {status === 'error' && info?.manualUrls && onOpenExternal && (
-        <motion.button
-          key="manual-gitee"
-          whileTap={{ scale: 0.96 }}
+        <button
+          type="button"
           onClick={() => onOpenExternal(info.manualUrls.gitee)}
-          className="flex items-center gap-1.5 rounded-xl border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-smooth hover:bg-danger/10"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-danger/30 px-4 py-2 text-sm font-medium text-danger transition-smooth hover:bg-danger/10"
         >
-          <ExternalLink size={15} />
+          <ExternalLink size={14} />
           手动下载
-        </motion.button>
+        </button>
       )}
-      {buttons}
+
+      {/* 检查更新 / 立即更新 / 安装 */}
+      {(status === 'idle' || status === 'error' || status === 'notAvailable') && (
+        <button
+          type="button"
+          onClick={onCheck}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
+        >
+          <RefreshCw size={15} />
+          {t('update_btn_check')}
+        </button>
+      )}
+
+      {status === 'available' && (
+        <button
+          type="button"
+          onClick={onDownload}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
+        >
+          <Download size={15} />
+          {t('update_btn_download')}
+        </button>
+      )}
+
+      {isDownloading && (
+        <button
+          type="button"
+          disabled
+          className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-text-tertiary opacity-60"
+        >
+          <Loader2 size={15} className="animate-spin" />
+          {t('update_downloading')}
+        </button>
+      )}
+
+      {isDownloaded && (
+        <>
+          <button
+            type="button"
+            onClick={onShowInFolder}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+          >
+            <FolderOpen size={15} />
+            打开目录
+          </button>
+          <button
+            type="button"
+            onClick={onInstall}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
+          >
+            <Play size={15} />
+            立即安装
+          </button>
+        </>
+      )}
+
+      {status === 'installing' && (
+        <button
+          type="button"
+          disabled
+          className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-text-tertiary opacity-60"
+        >
+          <Loader2 size={15} className="animate-spin" />
+          {t('update_installing')}
+        </button>
+      )}
     </div>
   )
 }
