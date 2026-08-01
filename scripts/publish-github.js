@@ -34,7 +34,9 @@ if (!TOKEN) {
 const pkg = require('../package.json')
 const version = pkg.version
 const productName = pkg.build.productName
-const outputDir = path.resolve(__dirname, '..', pkg.build.directories.output || 'release-v10')
+const outputDir = process.env.OUTPUT_DIR
+  ? path.resolve(__dirname, '..', process.env.OUTPUT_DIR)
+  : path.resolve(__dirname, '..', pkg.build.directories.output || 'release-v10')
 const filename = `${productName} ${version}.exe`
 const exePath = path.join(outputDir, filename)
 const infoPath = path.join(outputDir, 'update-info.json')
