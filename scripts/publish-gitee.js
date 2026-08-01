@@ -21,6 +21,23 @@ const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
 
+// 从项目根目录的 .env.local 加载令牌（已被 .gitignore 忽略，不会提交）
+function loadEnvLocal() {
+  const envPath = path.resolve(__dirname, '..', '.env.local')
+  if (!fs.existsSync(envPath)) return
+  const content = fs.readFileSync(envPath, 'utf-8')
+  content.split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/)
+    if (!match) return
+    const key = match[1]
+    const value = match[2]
+    if (process.env[key] === undefined) {
+      process.env[key] = value
+    }
+  })
+}
+loadEnvLocal()
+
 const TOKEN = process.env.GITEE_TOKEN
 const OWNER = process.env.GITEE_OWNER || 'xc2331'
 const REPO = process.env.GITEE_REPO || 'inventory-desktop'
