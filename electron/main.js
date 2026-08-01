@@ -8,9 +8,29 @@ const { ApiServer } = require('./api-server')
 const { generateItemNo } = require('./item-no')
 const { Updater } = require('./updater')
 const { QRUploadServer } = require('./qr-upload')
+const { recognizeImage } = require('./ai-service')
 
 // 确保 Windows 任务栏正确显示应用图标与分组
 app.setAppUserModelId(app.getName())
+
+// 单实例：点击 exe/快捷方式时，如果已有实例在托盘运行，则直接唤回而不是再开一个
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  console.log('[single-instance] 已有实例在运行，退出当前进程')
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    console.log('[single-instance] 收到第二次启动请求，唤回主窗口')
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      if (!mainWindow.isVisible()) mainWindow.show()
+      mainWindow.focus()
+    } else {
+      createWindow()
+      createTray()
+    }
+  })
+}
 
 const ICON_PATH = app.isPackaged
   ? path.join(process.resourcesPath, 'app.asar', 'build', 'icon.ico')
@@ -676,6 +696,34 @@ ipcMain.handle('settings:setApiConfig', (_event, patch) => {
     host: s.apiHost || '127.0.0.1',
     lanMode: s.apiLanMode === true
   }
+})
+
+// ===== IPC：AI 视觉识别配置与调用 =====
+ipcMain.handle('ai:getConfig', () => {
+  const s = readAppSettings()
+  return {
+    baseUrl: s.aiBaseUrl || '',
+    key: s.aiKey || '',
+    model: s.aiModel || 'gpt-4o-mini'
+  }
+})
+
+ipcMain.handle('ai:setConfig', (_event, patch) => {
+  const s = readAppSettings()
+  if (patch.baseUrl !== undefined) s.aiBaseUrl = String(patch.baseUrl || '').trim()
+  if (patch.key !== undefined) s.aiKey = String(patch.key || '').trim()
+  if (patch.model !== undefined) s.aiModel = String(patch.model || '').trim()
+  writeAppSettings(s)
+  return {
+    baseUrl: s.aiBaseUrl || '',
+    key: s.aiKey || '',
+    model: s.aiModel || 'gpt-4o-mini'
+  }
+})
+
+ipcMain.handle('ai:recognize', async (_event, { image }) => {
+  const settings = readAppSettings()
+  return recognizeImage({ image, db, settings })
 })
 
 // 选择文件夹对话框

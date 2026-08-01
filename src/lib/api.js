@@ -540,6 +540,19 @@ export function onQRUploadImage(cb) {
   return api.qrUpload.onImage(cb)
 }
 
+// ===== AI 视觉识别 =====
+export async function getAIConfig() {
+  return api.ai.getConfig()
+}
+
+export async function setAIConfig(patch) {
+  return api.ai.setConfig(patch)
+}
+
+export async function recognizeImageWithAI(image) {
+  return api.ai.recognize(image)
+}
+
 // ===== 平面图 =====
 export async function fetchFloorPlan(locationId) {
   return api.floorPlans.get(locationId)

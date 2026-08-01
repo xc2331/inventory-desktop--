@@ -2,6 +2,7 @@
 const http = require('http')
 const crypto = require('crypto')
 const { generateItemNo } = require('./item-no')
+const { recognizeImage } = require('./ai-service')
 
 const DEFAULT_PORT = 3001
 
@@ -359,6 +360,8 @@ class ApiServer {
         this.deleteLocation(req, res, path)
       } else if (path === '/api/settings' && req.method === 'GET') {
         this.getSettingsEndpoint(req, res)
+      } else if (path === '/api/ai/recognize' && req.method === 'POST') {
+        this.recognize(req, res)
       } else {
         json(res, 404, { error: 'Not found', path })
       }
@@ -764,6 +767,22 @@ class ApiServer {
     this.db.prepare(`DELETE FROM locations WHERE id IN (${ph})`).run(...toDelete)
     this.notifyRenderer('locations')
     json(res, 200, { deleted: toDelete.length })
+  }
+
+  async recognize(req, res) {
+    const data = await readBody(req)
+    const image = data.image || data.photo || ''
+    if (!image) {
+      json(res, 400, { error: 'Bad request', message: 'image or photo is required' })
+      return
+    }
+    const settings = this.getSettingsObj()
+    const result = await recognizeImage({ image, db: this.db, settings })
+    if (result.ok) {
+      json(res, 200, { suggestions: result.items })
+    } else {
+      json(res, 502, { error: 'AI recognition failed', message: result.error, raw: result.raw })
+    }
   }
 
   getSettingsEndpoint(req, res) {

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket, Loader2, ScrollText, Cpu, Smartphone, ChevronDown, ChevronUp, Zap } from 'lucide-react'
+import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket, Loader2, ScrollText, Cpu, Smartphone, ChevronDown, ChevronUp, Zap, Eye, EyeOff } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
-import { getSettings, getApiToken, resetApiToken, setApiConfig } from '../lib/api'
+import { getSettings, getApiToken, resetApiToken, setApiConfig, getAIConfig, setAIConfig } from '../lib/api'
 import { cn } from '../lib/cn'
 import { EASE } from '../lib/motion'
 import PageHeader from './PageHeader'
@@ -44,6 +44,9 @@ export default function SettingsView({
   const [copied, setCopied] = useState(false)
   const [apiSaved, setApiSaved] = useState(false)
   const [apiError, setApiError] = useState('')
+  const [aiForm, setAiForm] = useState({ baseUrl: '', key: '', model: 'gpt-4o-mini' })
+  const [aiSaved, setAiSaved] = useState(false)
+  const [showAiKey, setShowAiKey] = useState(false)
 
   useEffect(() => {
     getSettings().then((s) => {
@@ -59,6 +62,7 @@ export default function SettingsView({
         token: info.token || ''
       })
     })
+    getAIConfig().then((c) => setAiForm(c))
   }, [])
 
   const handleCopyToken = async () => {
@@ -100,6 +104,17 @@ export default function SettingsView({
     setApiInfo(next)
     setApiSaved(true)
     setTimeout(() => setApiSaved(false), 1500)
+  }
+
+  const handleSaveAIConfig = async () => {
+    const next = await setAIConfig({
+      baseUrl: aiForm.baseUrl.trim(),
+      key: aiForm.key.trim(),
+      model: aiForm.model.trim() || 'gpt-4o-mini'
+    })
+    setAiForm(next)
+    setAiSaved(true)
+    setTimeout(() => setAiSaved(false), 1500)
   }
 
   return (
@@ -415,13 +430,65 @@ export default function SettingsView({
             <ReleaseNotes />
           </Section>
 
+          {/* AI 视觉识别配置 */}
+          <Section title={t('settings_aiVision')} desc={t('settings_aiVision_desc')}>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-text-secondary">{t('settings_aiVision_baseUrl')}</label>
+                <input
+                  type="text"
+                  value={aiForm.baseUrl}
+                  onChange={(e) => setAiForm((f) => ({ ...f, baseUrl: e.target.value }))}
+                  placeholder="https://api.openai.com/v1"
+                  className="input h-9 w-full text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-text-secondary">{t('settings_aiVision_model')}</label>
+                <input
+                  type="text"
+                  value={aiForm.model}
+                  onChange={(e) => setAiForm((f) => ({ ...f, model: e.target.value }))}
+                  placeholder={t('settings_aiVision_modelPlaceholder')}
+                  className="input h-9 w-full text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-text-secondary">{t('settings_aiVision_key')}</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type={showAiKey ? 'text' : 'password'}
+                    value={aiForm.key}
+                    onChange={(e) => setAiForm((f) => ({ ...f, key: e.target.value }))}
+                    placeholder="sk-..."
+                    className="input h-9 flex-1 text-xs font-mono"
+                  />
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowAiKey((v) => !v)}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+                  >
+                    {showAiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </motion.button>
+                </div>
+              </div>
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={handleSaveAIConfig}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
+              >
+                {aiSaved ? <Check size={15} /> : <Save size={15} />}
+                {aiSaved ? t('settings_aiVision_saved') : t('settings_aiVision_save')}
+              </motion.button>
+            </div>
+          </Section>
+
           {/* AI 能力说明 */}
           <Section title={t('settings_aiCapabilities')} desc={t('settings_aiCapabilities_desc')}>
             <div className="space-y-2">
               <CapabilityRow icon={<Zap size={16} />} title={t('ai_segment')} status="coming" />
-              <CapabilityRow icon={<Cpu size={16} />} title={t('ai_recognize')} status="coming" />
+              <CapabilityRow icon={<Cpu size={16} />} title={t('ai_recognize')} status="enabled" />
               <CapabilityRow icon={<ScrollText size={16} />} title={t('ai_receipt')} status="coming" />
-              <CapabilityRow icon={<Smartphone size={16} />} title={t('ai_scan')} status="coming" />
             </div>
             <p className="mt-3 flex items-start gap-1.5 text-xs text-text-tertiary/80">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />

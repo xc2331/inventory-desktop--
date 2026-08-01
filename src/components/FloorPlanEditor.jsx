@@ -14,7 +14,15 @@ import {
   Palette,
   Type,
   Link2,
-  X
+  X,
+  Layers,
+  ChevronUp,
+  ChevronDown,
+  ArrowUpToLine,
+  ArrowDownToLine,
+  Image as ImageIcon,
+  Smartphone,
+  FolderOpen
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { EASE } from '../lib/motion'
@@ -26,10 +34,48 @@ import {
   createFloorPlanSubLocation,
   locationPath,
   locationParts,
-  itemLocationPath
+  itemLocationPath,
+  pickImage,
+  startQRUpload,
+  stopQRUpload,
+  onQRUploadImage
 } from '../lib/api'
+import { compressImageToBase64 } from '../lib/imageCompress'
 import ConfirmDialog from './ConfirmDialog'
 import Toast from './Toast'
+
+// 把存储的图片值（路径 / URL / data URL）转为可显示的 src
+function toPhotoSrc(photo) {
+  if (!photo) return ''
+  const s = photo.trim()
+  if (!s) return ''
+  if (/^(data:|https?:|file:)/i.test(s)) return s
+  if (/^[a-z]:[\\/]/i.test(s) || s.startsWith('/')) {
+    const withSlash = s.replace(/\\/g, '/')
+    return withSlash.startsWith('/') ? 'file://' + withSlash : 'file:///' + withSlash
+  }
+  return 'file:///' + s.replace(/\\/g, '/')
+}
+
+// 从剪贴板事件中提取图片文件（没有则返回 null）
+function getImageFromClipboard(e) {
+  const dt = e.clipboardData
+  if (!dt) return null
+  if (dt.files && dt.files.length > 0) {
+    for (const file of dt.files) {
+      if (file.type && file.type.startsWith('image/')) return file
+    }
+  }
+  if (dt.items && dt.items.length > 0) {
+    for (const item of dt.items) {
+      if (item.type && item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) return file
+      }
+    }
+  }
+  return null
+}
 
 const MIN_SIZE_PCT = 6
 const DEFAULT_AREA_SIZE = 16
@@ -65,9 +111,11 @@ function round2(n) {
 }
 
 function ensurePlan(plan) {
+  const baseAreas = Array.isArray(plan?.areas) ? plan.areas : []
   return {
     room: { x: 10, y: 10, w: 80, h: 80, colorIndex: ROOM_COLOR_INDEX, label: '', ...(plan?.room || {}) },
-    areas: Array.isArray(plan?.areas) ? plan.areas : []
+    // 兼容旧数据：没有 zIndex 时按原数组顺序赋值
+    areas: baseAreas.map((a, i) => ({ ...a, zIndex: typeof a.zIndex === 'number' ? a.zIndex : i + 1 }))
   }
 }
 
@@ -113,6 +161,9 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
   const [toast, setToast] = useState(null)
   const [confirm, setConfirm] = useState({ open: false, title: '', message: '', onConfirm: null })
   const [createDialog, setCreateDialog] = useState({ open: false, name: '', bindLocationId: '', mode: 'visual' })
+  const [qrDialog, setQrDialog] = useState({ open: false, url: '', status: 'idle' })
+  const [imageHint, setImageHint] = useState('')
+  const qrUnsubscribe = useRef(null)
 
   // 拖拽/缩放/绘制状态
   const actionRef = useRef(null)
@@ -151,6 +202,26 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
     }
   }, [locationId, t, showToast])
 
+  // 组件卸载时关闭二维码上传服务
+  useEffect(() => {
+    return () => {
+      if (qrUnsubscribe.current) {
+        qrUnsubscribe.current()
+        qrUnsubscribe.current = null
+      }
+      stopQRUpload().catch(() => {})
+    }
+  }, [])
+
+  // 选中子区域时监听全局粘贴（图片 / 图片链接）
+  useEffect(() => {
+    if (!selectedElement || selectedElement.isRoom) return
+    const handler = (e) => handleImagePaste(e)
+    window.addEventListener('paste', handler)
+    return () => window.removeEventListener('paste', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedElement?.id])
+
   const hasChanges = useMemo(() => {
     if (!plan || !original) return false
     return JSON.stringify(plan) !== JSON.stringify(original)
@@ -188,7 +259,8 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
     })
   }
 
-  const addArea = (rect, thenSelect = true) => {
+  const addArea = (rect, thenSelect = true, override = {}) => {
+    const maxZ = plan.areas.length ? Math.max(...plan.areas.map((a) => a.zIndex || 0)) : 0
     const newArea = {
       id: uid(),
       x: round2(rect.x),
@@ -197,7 +269,9 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
       h: round2(rect.h),
       colorIndex: nextAreaColor(plan.areas),
       label: '',
-      bindLocationId: ''
+      bindLocationId: '',
+      zIndex: maxZ + 1,
+      ...override
     }
     setPlan((p) => ({ ...p, areas: [...p.areas, newArea] }))
     if (thenSelect) {
@@ -224,6 +298,7 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
     const cols = Math.max(1, Math.floor((room.w - gap) / (size + gap)))
     const allExisting = [...plan.areas]
     const newAreas = []
+    let nextZ = allExisting.length ? Math.max(...allExisting.map((a) => a.zIndex || 0)) : 0
 
     const overlaps = (rect) => {
       return allExisting.some((a) => !(rect.x + rect.w <= a.x || a.x + a.w <= rect.x || rect.y + rect.h <= a.y || a.y + a.h <= rect.y))
@@ -252,7 +327,8 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
         h: round2(rect.h),
         colorIndex: nextAreaColor(allExisting),
         label: targets[i].name,
-        bindLocationId: targets[i].id
+        bindLocationId: targets[i].id,
+        zIndex: ++nextZ
       }
       allExisting.push(newArea)
       newAreas.push(newArea)
@@ -281,6 +357,67 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
     setSelectedId('room')
   }
 
+  // 重新按 areas 数组顺序分配 zIndex，保证渲染顺序稳定
+  const reassignZIndex = (areas) => {
+    return areas.map((a, i) => ({ ...a, zIndex: i + 1 }))
+  }
+
+  const sortedAreas = useMemo(() => {
+    if (!plan) return []
+    return [...plan.areas].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+  }, [plan])
+
+  const reorderArea = (fromId, toId) => {
+    if (fromId === toId) return
+    setPlan((p) => {
+      const order = [...p.areas].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+      const fromIdx = order.findIndex((a) => a.id === fromId)
+      const toIdx = order.findIndex((a) => a.id === toId)
+      if (fromIdx === -1 || toIdx === -1) return p
+      const [moved] = order.splice(fromIdx, 1)
+      order.splice(toIdx, 0, moved)
+      return { ...p, areas: reassignZIndex(order) }
+    })
+  }
+
+  const bringToFront = (id) => {
+    setPlan((p) => {
+      const target = p.areas.find((a) => a.id === id)
+      if (!target) return p
+      const maxZ = Math.max(0, ...p.areas.map((a) => a.zIndex || 0))
+      return { ...p, areas: p.areas.map((a) => (a.id === id ? { ...a, zIndex: maxZ + 1 } : a)) }
+    })
+  }
+
+  const sendToBack = (id) => {
+    setPlan((p) => {
+      const target = p.areas.find((a) => a.id === id)
+      if (!target) return p
+      const minZ = Math.min(...p.areas.map((a) => a.zIndex || 0))
+      return { ...p, areas: p.areas.map((a) => (a.id === id ? { ...a, zIndex: minZ - 1 } : a)) }
+    })
+  }
+
+  const bringForward = (id) => {
+    setPlan((p) => {
+      const order = [...p.areas].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+      const idx = order.findIndex((a) => a.id === id)
+      if (idx === -1 || idx >= order.length - 1) return p
+      ;[order[idx], order[idx + 1]] = [order[idx + 1], order[idx]]
+      return { ...p, areas: reassignZIndex(order) }
+    })
+  }
+
+  const sendBackward = (id) => {
+    setPlan((p) => {
+      const order = [...p.areas].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+      const idx = order.findIndex((a) => a.id === id)
+      if (idx <= 0) return p
+      ;[order[idx], order[idx - 1]] = [order[idx - 1], order[idx]]
+      return { ...p, areas: reassignZIndex(order) }
+    })
+  }
+
   const handleCreateDialogConfirm = async () => {
     const { mode, name, bindLocationId } = createDialog
     let finalName = name.trim()
@@ -307,6 +444,105 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
       updateArea(selectedId, { label: finalName, bindLocationId: finalBindId })
     }
     setCreateDialog({ open: false, name: '', bindLocationId: '', mode: 'visual' })
+  }
+
+  // ===== 子区域实景图上传 =====
+  const cleanupQR = async () => {
+    if (qrUnsubscribe.current) {
+      qrUnsubscribe.current()
+      qrUnsubscribe.current = null
+    }
+    await stopQRUpload().catch(() => {})
+    setQrDialog({ open: false, url: '', status: 'idle' })
+  }
+
+  const openQRDialog = async () => {
+    setImageHint('')
+    setQrDialog({ open: true, url: '', status: 'starting' })
+    try {
+      if (qrUnsubscribe.current) {
+        qrUnsubscribe.current()
+        qrUnsubscribe.current = null
+      }
+      const info = await startQRUpload()
+      setQrDialog({ open: true, url: info.url, status: 'waiting' })
+      const unsub = onQRUploadImage(async ({ image }) => {
+        setImageHint(t('qrUpload_success') + '…')
+        const result = await compressImageToBase64(image)
+        if (selectedId && selectedId !== 'room') {
+          updateArea(selectedId, { image: result.ok ? result.data : image })
+        }
+        setImageHint(result.ok ? t('floorPlan_imageSize', { n: result.sizeKB }) : result.error)
+        setQrDialog((d) => ({ ...d, status: 'success' }))
+      })
+      qrUnsubscribe.current = unsub
+    } catch (e) {
+      setImageHint(e.message || t('floorPlan_imageLoadFail'))
+      setQrDialog((d) => ({ ...d, status: 'error' }))
+    }
+  }
+
+  const handleBrowseImage = async () => {
+    setImageHint('')
+    try {
+      const res = await pickImage()
+      if (res.canceled || !res.path) return
+      setImageHint(t('floorPlan_imageCompressing') || '图片压缩中…')
+      const result = await compressImageToBase64(res.path)
+      if (selectedId && selectedId !== 'room') {
+        updateArea(selectedId, { image: result.ok ? result.data : res.path })
+      }
+      setImageHint(result.ok ? t('floorPlan_imageSize', { n: result.sizeKB }) : result.error)
+    } catch (e) {
+      setImageHint(e.message || t('floorPlan_imageLoadFail'))
+    }
+  }
+
+  const handleImagePaste = async (e) => {
+    const target = e.target
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+
+    const file = getImageFromClipboard(e)
+    if (file) {
+      e.preventDefault()
+      setImageHint(t('floorPlan_imageCompressing') || '图片压缩中…')
+      const result = await compressImageToBase64(file)
+      if (selectedId && selectedId !== 'room') {
+        updateArea(selectedId, { image: result.ok ? result.data : '' })
+      }
+      setImageHint(result.ok ? t('floorPlan_imageSize', { n: result.sizeKB }) : result.error)
+      return
+    }
+
+    const text = e.clipboardData?.getData('text/plain')?.trim()
+    if (text && /^(https?:|file:)/i.test(text)) {
+      e.preventDefault()
+      if (selectedId && selectedId !== 'room') {
+        updateArea(selectedId, { image: text })
+      }
+      setImageHint('')
+    }
+  }
+
+  const handleImageDrop = async (e) => {
+    e.preventDefault()
+    const file = e.dataTransfer?.files?.[0]
+    if (file && file.type && file.type.startsWith('image/')) {
+      setImageHint(t('floorPlan_imageCompressing') || '图片压缩中…')
+      const result = await compressImageToBase64(file)
+      if (selectedId && selectedId !== 'room') {
+        updateArea(selectedId, { image: result.ok ? result.data : '' })
+      }
+      setImageHint(result.ok ? t('floorPlan_imageSize', { n: result.sizeKB }) : result.error)
+      return
+    }
+    const url = e.dataTransfer?.getData('text/uri-list') || e.dataTransfer?.getData('text/plain')
+    if (url?.trim()) {
+      if (selectedId && selectedId !== 'room') {
+        updateArea(selectedId, { image: url.trim() })
+      }
+      setImageHint('')
+    }
   }
 
   const toPercent = (clientX, clientY) => {
@@ -533,8 +769,8 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
               onResizeStart={onResizeStart}
             />
 
-            {/* 子区域 */}
-            {plan.areas.map((area) => (
+            {/* 子区域：按 zIndex 从小到大渲染，zIndex 大的后渲染，盖住前面的 */}
+            {sortedAreas.map((area) => (
               <PlanElement
                 key={area.id}
                 element={area}
@@ -581,7 +817,7 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
         </main>
 
         {/* 属性面板 */}
-        <aside className="flex w-72 shrink-0 flex-col border-l border-border bg-surface">
+        <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-surface">
           <div className="border-b border-border p-4">
             <h2 className="text-sm font-semibold text-text-primary">{t('floorPlan_properties')}</h2>
           </div>
@@ -668,6 +904,89 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
                 <span className="text-xs text-text-secondary">{selectedElement.w}% × {selectedElement.h}%</span>
               </PropertyRow>
 
+              {/* 子区域实景图 */}
+              <div>
+                <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-tertiary">
+                  <ImageIcon size={12} />
+                  {t('floorPlan_areaImage')}
+                </label>
+                <div
+                  tabIndex={0}
+                  onPaste={handleImagePaste}
+                  onDrop={handleImageDrop}
+                  onDragOver={(e) => e.preventDefault()}
+                  className={cn(
+                    'rounded-xl border border-border bg-bg p-3 outline-none transition-smooth focus-within:border-primary/60',
+                    imageHint && (imageHint.includes('失败') || imageHint.includes('超过')) && 'border-danger'
+                  )}
+                >
+                  {selectedElement.image ? (
+                    <div className="relative mb-2">
+                      <img
+                        src={toPhotoSrc(selectedElement.image)}
+                        alt="area"
+                        className="h-32 w-full rounded-lg object-cover ring-1 ring-border"
+                        onError={(e) => { e.target.style.display = 'none' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateArea(selectedElement.id, { image: '' })}
+                        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white transition-smooth hover:bg-danger"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mb-2 flex h-24 w-full items-center justify-center rounded-lg bg-surface text-text-tertiary">
+                      <ImageIcon size={28} />
+                    </div>
+                  )}
+
+                  <input
+                    type="text"
+                    value={selectedElement.image || ''}
+                    onChange={(e) => updateArea(selectedElement.id, { image: e.target.value })}
+                    placeholder={t('floorPlan_imageUrlPlaceholder')}
+                    className="input mb-2 h-8 w-full text-xs"
+                  />
+
+                  {imageHint && (
+                    <p className={cn('mb-2 text-[11px]', imageHint.includes('失败') || imageHint.includes('超过') ? 'text-danger' : 'text-text-tertiary')}>
+                      {imageHint}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleBrowseImage}
+                      className="flex items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-[11px] font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
+                    >
+                      <FolderOpen size={12} />
+                      {t('f_photo_browse')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openQRDialog}
+                      className="flex items-center gap-1 rounded-md bg-primary-soft px-2 py-1 text-[11px] font-medium text-primary transition-smooth hover:bg-primary-soft/80"
+                    >
+                      <Smartphone size={12} />
+                      {t('qrUpload_start')}
+                    </button>
+                    {selectedElement.image && (
+                      <button
+                        type="button"
+                        onClick={() => updateArea(selectedElement.id, { image: '' })}
+                        className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-text-tertiary transition-smooth hover:text-danger"
+                      >
+                        <X size={12} />
+                        {t('btn_delete')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {selectedElement.bindLocationId && (
                 <button
                   onClick={() => {
@@ -684,12 +1003,61 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
                 </button>
               )}
 
+              <PropertyRow icon={Layers} label={t('floorPlan_layer')}>
+                <div className="flex flex-wrap gap-1">
+                  <LayerBtn icon={ArrowUpToLine} onClick={() => bringToFront(selectedElement.id)} title={t('floorPlan_bringToFront')} />
+                  <LayerBtn icon={ArrowDownToLine} onClick={() => sendToBack(selectedElement.id)} title={t('floorPlan_sendToBack')} />
+                  <LayerBtn icon={ChevronUp} onClick={() => bringForward(selectedElement.id)} title={t('floorPlan_bringForward')} />
+                  <LayerBtn icon={ChevronDown} onClick={() => sendBackward(selectedElement.id)} title={t('floorPlan_sendBackward')} />
+                </div>
+              </PropertyRow>
+
               <button
                 onClick={() => setCreateDialog({ open: true, name: selectedElement.label || '', bindLocationId: selectedElement.bindLocationId || '', mode: 'visual' })}
                 className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
               >
                 {t('floorPlan_rebind')}
               </button>
+            </div>
+          )}
+
+          {/* 图层列表：始终显示，可拖拽排序 / 点选 */}
+          {plan.areas.length > 0 && (
+            <div className="shrink-0 max-h-48 overflow-y-auto border-t border-border p-4">
+              <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-text-primary">
+                <Layers size={14} />
+                {t('floorPlan_layers')}
+              </h3>
+              <p className="mb-2 text-[11px] text-text-tertiary">{t('floorPlan_layerHint')}</p>
+              <div className="space-y-1">
+                {[...sortedAreas].reverse().map((area) => {
+                  const pal = AREA_PALETTE[(area.colorIndex || 1) % AREA_PALETTE.length]
+                  const label = area.label || unboundSubLocations.find((l) => l.id === area.bindLocationId)?.name || t('floorPlan_unnamed')
+                  return (
+                    <div
+                      key={area.id}
+                      draggable
+                      onDragStart={(e) => e.dataTransfer.setData('text/floorplan-area', area.id)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        const fromId = e.dataTransfer.getData('text/floorplan-area')
+                        if (fromId && fromId !== area.id) reorderArea(fromId, area.id)
+                      }}
+                      onClick={() => setSelectedId(area.id)}
+                      className={cn(
+                        'flex cursor-grab items-center gap-2 rounded-lg border px-2 py-1.5 text-xs transition-smooth active:cursor-grabbing',
+                        selectedId === area.id
+                          ? 'border-primary bg-primary-soft'
+                          : 'border-border bg-bg hover:bg-surface-hover'
+                      )}
+                    >
+                      <span className={cn('h-3 w-3 rounded-sm border', pal.bg, pal.border)} />
+                      <span className="flex-1 truncate">{label}</span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </aside>
@@ -776,6 +1144,49 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
                 className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
               >
                 {t('btn_confirm')}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* 二维码上传弹窗 */}
+      {qrDialog.open && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-sm rounded-2xl bg-surface p-5 shadow-float"
+          >
+            <h3 className="mb-1 text-sm font-semibold text-text-primary">{t('qrUpload_title')}</h3>
+            <p className="mb-4 text-[11px] text-text-tertiary">{t('qrUpload_desc')}</p>
+
+            {qrDialog.url ? (
+              <div className="flex items-center gap-4 rounded-xl bg-bg p-3">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(qrDialog.url)}`}
+                  alt="QR"
+                  className="h-28 w-28 rounded-lg ring-1 ring-border"
+                />
+                <div className="flex-1">
+                  <p className={cn('text-xs font-medium', qrDialog.status === 'success' ? 'text-primary' : 'text-text-secondary')}>
+                    {qrDialog.status === 'success' ? t('qrUpload_success') : t('qrUpload_waiting')}
+                  </p>
+                  <p className="mt-1 text-[10px] text-text-tertiary/70">{t('qrUpload_tip')}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl bg-bg p-6 text-center text-xs text-text-tertiary">
+                {qrDialog.status === 'error' ? t('floorPlan_imageLoadFail') : t('loading')}
+              </div>
+            )}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={cleanupQR}
+                className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+              >
+                {t('btn_cancel')}
               </button>
             </div>
           </motion.div>

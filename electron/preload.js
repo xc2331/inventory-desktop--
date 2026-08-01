@@ -56,6 +56,11 @@ contextBridge.exposeInMainWorld('lingguang', {
       return () => ipcRenderer.removeListener('qrUpload:image', handler)
     }
   },
+  ai: {
+    getConfig: () => ipcRenderer.invoke('ai:getConfig'),
+    setConfig: (patch) => ipcRenderer.invoke('ai:setConfig', patch),
+    recognize: (image) => ipcRenderer.invoke('ai:recognize', { image })
+  },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),

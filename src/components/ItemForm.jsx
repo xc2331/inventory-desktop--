@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen, Smartphone, ScanLine, Sparkles, Receipt, Boxes } from 'lucide-react'
+import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen, Smartphone, Sparkles, Receipt, Boxes, Wand2, Loader2, AlertTriangle, Check } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
-import { categoryDisplayName, buildLocationTree, locationParts, pickImage, startQRUpload, stopQRUpload, onQRUploadImage } from '../lib/api'
+import { categoryDisplayName, buildLocationTree, locationParts, pickImage, startQRUpload, stopQRUpload, onQRUploadImage, recognizeImageWithAI, getAIConfig } from '../lib/api'
 import { compressImageToBase64 } from '../lib/imageCompress'
 import { getCategoryIcon } from '../lib/categoryIcons'
 import { tsToDateInput, dateInputToTs } from '../lib/utils'
@@ -87,8 +87,13 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const [qrState, setQrState] = useState({ url: '', status: 'idle' })
   const qrUnsubscribe = useRef(null)
 
+  // AI 识别建议
+  const [aiState, setAiState] = useState({ status: 'idle', suggestions: [], error: '' })
+  const [aiConfig, setAiConfig] = useState(null)
+
   // 组件卸载时关闭二维码服务
   useEffect(() => {
+    getAIConfig().then((c) => setAiConfig(c)).catch(() => {})
     return () => {
       if (qrUnsubscribe.current) {
         qrUnsubscribe.current()
@@ -204,6 +209,56 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
 
   const stopQR = async () => {
     await cleanupQR()
+  }
+
+  // AI 识别当前图片
+  const handleRecognize = async () => {
+    if (!form.photo) {
+      setPhotoHint(t('ai_recognize_emptyPhoto'))
+      return
+    }
+    const cfg = aiConfig || (await getAIConfig().catch(() => ({})))
+    if (!cfg?.baseUrl || !cfg?.key) {
+      setAiState({ status: 'error', suggestions: [], error: t('ai_recognize_configFirst') })
+      return
+    }
+    setAiState({ status: 'loading', suggestions: [], error: '' })
+    try {
+      const result = await recognizeImageWithAI(form.photo)
+      if (result.ok && Array.isArray(result.items) && result.items.length > 0) {
+        setAiState({ status: 'done', suggestions: result.items, error: '' })
+      } else if (result.ok) {
+        setAiState({ status: 'done', suggestions: [], error: t('ai_recognize_noResult') })
+      } else {
+        setAiState({ status: 'error', suggestions: [], error: result.error || t('ai_recognize_error', { msg: 'unknown' }) })
+      }
+    } catch (e) {
+      setAiState({ status: 'error', suggestions: [], error: e.message || t('ai_recognize_error', { msg: 'unknown' }) })
+    }
+  }
+
+  // 应用某条 AI 建议到表单
+  const applySuggestion = (s) => {
+    const next = {
+      name: s.name || form.name,
+      category: s.category || form.category,
+      quantity: s.quantity || 1,
+      notes: s.note ? (form.notes ? `${form.notes}\n${s.note}` : s.note) : form.notes
+    }
+    if (s.location) {
+      const parts = String(s.location).split(/\s*>\s*/).filter(Boolean)
+      next.room = parts[0] || ''
+      next.position = parts[parts.length - 1] || ''
+      next.location = s.location
+      // 尝试匹配已有位置
+      const match = locations.find((l) => {
+        const lp = locationParts(locations, l.id)
+        return lp.location === s.location
+      })
+      if (match) next._locId = match.id
+    }
+    setForm((f) => ({ ...f, ...next }))
+    setAiState({ status: 'idle', suggestions: [], error: '' })
   }
 
   const pickLocation = (id) => {
@@ -420,8 +475,17 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                         </button>
                         <button
                           type="button"
+                          onClick={handleRecognize}
+                          disabled={aiState.status === 'loading'}
+                          className="flex items-center gap-1 rounded-md bg-primary-soft px-2 py-1 text-[11px] font-medium text-primary transition-smooth hover:bg-primary-soft/80 disabled:opacity-60"
+                        >
+                          {aiState.status === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+                          {aiState.status === 'loading' ? t('ai_recognize_loading') : t('ai_recognize_btn')}
+                        </button>
+                        <button
+                          type="button"
                           onClick={qrState.status === 'idle' ? startQR : refreshQR}
-                          className="flex items-center gap-1 rounded-md bg-primary-soft px-2 py-1 text-[11px] font-medium text-primary transition-smooth hover:bg-primary-soft/80"
+                          className="flex items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-[11px] font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
                         >
                           <Smartphone size={12} />
                           {qrState.status === 'idle' ? t('qrUpload_start') : t('qrUpload_refresh')}
@@ -505,22 +569,97 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                 </Field>
               </div>
 
-              {/* AI 能力占位入口 */}
+              {/* AI 能力入口 */}
               <div className="col-span-2 rounded-xl border border-primary/20 bg-primary-soft/40 p-3">
                 <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-primary">
                   <Sparkles size={14} />
                   {t('ai_title')}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <AIBadge icon={ScanLine} label={t('ai_segment')} />
-                  <AIBadge icon={Boxes} label={t('ai_recognize')} />
-                  <AIBadge icon={Receipt} label={t('ai_receipt')} />
-                  <AIBadge icon={Smartphone} label={t('ai_scan')} />
+                  <AIBadge icon={Boxes} label={t('ai_recognize')} active />
+                  <AIBadge icon={Boxes} label={`${t('ai_segment')} · ${t('ai_plan_badge')}`} />
+                  <AIBadge icon={Receipt} label={`${t('ai_receipt')} · ${t('ai_plan_badge')}`} />
                 </div>
                 <p className="mt-2 text-[11px] text-text-tertiary">{t('ai_coming')}</p>
               </div>
             </div>
           </div>
+
+          {/* AI 识别建议弹窗 */}
+          <AnimatePresence>
+            {(aiState.status === 'done' || aiState.status === 'error') && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.22, ease: EASE }}
+                className="border-t border-border bg-surface p-5"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-text-primary">{t('ai_recognize_suggestions')}</h3>
+                  <button
+                    type="button"
+                    onClick={() => setAiState({ status: 'idle', suggestions: [], error: '' })}
+                    className="text-[11px] text-text-tertiary hover:text-text-primary"
+                  >
+                    {t('ai_recognize_close')}
+                  </button>
+                </div>
+
+                {aiState.error && (
+                  <div className="mb-3 flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-xs text-danger">
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                    <span>{aiState.error}</span>
+                  </div>
+                )}
+
+                {aiState.suggestions.length === 0 && !aiState.error && (
+                  <p className="text-xs text-text-tertiary">{t('ai_recognize_noResult')}</p>
+                )}
+
+                <div className="space-y-2">
+                  {aiState.suggestions.map((s, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-start gap-3 rounded-xl border border-border bg-bg p-3"
+                    >
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+                        <Boxes size={14} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-text-primary">{s.name}</span>
+                          {s.confidence > 0 && (
+                            <span className="rounded-full bg-surface px-1.5 py-0.5 text-[10px] text-text-tertiary">
+                              {t('ai_recognize_confidence')} {(s.confidence * 100).toFixed(0)}%
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-text-secondary">
+                          {s.category && (
+                            <span>
+                              {t('f_category')}: {categoryDisplayName(categories.find((c) => c.key === s.category), lang) || s.category}
+                            </span>
+                          )}
+                          {s.location && <span>{t('f_location')}: {s.location}</span>}
+                          {s.quantity > 0 && <span>{t('f_quantity')}: {s.quantity}</span>}
+                        </div>
+                        {s.note && <p className="mt-1 text-[11px] text-text-tertiary">{t('ai_recognize_note')}: {s.note}</p>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => applySuggestion(s)}
+                        className="flex shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-medium text-white transition-smooth hover:bg-primary-hover"
+                      >
+                        <Check size={12} />
+                        {t('ai_recognize_apply')}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* 底部操作 */}
           <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface/95 px-5 py-3 backdrop-blur">
@@ -612,9 +751,16 @@ function MiniField({ label, children }) {
   )
 }
 
-function AIBadge({ icon: Icon, label }) {
+function AIBadge({ icon: Icon, label, active }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-white/60 px-2 py-1 text-[10px] font-medium text-primary dark:bg-black/20">
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium',
+        active
+          ? 'border-primary/30 bg-primary-soft text-primary'
+          : 'border-primary/20 bg-white/60 text-primary/80 dark:bg-black/20'
+      )}
+    >
       <Icon size={11} />
       {label}
     </span>
