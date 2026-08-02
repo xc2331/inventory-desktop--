@@ -137,6 +137,16 @@ export default function MaterialLibrary({ onBack }) {
     load()
   }, [load])
 
+  // Agent 外部接口修改电子材料库后，实时刷新当前列表
+  useEffect(() => {
+    const remove = window.lingguang.agent.onDataChanged((payload) => {
+      if (payload.type === 'materials') {
+        load()
+      }
+    })
+    return remove
+  }, [load])
+
   useEffect(() => {
     if (!bulkMode) setSelectedIds(new Set())
   }, [bulkMode])

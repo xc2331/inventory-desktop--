@@ -93,29 +93,120 @@ Content-Type: application/json
 DELETE /api/items/<id>
 ```
 
-### 分类列表
+### 分类管理
+
+#### 列出分类
 
 ```http
 GET /api/categories
 ```
 
-### 位置列表
+返回全部分类（含 `id`、`key`、`name`、`name_en`、`icon`、`sort_order`）。
+
+#### 创建分类
+
+```http
+POST /api/categories
+Content-Type: application/json
+
+{
+  "name": "食品饮料",
+  "key": "food",
+  "name_en": "Food & Drinks",
+  "icon": "utensils"
+}
+```
+
+`name` 必填；`key` 留空时自动生成。
+
+#### 更新分类
+
+```http
+PATCH /api/categories/<id>
+Content-Type: application/json
+
+{
+  "name": "食品",
+  "key": "food"
+}
+```
+
+如果修改了 `key`，系统会自动把所有使用该旧 `key` 的物品的 `category` 字段同步为新 `key`，并通知 UI 刷新物品列表。
+
+#### 删除分类
+
+```http
+DELETE /api/categories/<id>
+```
+
+删除后，原分类下的物品会被迁移到 `other`（未分类）。若发生迁移，UI 物品列表也会同步刷新。
+
+#### 合并分类
+
+```http
+POST /api/categories/merge
+Content-Type: application/json
+
+{
+  "fromKey": "drink",
+  "toKey": "food"
+}
+```
+
+把 `fromKey` 下所有物品移到 `toKey`，并删除 `fromKey` 分类。
+
+### 位置管理
+
+#### 列出位置
 
 ```http
 GET /api/locations
 ```
 
-**响应** `200`：
+返回全部位置节点（含 `id`、`name`、`parent_id`、`sort_order`）。
 
-```json
+#### 创建位置
+
+```http
+POST /api/locations
+Content-Type: application/json
+
 {
-  "locations": [
-    { "id": "...", "name": "冰箱", "sort_order": 0 }
-  ]
+  "name": "厨房",
+  "parentId": ""
 }
 ```
 
-### 推断位置层级（避免重复）
+`parentId` 为空字符串表示根节点；传入父级位置 `id` 可创建子位置。
+
+#### 更新位置
+
+```http
+PATCH /api/locations/<id>
+Content-Type: application/json
+
+{
+  "name": "厨房灶台",
+  "parentId": "..."
+}
+```
+
+如果修改了位置名称，系统会自动同步所有引用该名称的物品（`room`、`position`、`location` 路径中的对应片段）。
+
+#### 删除位置
+
+```http
+DELETE /api/locations/<id>
+```
+
+会递归删除该节点及其所有子节点，并清理物品中对这些位置的引用：
+
+- `room` / `position` 与被删位置同名 → 清空；
+- `location` 路径中包含被删节点 → 从路径中移除该片段。
+
+操作完成后会同时刷新位置树和物品列表。
+
+#### 推断位置层级（避免重复）
 
 ```http
 POST /api/locations/infer
@@ -159,6 +250,61 @@ Agent 收到自然语言位置描述后，应先调用本接口。服务会：
 }
 ```
 
+### 电子材料库管理
+
+#### 列出材料
+
+```http
+GET /api/materials?type=url&keyword=教程
+```
+
+支持查询参数：
+
+- `type`：按类型过滤，可选 `note`、`url`、`photo`、`recipe`、`tutorial`、`doc`、`other`
+- `keyword`：按标题/内容/标签模糊搜索
+
+#### 获取单个材料
+
+```http
+GET /api/materials/<id>
+```
+
+#### 创建材料
+
+```http
+POST /api/materials
+Content-Type: application/json
+
+{
+  "type": "url",
+  "title": "Tailwind 教程",
+  "content": "",
+  "url": "https://tailwindcss.com",
+  "tags": ["css", "frontend"],
+  "photo": "",
+  "meta": ""
+}
+```
+
+`title` 必填；`type` 默认为 `note`；`tags` 支持数组或逗号字符串。
+
+#### 更新材料
+
+```http
+PATCH /api/materials/<id>
+Content-Type: application/json
+
+{
+  "title": "Tailwind CSS 官方文档"
+}
+```
+
+#### 删除材料
+
+```http
+DELETE /api/materials/<id>
+```
+
 ### 设置信息
 
 ```http
@@ -166,6 +312,10 @@ GET /api/settings
 ```
 
 返回语言、主题、当前数据目录等。
+
+## 实时同步说明
+
+所有写入类接口（创建/更新/删除/合并）在执行完成后都会向前端发送 `api:dataChanged` 通知。因此通过 Agent 修改的分类、位置、物品、电子材料库数据都会即时反映到软件界面中，无需手动刷新。
 
 ## 示例（Python）
 

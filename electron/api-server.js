@@ -58,6 +58,21 @@ function toPhoneItem(row) {
   }
 }
 
+function toPhoneMaterial(row) {
+  return {
+    id: row.id,
+    type: row.type || 'note',
+    title: row.title || '',
+    content: row.content || '',
+    url: row.url || '',
+    tags: row.tags || '',
+    photo: row.photo || '',
+    meta: row.meta || '',
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+  }
+}
+
 function fromInputItem(data, db) {
   const id = data.id || crypto.randomUUID()
   const t = nowMs()
@@ -276,6 +291,16 @@ class ApiServer {
         this.updateLocation(req, res, path)
       } else if (path.startsWith('/api/locations/') && req.method === 'DELETE') {
         this.deleteLocation(req, res, path)
+      } else if (path === '/api/materials' && req.method === 'GET') {
+        this.listMaterials(req, res, url)
+      } else if (path === '/api/materials' && req.method === 'POST') {
+        this.createMaterial(req, res)
+      } else if (path.startsWith('/api/materials/') && req.method === 'GET') {
+        this.getMaterial(req, res, path)
+      } else if (path.startsWith('/api/materials/') && req.method === 'PATCH') {
+        this.updateMaterial(req, res, path)
+      } else if (path.startsWith('/api/materials/') && req.method === 'DELETE') {
+        this.deleteMaterial(req, res, path)
       } else if (path === '/api/settings' && req.method === 'GET') {
         this.getSettingsEndpoint(req, res)
       } else if (path === '/api/ai/recognize' && req.method === 'POST') {
@@ -561,6 +586,7 @@ class ApiServer {
     })
     tx()
     this.notifyRenderer('categories')
+    if (next.key !== cur.key) this.notifyRenderer('items')
     json(res, 200, { category: next, itemsSynced: next.key !== cur.key })
   }
 
@@ -582,6 +608,7 @@ class ApiServer {
     })
     tx()
     this.notifyRenderer('categories')
+    if (cat.key !== 'other') this.notifyRenderer('items')
     json(res, 200, { deleted: true, itemsMigrated: cat.key !== 'other' })
   }
 
@@ -599,6 +626,7 @@ class ApiServer {
     })
     const migrated = tx()
     this.notifyRenderer('categories')
+    this.notifyRenderer('items')
     json(res, 200, { merged: true, migrated })
   }
 
@@ -670,6 +698,7 @@ class ApiServer {
     })
     tx()
     this.notifyRenderer('locations')
+    if (newName !== cur.name) this.notifyRenderer('items')
     const row = this.db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
     json(res, 200, { location: row, itemsSynced: newName !== cur.name })
   }
@@ -681,24 +710,150 @@ class ApiServer {
       json(res, 404, { error: 'Not found' })
       return
     }
-    // 递归收集要删除的节点
-    const toDelete = [id]
+    // 递归收集要删除的节点（保留 id + name，用于同步清理物品引用）
+    const toDelete = [{ id: cur.id, name: cur.name }]
     let changed = true
     while (changed) {
       changed = false
-      const ph = toDelete.map(() => '?').join(',')
-      const children = this.db.prepare(`SELECT id, name FROM locations WHERE parent_id IN (${ph})`).all(...toDelete)
+      const ids = toDelete.map((n) => n.id)
+      const ph = ids.map(() => '?').join(',')
+      const children = this.db.prepare(`SELECT id, name FROM locations WHERE parent_id IN (${ph})`).all(...ids)
       for (const c of children) {
-        if (!toDelete.includes(c.id)) {
-          toDelete.push(c.id)
+        if (!toDelete.find((n) => n.id === c.id)) {
+          toDelete.push({ id: c.id, name: c.name })
           changed = true
         }
       }
     }
-    const ph = toDelete.map(() => '?').join(',')
-    this.db.prepare(`DELETE FROM locations WHERE id IN (${ph})`).run(...toDelete)
+
+    const names = new Set(toDelete.map((n) => n.name))
+    const ids = toDelete.map((n) => n.id)
+    const ph = ids.map(() => '?').join(',')
+    const now = nowMs()
+
+    const tx = this.db.transaction(() => {
+      // 清除物品中直接引用被删位置的 room / position
+      for (const name of names) {
+        this.db.prepare('UPDATE items SET room = ?, updated_at = ? WHERE room = ?').run('', now, name)
+        this.db.prepare('UPDATE items SET position = ?, updated_at = ? WHERE position = ?').run('', now, name)
+      }
+      // 从 location 路径中移除被删的节点片段
+      const items = this.db.prepare('SELECT id, location FROM items WHERE location IS NOT NULL AND location != ?').all('')
+      const stmt = this.db.prepare('UPDATE items SET location = ?, updated_at = ? WHERE id = ?')
+      for (const it of items) {
+        const parts = it.location.split(/\s*>\s*/).map((p) => p.trim()).filter(Boolean)
+        const newParts = parts.filter((p) => !names.has(p))
+        if (newParts.length !== parts.length) {
+          stmt.run(newParts.join(' > '), now, it.id)
+        }
+      }
+      this.db.prepare(`DELETE FROM locations WHERE id IN (${ph})`).run(...ids)
+    })
+    tx()
+
     this.notifyRenderer('locations')
+    this.notifyRenderer('items')
     json(res, 200, { deleted: toDelete.length })
+  }
+
+  // ===== 电子材料库 CRUD（Agent 可调用）=====
+
+  listMaterials(req, res, url) {
+    const type = (url.searchParams.get('type') || '').trim()
+    const keyword = (url.searchParams.get('keyword') || '').trim()
+    let sql = 'SELECT * FROM materials WHERE 1=1'
+    const params = []
+    if (type) {
+      sql += ' AND type = ?'
+      params.push(type)
+    }
+    if (keyword) {
+      sql += ' AND (title LIKE ? OR content LIKE ? OR tags LIKE ?)'
+      const like = `%${keyword}%`
+      params.push(like, like, like)
+    }
+    sql += ' ORDER BY updated_at DESC'
+    const rows = this.db.prepare(sql).all(...params)
+    json(res, 200, { materials: rows.map(toPhoneMaterial) })
+  }
+
+  getMaterial(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/materials/'.length))
+    const row = this.db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
+    if (!row) {
+      json(res, 404, { error: 'Not found' })
+      return
+    }
+    json(res, 200, { material: toPhoneMaterial(row) })
+  }
+
+  async createMaterial(req, res) {
+    const data = await readBody(req)
+    if (!data.title) {
+      json(res, 400, { error: 'Bad request', message: 'title is required' })
+      return
+    }
+    const now = nowMs()
+    const id = crypto.randomUUID()
+    const normalizeTags = (tags) => {
+      if (Array.isArray(tags)) return tags.join(',')
+      return String(tags || '')
+    }
+    const row = {
+      id,
+      type: data.type || 'note',
+      title: data.title || '',
+      content: data.content || '',
+      url: data.url || '',
+      tags: normalizeTags(data.tags),
+      photo: data.photo || '',
+      meta: data.meta || '',
+      created_at: now,
+      updated_at: now
+    }
+    this.db.prepare(
+      'INSERT INTO materials (id,type,title,content,url,tags,photo,meta,created_at,updated_at) VALUES (@id,@type,@title,@content,@url,@tags,@photo,@meta,@created_at,@updated_at)'
+    ).run(row)
+    const created = this.db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
+    this.notifyRenderer('materials')
+    json(res, 201, { material: toPhoneMaterial(created) })
+  }
+
+  async updateMaterial(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/materials/'.length))
+    const cur = this.db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
+    if (!cur) {
+      json(res, 404, { error: 'Not found' })
+      return
+    }
+    const data = await readBody(req)
+    const normalizeTags = (tags) => {
+      if (Array.isArray(tags)) return tags.join(',')
+      return String(tags || '')
+    }
+    const next = {
+      ...cur,
+      type: data.type !== undefined ? data.type : cur.type,
+      title: data.title !== undefined ? data.title : cur.title,
+      content: data.content !== undefined ? data.content : cur.content,
+      url: data.url !== undefined ? data.url : cur.url,
+      tags: data.tags !== undefined ? normalizeTags(data.tags) : cur.tags,
+      photo: data.photo !== undefined ? data.photo : cur.photo,
+      meta: data.meta !== undefined ? data.meta : cur.meta,
+      updated_at: nowMs()
+    }
+    this.db.prepare(
+      'UPDATE materials SET type=@type,title=@title,content=@content,url=@url,tags=@tags,photo=@photo,meta=@meta,updated_at=@updated_at WHERE id=@id'
+    ).run(next)
+    this.notifyRenderer('materials')
+    json(res, 200, { material: toPhoneMaterial(next) })
+  }
+
+  deleteMaterial(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/materials/'.length))
+    const info = this.db.prepare('DELETE FROM materials WHERE id = ?').run(id)
+    this.notifyRenderer('materials')
+    json(res, 200, { deleted: info.changes })
   }
 
   async recognize(req, res) {
