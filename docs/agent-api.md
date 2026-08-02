@@ -58,8 +58,7 @@ Content-Type: application/json
   "name": "纯牛奶",
   "quantity": 6,
   "category": "beverage",
-  "room": "厨房",
-  "position": "冰箱",
+  "location": "厨房 > 冰箱 > 冷藏室",
   "expiryDate": 1756464000000
 }
 ```
@@ -68,10 +67,13 @@ Content-Type: application/json
 - `name`（必填）
 - `quantity`：数量，默认 0
 - `minQuantity`：最低库存
-- `category`：分类 key
-- `room` / `position` / `location`：位置信息
+- `category`：分类 key，支持中文别名（如 `"食品"` 会自动归一化为 `food`）
+- `location`：**推荐**。层级位置，使用 `>` 分隔（也支持 `/`、`→`），例如 `"厨房 > 冰箱 > 冷藏室"`。系统会自动把每一层同步到位置树。
+- `room` / `position`：当没有 `location` 时使用，组合成两层位置。
 - `photo`：图片路径/URL
 - `expiryDate`：过期时间毫秒时间戳
+
+创建/更新成功后，响应体包含 `sync.categories` 和 `sync.locations`，表示本次新增的分类和位置数量。
 
 ### 更新物品
 
@@ -178,13 +180,12 @@ headers = {'Authorization': f'Bearer {TOKEN}'}
 r = requests.get(f'{BASE}/api/items', headers=headers)
 print(r.json())
 
-# 创建物品
+# 创建物品（推荐用 location 表达多层位置）
 r = requests.post(f'{BASE}/api/items', headers=headers, json={
     'name': '鸡蛋',
     'quantity': 12,
     'category': 'food',
-    'room': '厨房',
-    'position': '冰箱'
+    'location': '厨房 > 冰箱 > 冷藏室'
 })
 print(r.json())
 ```

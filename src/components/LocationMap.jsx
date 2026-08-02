@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowLeft, MapPin, Boxes, ChevronRight, X, Search, Info, LayoutGrid } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
@@ -39,9 +39,12 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
   const [selectedRoom, setSelectedRoom] = useState(null)
   const [keyword, setKeyword] = useState('')
 
+  // 防御：确保 items 始终为数组，避免上游数据异常导致白屏
+  const safeItems = Array.isArray(items) ? items : []
+
   const rooms = useMemo(() => {
     const map = new Map()
-    items.forEach((it) => {
+    safeItems.forEach((it) => {
       const path = itemLocationPath(it)
       const room = path[0] || t('locationMap_uncategorized')
       if (!map.has(room)) map.set(room, { name: room, items: [], subLocations: new Map() })
@@ -53,11 +56,20 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
       }
     })
     return Array.from(map.values()).sort((a, b) => b.items.length - a.items.length)
-  }, [items, t])
+  }, [safeItems, t])
 
   const uncategorizedCount = useMemo(() => {
-    return items.filter((it) => itemLocationPath(it).length === 0).length
-  }, [items])
+    return safeItems.filter((it) => itemLocationPath(it).length === 0).length
+  }, [safeItems])
+
+  // 当物品数据变化后，同步 selectedRoom 到最新计算出的房间对象，保持右侧抽屉数据最新
+  useEffect(() => {
+    if (!selectedRoom) return
+    const latest = rooms.find((r) => r.name === selectedRoom.name)
+    if (latest && latest !== selectedRoom) {
+      setSelectedRoom(latest)
+    }
+  }, [rooms, selectedRoom])
 
   const filteredItems = useMemo(() => {
     if (!selectedRoom) return []
@@ -117,7 +129,6 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
                   return (
                     <motion.button
                       key={room.name}
-                      layout
                       whileTap={{ scale: 0.98 }}
                       onClick={() => setSelectedRoom(room)}
                       className={cn(
@@ -178,11 +189,11 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
         <AnimatePresence>
           {selectedRoom && (
             <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 360, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
+              initial={{ x: '100%', opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: '100%', opacity: 0 }}
               transition={{ duration: 0.25, ease: EASE }}
-              className="flex shrink-0 flex-col overflow-hidden border-l border-border bg-surface"
+              className="flex w-[360px] shrink-0 flex-col overflow-hidden border-l border-border bg-surface"
             >
               <div className="flex h-14 items-center justify-between border-b border-border px-4">
                 <div>
@@ -243,7 +254,7 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
                   className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
                 >
                   <MapPin size={13} />
-                  在物品列表中查看此位置
+                  {t('locationMap_viewItems')}
                 </button>
               </div>
             </motion.aside>

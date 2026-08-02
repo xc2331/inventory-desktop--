@@ -192,6 +192,8 @@ export async function createItem(item) {
               @notes, @consume_rate, @consume_unit, @consume_start_at, @photo_meta, @created_at, @updated_at)`,
     binds: row
   })
+  // 自动把新物品的分类/位置同步到分类表和位置树
+  await Promise.all([api.sync.rebuildCategories(), api.sync.rebuildLocations()])
   return row
 }
 
@@ -223,6 +225,8 @@ export async function updateItem(id, patch) {
       consume_start_at=@consume_start_at, photo_meta=@photo_meta, updated_at=@updated_at WHERE id=@id`,
     binds: next
   })
+  // 自动把更新后的分类/位置同步到分类表和位置树
+  await Promise.all([api.sync.rebuildCategories(), api.sync.rebuildLocations()])
   return next
 }
 
@@ -367,9 +371,11 @@ export function buildLocationTree(list) {
 
 // 取某节点的完整路径名（祖先 > ... > 节点）
 export function locationPath(list, id) {
-  if (!id) return null
+  if (!id || !Array.isArray(list)) return null
   const map = {}
-  list.forEach((l) => (map[l.id] = l))
+  list.forEach((l) => {
+    if (l && l.id) map[l.id] = l
+  })
   const names = []
   let cur = map[id]
   let guard = 0
@@ -401,9 +407,16 @@ export function fetchLocationItemCounts() {
 
 // 把物品的 location/room/position 解析为统一路径数组
 export function itemLocationPath(item) {
+  if (!item || typeof item !== 'object') return []
   if (item.location) {
-    const parts = String(item.location).split(/\s*>\s*/).filter(Boolean)
-    if (parts.length) return parts
+    const raw = String(item.location).trim()
+    if (raw) {
+      const parts = raw
+        .split(/\s*[>\/→\\]\s*/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+      if (parts.length) return parts
+    }
   }
   const path = []
   if (item.room) path.push(String(item.room).trim())
@@ -447,6 +460,14 @@ export async function importJSON(jsonString) {
 
 export async function exportCSV() {
   return api.sync.exportCSV()
+}
+
+export async function rebuildCategories() {
+  return api.sync.rebuildCategories()
+}
+
+export async function rebuildLocations() {
+  return api.sync.rebuildLocations()
 }
 
 export async function saveFile({ content, defaultName, filters }) {
@@ -557,8 +578,8 @@ export async function recognizeImageWithAI(image) {
   return api.ai.recognize(image)
 }
 
-export async function fetchAIModels() {
-  return api.ai.fetchModels()
+export async function fetchAIModels(providerId) {
+  return api.ai.fetchModels(providerId ? { providerId } : {})
 }
 
 // ===== 平面图 =====

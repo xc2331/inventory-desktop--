@@ -3,6 +3,11 @@ const http = require('http')
 const crypto = require('crypto')
 const { generateItemNo } = require('./item-no')
 const { recognizeImage } = require('./ai-service')
+const {
+  normalizeCategoryKey,
+  ensureCategoriesFromItems,
+  ensureLocationsFromItems
+} = require('./data-utils')
 
 const DEFAULT_PORT = 3001
 
@@ -51,39 +56,6 @@ function toPhoneItem(row) {
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
   }
-}
-
-// 分类别名表（与主进程保持一致）
-const CATEGORY_ALIASES = {
-  electronic: ['electronics', '电子', '电子产品', '電子', '電子產品'],
-  food: ['foods', '食品', '食物'],
-  beverage: ['beverages', '饮料', '飲料', 'drink', 'drinks'],
-  daily: ['dailies', '日用品', 'daily necessities'],
-  kitchen: ['kitchens', '厨房用品', '廚房用品', 'kitchenware'],
-  cleaning: ['cleanings', '清洁用品', '清潔用品', 'cleaning supplies'],
-  medical: ['medicals', '医药', '醫藥', 'medicine', 'medicines', 'drug', 'drugs'],
-  stationery: ['stationeries', '文具', 'office supplies'],
-  tools: ['tool', '工具', 'hand tools', 'power tools'],
-  other: ['others', '其他', '其它', 'misc', 'miscellaneous']
-}
-
-function normalizeCategoryKey(raw, categories = []) {
-  if (!raw) return ''
-  const key = String(raw).trim().toLowerCase()
-  if (!key) return ''
-  const direct = categories.find((c) => c.key && c.key.toLowerCase() === key)
-  if (direct) return direct.key
-  for (const [canonical, aliases] of Object.entries(CATEGORY_ALIASES)) {
-    if (canonical.toLowerCase() === key) return canonical
-    if (aliases.includes(key)) return canonical
-  }
-  const byName = categories.find(
-    (c) =>
-      (c.name && c.name.toLowerCase() === key) ||
-      (c.name_en && c.name_en.toLowerCase() === key)
-  )
-  if (byName) return byName.key
-  return raw
 }
 
 function fromInputItem(data, db) {
@@ -178,60 +150,6 @@ function levenshtein(a, b) {
     }
   }
   return dp[m]
-}
-
-function parseItemLocationPath(item) {
-  if (item.location) {
-    const parts = String(item.location).split(/\s*>\s*/).filter(Boolean)
-    if (parts.length) return parts
-  }
-  const path = []
-  if (item.room) path.push(String(item.room).trim())
-  if (item.position && item.position !== item.room) path.push(String(item.position).trim())
-  return path
-}
-
-function ensureLocationsFromItems(db, items) {
-  const now = nowMs()
-  const rows = db.prepare('SELECT * FROM locations').all()
-  const existing = new Map()
-  rows.forEach((r) => existing.set(`${r.parent_id || ''}|${r.name}`, r))
-
-  const createNode = (name, parentId) => {
-    const id = crypto.randomUUID()
-    const siblings =
-      db.prepare('SELECT MAX(sort_order) m FROM locations WHERE parent_id IS ? OR parent_id = ?')
-        .get(parentId || null, parentId || '').m || 0
-    db.prepare(
-      'INSERT INTO locations (id,name,parent_id,sort_order,created_at,updated_at) VALUES (@id,@name,@parent_id,@sort_order,@created_at,@updated_at)'
-    ).run({
-      id,
-      name,
-      parent_id: parentId || '',
-      sort_order: siblings + 1,
-      created_at: now,
-      updated_at: now
-    })
-    return { id, name, parent_id: parentId || '' }
-  }
-
-  let createdAny = false
-  for (const item of items) {
-    const path = parseItemLocationPath(item)
-    if (!path.length) continue
-    let parentId = ''
-    for (const name of path) {
-      const key = `${parentId}|${name}`
-      let node = existing.get(key)
-      if (!node) {
-        node = createNode(name, parentId)
-        existing.set(key, node)
-        createdAny = true
-      }
-      parentId = node.id
-    }
-  }
-  return createdAny
 }
 
 function findSimilarNode(name, candidates) {
@@ -486,17 +404,24 @@ class ApiServer {
       return
     }
     const row = fromInputItem(data, this.db)
-    this.db
-      .prepare(
-        `INSERT INTO items (id, name, item_no, room, position, location, quantity, min_quantity, photo, category, expiry_date, created_at, updated_at)
-         VALUES (@id, @name, @item_no, @room, @position, @location, @quantity, @min_quantity, @photo, @category, @expiry_date, @created_at, @updated_at)`
-      )
-      .run(row)
-    // 自动把物品位置同步到位置树，保持 UI 一致
-    const createdLocations = ensureLocationsFromItems(this.db, [row])
+    let createdCategories = 0
+    let createdLocations = 0
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO items (id, name, item_no, room, position, location, quantity, min_quantity, photo, category, expiry_date, created_at, updated_at)
+           VALUES (@id, @name, @item_no, @room, @position, @location, @quantity, @min_quantity, @photo, @category, @expiry_date, @created_at, @updated_at)`
+        )
+        .run(row)
+      // 自动把物品分类/位置同步到分类表和位置树，保持 UI 一致
+      createdCategories = ensureCategoriesFromItems(this.db, [row])
+      createdLocations = ensureLocationsFromItems(this.db, [row])
+    })
+    tx()
+    if (createdCategories) this.notifyRenderer('categories')
     if (createdLocations) this.notifyRenderer('locations')
     this.notifyRenderer('items')
-    json(res, 201, { item: toPhoneItem(row) })
+    json(res, 201, { item: toPhoneItem(row), sync: { categories: createdCategories, locations: createdLocations } })
   }
 
   getItem(req, res, path) {
@@ -540,18 +465,25 @@ class ApiServer {
       expiry_date: data.expiryDate !== undefined || data.expiry_date !== undefined ? Number(data.expiryDate ?? data.expiry_date) : cur.expiry_date,
       updated_at: nowMs()
     }
-    this.db
-      .prepare(
-        `UPDATE items SET name=@name, item_no=@item_no, room=@room, position=@position, location=@location,
-         quantity=@quantity, min_quantity=@min_quantity, photo=@photo, category=@category,
-         expiry_date=@expiry_date, updated_at=@updated_at WHERE id=@id`
-      )
-      .run(next)
-    // 自动把物品位置同步到位置树，保持 UI 一致
-    const createdLocations = ensureLocationsFromItems(this.db, [next])
+    let createdCategories = 0
+    let createdLocations = 0
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE items SET name=@name, item_no=@item_no, room=@room, position=@position, location=@location,
+           quantity=@quantity, min_quantity=@min_quantity, photo=@photo, category=@category,
+           expiry_date=@expiry_date, updated_at=@updated_at WHERE id=@id`
+        )
+        .run(next)
+      // 自动把物品分类/位置同步到分类表和位置树，保持 UI 一致
+      createdCategories = ensureCategoriesFromItems(this.db, [next])
+      createdLocations = ensureLocationsFromItems(this.db, [next])
+    })
+    tx()
+    if (createdCategories) this.notifyRenderer('categories')
     if (createdLocations) this.notifyRenderer('locations')
     this.notifyRenderer('items')
-    json(res, 200, { item: toPhoneItem(next) })
+    json(res, 200, { item: toPhoneItem(next), sync: { categories: createdCategories, locations: createdLocations } })
   }
 
   deleteItem(req, res, path) {

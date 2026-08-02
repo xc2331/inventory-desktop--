@@ -19,6 +19,7 @@ release-v10/
 release-v11/
 release-v12/
 release-v12-*/
+release-v*/
 release-temp/
 *.log
 .DS_Store

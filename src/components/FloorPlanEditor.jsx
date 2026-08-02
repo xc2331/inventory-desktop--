@@ -149,6 +149,44 @@ function findNonOverlappingPosition(areas, size = DEFAULT_AREA_SIZE) {
   return { x: clamp(10 + offset, 0, 100 - size), y: clamp(10 + offset, 0, 100 - size), w: size, h: size }
 }
 
+// 安全地查找已绑定的位置（兼容位置被删除、locations 非数组等情况）
+function getBoundLocation(locations, bindLocationId) {
+  if (!bindLocationId || !Array.isArray(locations)) return null
+  return locations.find((l) => l && l.id === bindLocationId) || null
+}
+
+// 获取区域应显示的名称：label > 绑定位置名 > 已删除提示 > 未命名
+function getBoundLocationName(area, locations, t) {
+  if (area.label) return area.label
+  const loc = getBoundLocation(locations, area.bindLocationId)
+  if (loc) return loc.name
+  if (area.bindLocationId) return t('floorPlan_deletedLocation')
+  return t('floorPlan_unnamed')
+}
+
+// 安全触发子位置跳转；绑定位置不存在时不调用回调，避免异常
+function safeSelectSubLocation(locations, bindLocationId, onSelectSubLocation) {
+  const loc = getBoundLocation(locations, bindLocationId)
+  if (!loc) return
+  const parts = locationParts(locations, loc.id)
+  if (!parts || !parts.location) return
+  onSelectSubLocation(parts.location.split(' > '))
+}
+
+// 图层面板的小图标按钮
+function LayerBtn({ icon: Icon, onClick, title }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+    >
+      <Icon size={14} />
+    </button>
+  )
+}
+
 export default function FloorPlanEditor({ locationId, locationName, locations, items, onBack, onSelectSubLocation }) {
   const { t } = useI18n()
   const canvasRef = useRef(null)
@@ -164,6 +202,11 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
   const [qrDialog, setQrDialog] = useState({ open: false, url: '', status: 'idle' })
   const [imageHint, setImageHint] = useState('')
   const qrUnsubscribe = useRef(null)
+
+  // 右侧属性面板：宽度与标签页
+  const [panelWidth, setPanelWidth] = useState(480)
+  const [rightTab, setRightTab] = useState('properties')
+  const resizeState = useRef({ active: false, startX: 0, startWidth: 480 })
 
   // 拖拽/缩放/绘制状态
   const actionRef = useRef(null)
@@ -223,15 +266,6 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
       stopQRUpload().catch(() => {})
     }
   }, [])
-
-  // 选中子区域时监听全局粘贴（图片 / 图片链接）
-  useEffect(() => {
-    if (!selectedElement || selectedElement.isRoom) return
-    const handler = (e) => handleImagePaste(e)
-    window.addEventListener('paste', handler)
-    return () => window.removeEventListener('paste', handler)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedElement?.id])
 
   const hasChanges = useMemo(() => {
     if (!plan || !original) return false
@@ -605,6 +639,35 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
     setSelectedId(id)
   }
 
+  // 右侧属性面板拖拽调整宽度
+  const onPanelResizeStart = (e) => {
+    e.preventDefault()
+    resizeState.current = { active: true, startX: e.clientX, startWidth: panelWidth }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!resizeState.current.active) return
+      const delta = resizeState.current.startX - e.clientX
+      const next = clamp(resizeState.current.startWidth + delta, 320, 720)
+      setPanelWidth(next)
+    }
+    const onUp = () => {
+      if (!resizeState.current.active) return
+      resizeState.current.active = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [panelWidth])
+
   const onMouseMove = (e) => {
     if (!actionRef.current || !plan) return
     const pos = toPercent(e.clientX, e.clientY)
@@ -675,9 +738,19 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
     return plan.areas.find((a) => a.id === selectedId) || null
   }, [plan, selectedId])
 
+  // 选中子区域时监听全局粘贴（图片 / 图片链接）
+  // 注意：这个 useEffect 必须放在 selectedElement 定义之后，否则依赖数组会触发暂时性死区（TDZ）错误导致白屏
+  useEffect(() => {
+    if (!selectedElement || selectedElement.isRoom) return
+    const handler = (e) => handleImagePaste(e)
+    window.addEventListener('paste', handler)
+    return () => window.removeEventListener('paste', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedElement?.id])
+
   const selectedItemCount = useMemo(() => {
     if (!selectedElement || selectedElement.isRoom || !selectedElement.bindLocationId) return 0
-    const loc = locations.find((l) => l.id === selectedElement.bindLocationId)
+    const loc = getBoundLocation(locations, selectedElement.bindLocationId)
     if (!loc) return 0
     const parts = locationParts(locations, loc.id)
     return items.filter((it) => itemLocationPath(it).join(' > ') === parts.location).length
@@ -821,17 +894,11 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
                 id={area.id}
                 selected={selectedId === area.id}
                 style={AREA_PALETTE[(area.colorIndex || 1) % AREA_PALETTE.length]}
-                label={area.label || unboundSubLocations.find((l) => l.id === area.bindLocationId)?.name || t('floorPlan_unnamed')}
+                label={getBoundLocationName(area, locations, t)}
                 drawMode={drawMode}
                 onResizeStart={onResizeStart}
                 onDoubleClick={() => {
-                  if (area.bindLocationId) {
-                    const loc = locations.find((l) => l.id === area.bindLocationId)
-                    if (loc) {
-                      const parts = locationParts(locations, loc.id)
-                      onSelectSubLocation(parts.location.split(' > '))
-                    }
-                  }
+                  safeSelectSubLocation(locations, area.bindLocationId, onSelectSubLocation)
                 }}
               />
             ))}
@@ -861,247 +928,299 @@ export default function FloorPlanEditor({ locationId, locationName, locations, i
         </main>
 
         {/* 属性面板 */}
-        <aside className="flex w-80 shrink-0 flex-col border-l border-border bg-surface">
-          <div className="border-b border-border p-4">
-            <h2 className="text-sm font-semibold text-text-primary">{t('floorPlan_properties')}</h2>
+        <aside
+          className="relative flex shrink-0 flex-col border-l border-border bg-surface"
+          style={{ width: panelWidth }}
+        >
+          {/* 拖拽调整宽度 */}
+          <div
+            onMouseDown={onPanelResizeStart}
+            className="absolute left-0 top-0 bottom-0 z-10 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60"
+            aria-label={t('floorPlan_resizePanel')}
+            role="separator"
+          />
+
+          {/* 属性 / 图层 标签 */}
+          <div className="flex items-center border-b border-border px-4">
+            <button
+              type="button"
+              onClick={() => setRightTab('properties')}
+              className={cn(
+                'relative py-3 text-sm font-medium transition-smooth',
+                rightTab === 'properties'
+                  ? 'text-primary'
+                  : 'text-text-secondary hover:text-text-primary'
+              )}
+            >
+              {t('floorPlan_properties')}
+              {rightTab === 'properties' && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-primary" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRightTab('layers')}
+              className={cn(
+                'relative ml-6 py-3 text-sm font-medium transition-smooth',
+                rightTab === 'layers'
+                  ? 'text-primary'
+                  : 'text-text-secondary hover:text-text-primary'
+              )}
+            >
+              {t('floorPlan_layers')}
+              {rightTab === 'layers' && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-primary" />
+              )}
+            </button>
           </div>
 
-          {!selectedElement && (
-            <div className="flex flex-1 flex-col items-center justify-center p-6 text-center text-xs text-text-tertiary">
-              <MousePointer2 size={32} className="mb-3 opacity-40" />
-              <p>{t('floorPlan_selectHint')}</p>
-            </div>
-          )}
-
-          {selectedElement?.isRoom && (
-            <div className="flex-1 space-y-4 overflow-y-auto p-4">
-              <PropertyRow icon={MapPin} label={t('floorPlan_roomName')}>
-                <span className="text-sm text-text-primary">{locationName}</span>
-              </PropertyRow>
-              <PropertyRow icon={Move} label={t('floorPlan_position')}>
-                <span className="text-xs text-text-secondary">x {plan.room.x}% · y {plan.room.y}%</span>
-              </PropertyRow>
-              <PropertyRow icon={Maximize2} label={t('floorPlan_size')}>
-                <span className="text-xs text-text-secondary">{plan.room.w}% × {plan.room.h}%</span>
-              </PropertyRow>
-              <p className="rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-                {t('floorPlan_roomHint')}
-              </p>
-            </div>
-          )}
-
-          {selectedElement && !selectedElement.isRoom && (
-            <div className="flex-1 space-y-4 overflow-y-auto p-4">
-              <PropertyRow icon={Type} label={t('floorPlan_areaName')}>
-                <input
-                  type="text"
-                  value={selectedElement.label || ''}
-                  onChange={(e) => updateArea(selectedElement.id, { label: e.target.value })}
-                  placeholder={t('floorPlan_areaNamePlaceholder')}
-                  className="input h-8 w-full text-xs"
-                />
-              </PropertyRow>
-
-              <PropertyRow icon={Link2} label={t('floorPlan_bindSubLocation')}>
-                <select
-                  value={selectedElement.bindLocationId || ''}
-                  onChange={(e) => {
-                    const id = e.target.value
-                    const loc = id ? locations.find((l) => l.id === id) : null
-                    updateArea(selectedElement.id, {
-                      bindLocationId: id,
-                      label: loc && !selectedElement.label ? loc.name : selectedElement.label
-                    })
-                  }}
-                  className="input h-8 w-full text-xs"
-                >
-                  <option value="">{t('floorPlan_noBind')}</option>
-                  {subLocations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                  ))}
-                </select>
-              </PropertyRow>
-
-              <PropertyRow icon={Palette} label={t('floorPlan_color')}>
-                <div className="flex flex-wrap gap-1.5">
-                  {AREA_PALETTE.map((pal, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => updateArea(selectedElement.id, { colorIndex: idx })}
-                      className={cn(
-                        'h-6 w-6 rounded-full border-2 transition-smooth',
-                        pal.bg,
-                        pal.border,
-                        selectedElement.colorIndex === idx ? 'ring-2 ring-primary ring-offset-1' : ''
-                      )}
-                    />
-                  ))}
+          {rightTab === 'properties' && (
+            <>
+              {!selectedElement && (
+                <div className="flex flex-1 flex-col items-center justify-center p-6 text-center text-xs text-text-tertiary">
+                  <MousePointer2 size={32} className="mb-3 opacity-40" />
+                  <p>{t('floorPlan_selectHint')}</p>
                 </div>
-              </PropertyRow>
-
-              <PropertyRow icon={Move} label={t('floorPlan_position')}>
-                <span className="text-xs text-text-secondary">x {selectedElement.x}% · y {selectedElement.y}%</span>
-              </PropertyRow>
-
-              <PropertyRow icon={Maximize2} label={t('floorPlan_size')}>
-                <span className="text-xs text-text-secondary">{selectedElement.w}% × {selectedElement.h}%</span>
-              </PropertyRow>
-
-              {/* 子区域实景图 */}
-              <div>
-                <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-tertiary">
-                  <ImageIcon size={12} />
-                  {t('floorPlan_areaImage')}
-                </label>
-                <div
-                  tabIndex={0}
-                  onPaste={handleImagePaste}
-                  onDrop={handleImageDrop}
-                  onDragOver={(e) => e.preventDefault()}
-                  className={cn(
-                    'rounded-xl border border-border bg-bg p-3 outline-none transition-smooth focus-within:border-primary/60',
-                    imageHint && (imageHint.includes('失败') || imageHint.includes('超过')) && 'border-danger'
-                  )}
-                >
-                  {selectedElement.image ? (
-                    <div className="relative mb-2">
-                      <img
-                        src={toPhotoSrc(selectedElement.image)}
-                        alt="area"
-                        className="h-32 w-full rounded-lg object-cover ring-1 ring-border"
-                        onError={(e) => { e.target.style.display = 'none' }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => updateArea(selectedElement.id, { image: '' })}
-                        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white transition-smooth hover:bg-danger"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="mb-2 flex h-24 w-full items-center justify-center rounded-lg bg-surface text-text-tertiary">
-                      <ImageIcon size={28} />
-                    </div>
-                  )}
-
-                  <input
-                    type="text"
-                    value={selectedElement.image || ''}
-                    onChange={(e) => updateArea(selectedElement.id, { image: e.target.value })}
-                    placeholder={t('floorPlan_imageUrlPlaceholder')}
-                    className="input mb-2 h-8 w-full text-xs"
-                  />
-
-                  {imageHint && (
-                    <p className={cn('mb-2 text-[11px]', imageHint.includes('失败') || imageHint.includes('超过') ? 'text-danger' : 'text-text-tertiary')}>
-                      {imageHint}
-                    </p>
-                  )}
-
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleBrowseImage}
-                      className="flex items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-[11px] font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
-                    >
-                      <FolderOpen size={12} />
-                      {t('f_photo_browse')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openQRDialog}
-                      className="flex items-center gap-1 rounded-md bg-primary-soft px-2 py-1 text-[11px] font-medium text-primary transition-smooth hover:bg-primary-soft/80"
-                    >
-                      <Smartphone size={12} />
-                      {t('qrUpload_start')}
-                    </button>
-                    {selectedElement.image && (
-                      <button
-                        type="button"
-                        onClick={() => updateArea(selectedElement.id, { image: '' })}
-                        className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-text-tertiary transition-smooth hover:text-danger"
-                      >
-                        <X size={12} />
-                        {t('btn_delete')}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {selectedElement.bindLocationId && (
-                <button
-                  onClick={() => {
-                    const loc = locations.find((l) => l.id === selectedElement.bindLocationId)
-                    if (loc) {
-                      const parts = locationParts(locations, loc.id)
-                      onSelectSubLocation(parts.location.split(' > '))
-                    }
-                  }}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
-                >
-                  <Boxes size={13} />
-                  {t('floorPlan_viewItems', { n: selectedItemCount })}
-                </button>
               )}
 
-              <PropertyRow icon={Layers} label={t('floorPlan_layer')}>
-                <div className="flex flex-wrap gap-1">
-                  <LayerBtn icon={ArrowUpToLine} onClick={() => bringToFront(selectedElement.id)} title={t('floorPlan_bringToFront')} />
-                  <LayerBtn icon={ArrowDownToLine} onClick={() => sendToBack(selectedElement.id)} title={t('floorPlan_sendToBack')} />
-                  <LayerBtn icon={ChevronUp} onClick={() => bringForward(selectedElement.id)} title={t('floorPlan_bringForward')} />
-                  <LayerBtn icon={ChevronDown} onClick={() => sendBackward(selectedElement.id)} title={t('floorPlan_sendBackward')} />
+              {selectedElement?.isRoom && (
+                <div className="flex-1 space-y-4 overflow-y-auto p-4">
+                  <PropertyRow icon={MapPin} label={t('floorPlan_roomName')}>
+                    <span className="text-sm text-text-primary">{locationName}</span>
+                  </PropertyRow>
+                  <PropertyRow icon={Move} label={t('floorPlan_position')}>
+                    <span className="text-xs text-text-secondary">x {plan.room.x}% · y {plan.room.y}%</span>
+                  </PropertyRow>
+                  <PropertyRow icon={Maximize2} label={t('floorPlan_size')}>
+                    <span className="text-xs text-text-secondary">{plan.room.w}% × {plan.room.h}%</span>
+                  </PropertyRow>
+                  <p className="rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+                    {t('floorPlan_roomHint')}
+                  </p>
                 </div>
-              </PropertyRow>
+              )}
 
-              <button
-                onClick={() => setCreateDialog({ open: true, name: selectedElement.label || '', bindLocationId: selectedElement.bindLocationId || '', mode: 'visual' })}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
-              >
-                {t('floorPlan_rebind')}
-              </button>
-            </div>
-          )}
-
-          {/* 图层列表：始终显示，可拖拽排序 / 点选 */}
-          {plan.areas.length > 0 && (
-            <div className="shrink-0 max-h-48 overflow-y-auto border-t border-border p-4">
-              <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-text-primary">
-                <Layers size={14} />
-                {t('floorPlan_layers')}
-              </h3>
-              <p className="mb-2 text-[11px] text-text-tertiary">{t('floorPlan_layerHint')}</p>
-              <div className="space-y-1">
-                {[...sortedAreas].reverse().map((area) => {
-                  const pal = AREA_PALETTE[(area.colorIndex || 1) % AREA_PALETTE.length]
-                  const label = area.label || unboundSubLocations.find((l) => l.id === area.bindLocationId)?.name || t('floorPlan_unnamed')
-                  return (
+              {selectedElement && !selectedElement.isRoom && (
+                <div className="flex-1 space-y-4 overflow-y-auto p-4">
+                  {/* 子区域实景图：置顶，按原比例完整显示 */}
+                  <div>
+                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-tertiary">
+                      <ImageIcon size={12} />
+                      {t('floorPlan_areaImage')}
+                    </label>
                     <div
-                      key={area.id}
-                      draggable
-                      onDragStart={(e) => e.dataTransfer.setData('text/floorplan-area', area.id)}
+                      tabIndex={0}
+                      onPaste={handleImagePaste}
+                      onDrop={handleImageDrop}
                       onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault()
-                        const fromId = e.dataTransfer.getData('text/floorplan-area')
-                        if (fromId && fromId !== area.id) reorderArea(fromId, area.id)
-                      }}
-                      onClick={() => setSelectedId(area.id)}
                       className={cn(
-                        'flex cursor-grab items-center gap-2 rounded-lg border px-2 py-1.5 text-xs transition-smooth active:cursor-grabbing',
-                        selectedId === area.id
-                          ? 'border-primary bg-primary-soft'
-                          : 'border-border bg-bg hover:bg-surface-hover'
+                        'rounded-xl border border-border bg-bg p-3 outline-none transition-smooth focus-within:border-primary/60',
+                        imageHint && (imageHint.includes('失败') || imageHint.includes('超过')) && 'border-danger'
                       )}
                     >
-                      <span className={cn('h-3 w-3 rounded-sm border', pal.bg, pal.border)} />
-                      <span className="flex-1 truncate">{label}</span>
+                      {selectedElement.image ? (
+                        <div className="relative mb-2">
+                          <img
+                            src={toPhotoSrc(selectedElement.image)}
+                            alt="area"
+                            className="h-auto w-full rounded-lg object-contain ring-1 ring-border"
+                            onError={(e) => { e.target.style.display = 'none' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => updateArea(selectedElement.id, { image: '' })}
+                            className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white transition-smooth hover:bg-danger"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="mb-2 flex h-24 w-full items-center justify-center rounded-lg bg-surface text-text-tertiary">
+                          <ImageIcon size={28} />
+                        </div>
+                      )}
+
+                      <input
+                        type="text"
+                        value={selectedElement.image || ''}
+                        onChange={(e) => updateArea(selectedElement.id, { image: e.target.value })}
+                        placeholder={t('floorPlan_imageUrlPlaceholder')}
+                        className="input mb-2 h-8 w-full text-xs"
+                      />
+
+                      {imageHint && (
+                        <p className={cn('mb-2 text-[11px]', imageHint.includes('失败') || imageHint.includes('超过') ? 'text-danger' : 'text-text-tertiary')}>
+                          {imageHint}
+                        </p>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={handleBrowseImage}
+                          className="flex items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-[11px] font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
+                        >
+                          <FolderOpen size={12} />
+                          {t('f_photo_browse')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={openQRDialog}
+                          className="flex items-center gap-1 rounded-md bg-primary-soft px-2 py-1 text-[11px] font-medium text-primary transition-smooth hover:bg-primary-soft/80"
+                        >
+                          <Smartphone size={12} />
+                          {t('qrUpload_start')}
+                        </button>
+                        {selectedElement.image && (
+                          <button
+                            type="button"
+                            onClick={() => updateArea(selectedElement.id, { image: '' })}
+                            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-text-tertiary transition-smooth hover:text-danger"
+                          >
+                            <X size={12} />
+                            {t('btn_delete')}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  )
-                })}
-              </div>
+                  </div>
+
+                  <PropertyRow icon={Type} label={t('floorPlan_areaName')}>
+                    <input
+                      type="text"
+                      value={selectedElement.label || ''}
+                      onChange={(e) => updateArea(selectedElement.id, { label: e.target.value })}
+                      placeholder={t('floorPlan_areaNamePlaceholder')}
+                      className="input h-8 w-full text-xs"
+                    />
+                  </PropertyRow>
+
+                  <PropertyRow icon={Link2} label={t('floorPlan_bindSubLocation')}>
+                    <select
+                      value={selectedElement.bindLocationId || ''}
+                      onChange={(e) => {
+                        const id = e.target.value
+                        const loc = id ? locations.find((l) => l.id === id) : null
+                        updateArea(selectedElement.id, {
+                          bindLocationId: id,
+                          label: loc && !selectedElement.label ? loc.name : selectedElement.label
+                        })
+                      }}
+                      className="input h-8 w-full text-xs"
+                    >
+                      <option value="">{t('floorPlan_noBind')}</option>
+                      {subLocations.map((loc) => (
+                        <option key={loc.id} value={loc.id}>{loc.name}</option>
+                      ))}
+                    </select>
+                  </PropertyRow>
+
+                  <PropertyRow icon={Palette} label={t('floorPlan_color')}>
+                    <div className="flex flex-wrap gap-1.5">
+                      {AREA_PALETTE.map((pal, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => updateArea(selectedElement.id, { colorIndex: idx })}
+                          className={cn(
+                            'h-6 w-6 rounded-full border-2 transition-smooth',
+                            pal.bg,
+                            pal.border,
+                            selectedElement.colorIndex === idx ? 'ring-2 ring-primary ring-offset-1' : ''
+                          )}
+                        />
+                      ))}
+                    </div>
+                  </PropertyRow>
+
+                  <PropertyRow icon={Move} label={t('floorPlan_position')}>
+                    <span className="text-xs text-text-secondary">x {selectedElement.x}% · y {selectedElement.y}%</span>
+                  </PropertyRow>
+
+                  <PropertyRow icon={Maximize2} label={t('floorPlan_size')}>
+                    <span className="text-xs text-text-secondary">{selectedElement.w}% × {selectedElement.h}%</span>
+                  </PropertyRow>
+
+                  {selectedElement.bindLocationId && (
+                    <button
+                      onClick={() => safeSelectSubLocation(locations, selectedElement.bindLocationId, onSelectSubLocation)}
+                      disabled={!getBoundLocation(locations, selectedElement.bindLocationId)}
+                      title={
+                        getBoundLocation(locations, selectedElement.bindLocationId)
+                          ? ''
+                          : t('floorPlan_deletedLocation')
+                      }
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Boxes size={13} />
+                      {t('floorPlan_viewItems', { n: selectedItemCount })}
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => setCreateDialog({ open: true, name: selectedElement.label || '', bindLocationId: selectedElement.bindLocationId || '', mode: 'visual' })}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+                  >
+                    {t('floorPlan_rebind')}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+          {rightTab === 'layers' && (
+            <div className="flex flex-1 flex-col overflow-y-auto p-4">
+              {selectedElement && !selectedElement.isRoom && (
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-text-tertiary">{t('floorPlan_layer')}</span>
+                  <div className="flex flex-wrap gap-1">
+                    <LayerBtn icon={ArrowUpToLine} onClick={() => bringToFront(selectedElement.id)} title={t('floorPlan_bringToFront')} />
+                    <LayerBtn icon={ArrowDownToLine} onClick={() => sendToBack(selectedElement.id)} title={t('floorPlan_sendToBack')} />
+                    <LayerBtn icon={ChevronUp} onClick={() => bringForward(selectedElement.id)} title={t('floorPlan_bringForward')} />
+                    <LayerBtn icon={ChevronDown} onClick={() => sendBackward(selectedElement.id)} title={t('floorPlan_sendBackward')} />
+                  </div>
+                </div>
+              )}
+
+              {plan.areas.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-text-tertiary">{t('floorPlan_layerHint')}</p>
+                  <div className="space-y-1">
+                    {[...sortedAreas].reverse().map((area) => {
+                      const pal = AREA_PALETTE[(area.colorIndex || 1) % AREA_PALETTE.length]
+                      const label = getBoundLocationName(area, locations, t)
+                      return (
+                        <div
+                          key={area.id}
+                          draggable
+                          onDragStart={(e) => e.dataTransfer.setData('text/floorplan-area', area.id)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault()
+                            const fromId = e.dataTransfer.getData('text/floorplan-area')
+                            if (fromId && fromId !== area.id) reorderArea(fromId, area.id)
+                          }}
+                          onClick={() => setSelectedId(area.id)}
+                          className={cn(
+                            'flex cursor-grab items-center gap-2 rounded-lg border px-2 py-1.5 text-xs transition-smooth active:cursor-grabbing',
+                            selectedId === area.id
+                              ? 'border-primary bg-primary-soft'
+                              : 'border-border bg-bg hover:bg-surface-hover'
+                          )}
+                        >
+                          <span className={cn('h-3 w-3 rounded-sm border', pal.bg, pal.border)} />
+                          <span className="flex-1 truncate">{label}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center text-center text-xs text-text-tertiary">
+                  <Layers size={32} className="mb-3 opacity-40" />
+                  <p>{t('floorPlan_noAreas')}</p>
+                </div>
+              )}
             </div>
           )}
         </aside>

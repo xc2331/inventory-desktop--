@@ -1,12 +1,91 @@
 [
   {
+    "version": "v1.2.16",
+    "date": "2026-08-02",
+    "items": [
+      "设置页重新排序：「数据管理」置顶，「更新日志 / 新功能」置底，其余顺序保持不变",
+      "软件版本号升级到 1.2.16"
+    ]
+  },
+  {
+    "version": "v1.2.15",
+    "date": "2026-08-01",
+    "items": [
+      "修复 UI 创建/更新物品后，新位置/新分类未自动同步到位置管理/位置地图的问题",
+      "AI 视觉识别配置支持多供应商：可同时保存多个 Base URL、API Key、模型，并选择当前使用的供应商",
+      "新增供应商时自动按当前选中供应商进行识别，保留旧版单供应商配置的兼容迁移",
+      "软件版本号升级到 1.2.15"
+    ]
+  },
+  {
+    "version": "v1.2.14",
+    "date": "2026-08-01",
+    "items": [
+      "修复 Agent 外部接口创建/更新物品后，位置与分类仍未同步到位置地图/位置管理的问题",
+      "位置解析统一支持 `>`、`/`、`→` 多种层级分隔符，并对每段路径自动 trim 去空格，避免重复节点",
+      "Agent API 的 createItem/updateItem 把物品写入与分类/位置同步包在同一事务中，失败时整体回滚",
+      "自动创建的分类 name 优先保留原始中文显示名，不再直接显示归一化后的 key",
+      "更新 skills/family-inventory-agent.md，明确 `location` 字段优先级与自动同步行为"
+    ]
+  },
+  {
+    "version": "v1.2.13",
+    "date": "2026-08-01",
+    "items": [
+      "修复 Agent 外部接口创建/更新物品时分类和位置未同步的问题：保存物品后自动补全缺失的分类和位置树",
+      "设置 → 数据管理新增「重建分类与位置」按钮，可根据已有物品手动修复同步遗漏",
+      "主进程与 Agent 接口统一使用 data-utils.js 的分类/位置归一化逻辑，避免多实现不一致"
+    ]
+  },
+  {
+    "version": "v1.2.12",
+    "date": "2026-08-01",
+    "items": [
+      "平面图编辑器右侧属性面板重做：实景图置顶并按原比例完整显示",
+      "属性面板宽度默认 480px，左侧支持拖拽调节（320–720px）",
+      "属性与图层改为标签页切换，图层列表独立展示并保留拖拽排序",
+      "更新 README.md、skills/family-inventory-agent.md 与 release-notes.json，同步 1.2.12 版本更新内容"
+    ]
+  },
+  {
+    "version": "v1.2.11",
+    "date": "2026-08-01",
+    "items": [
+      "修复软件启动后默认进入「位置地图」的问题，恢复默认打开主物品列表页",
+      "修复生产构建版本启动时自动打开 DevTools 开发者工具的问题，仅在开发模式（DEV=true）下打开",
+      "修复进入平面图编辑器并选中子区域后报错 'LayerBtn is not defined'：补全 FloorPlanEditor 中缺失的 LayerBtn 组件",
+      "更新 README.md、skills/family-inventory-agent.md 与 release-notes.json，同步 1.2.11 版本修复内容"
+    ]
+  },
+  {
+    "version": "v1.2.10",
+    "date": "2026-08-01",
+    "items": [
+      "修复平面图编辑器中点击子区域方块时，因绑定的子位置已被删除而触发 'Cannot read properties of undefined' 的报错",
+      "为 FloorPlanEditor 中所有 bindLocationId 相关查找与跳转增加空值防御：选中计数、双击跳转、属性面板「查看物品」按钮、图层列表与画布标签均使用安全辅助函数",
+      "locationPath 增加对非数组 list 的防御，避免上游 locations 数据异常时连锁崩溃",
+      "为已删除的绑定位置补充 i18n 提示文案 floorPlan_deletedLocation，图层与画布标签显示「已删除位置」",
+      "更新 README.md、skills/family-inventory-agent.md 与 release-notes.json，同步 1.2.10 版本修复内容"
+    ]
+  },
+  {
+    "version": "v1.2.9",
+    "date": "2026-08-01",
+    "items": [
+      "修复位置地图白屏及进入平面图编辑器后可能白屏的问题：为 LocationMap 增加 ErrorBoundary 包裹、itemLocationPath 增加空值防御、修复进入位置地图时未自动加载物品数据的问题",
+      "将位置地图右侧抽屉动画从 width 动画改为 translateX，并移除房间卡片的 Framer Motion layout 属性，避免生产构建下布局动画冲突导致的渲染异常",
+      "补全平面图编辑器缺失的 i18n 文案：floorPlan_layer / floorPlan_layers / floorPlan_layerHint / floorPlan_bringToFront / floorPlan_sendToBack / floorPlan_bringForward / floorPlan_sendBackward",
+      "更新 README.md、skills/family-inventory-agent.md 与 release-notes.json，同步 1.2.9 版本修复内容"
+    ]
+  },
+  {
     "version": "v1.2.8",
     "date": "2026-08-01",
     "items": [
-      "修复位置地图点击「编辑平面图」后白屏的问题：加载失败时给出默认平面图并显示重试按钮",
       "修复更新对话框取消按钮无效的问题，下载过程中也可点击取消",
       "更新下载前支持选择保存位置，下载完成后显示文件路径并可「打开目录」",
-      "更新下载完成后改为用户确认「立即安装」后再执行替换安装"
+      "更新下载完成后改为用户确认「立即安装」后再执行替换安装",
+      "发布脚本支持从项目根目录 .env.local 自动读取 GH_TOKEN / GITEE_TOKEN"
     ]
   },
   {

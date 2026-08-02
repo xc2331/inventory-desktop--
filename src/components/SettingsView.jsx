@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket, Loader2, ScrollText, Cpu, Smartphone, ChevronDown, ChevronUp, Zap, Eye, EyeOff } from 'lucide-react'
+import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket, Loader2, ScrollText, Cpu, Smartphone, ChevronDown, ChevronUp, Zap, Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
 import { getSettings, getApiToken, resetApiToken, setApiConfig, getAIConfig, setAIConfig, fetchAIModels } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -27,6 +27,7 @@ export default function SettingsView({
   onResetDataDir,
   onManageCategories,
   onManageLocations,
+  onRebuildMeta,
   onExportJSON,
   onExportCSV,
   onImport,
@@ -44,12 +45,14 @@ export default function SettingsView({
   const [copied, setCopied] = useState(false)
   const [apiSaved, setApiSaved] = useState(false)
   const [apiError, setApiError] = useState('')
-  const [aiForm, setAiForm] = useState({ baseUrl: '', key: '', model: 'gpt-4o-mini' })
+  const [aiProviders, setAiProviders] = useState([])
+  const [aiSelectedId, setAiSelectedId] = useState('')
   const [aiSaved, setAiSaved] = useState(false)
-  const [showAiKey, setShowAiKey] = useState(false)
-  const [aiModels, setAiModels] = useState([])
-  const [aiModelsLoading, setAiModelsLoading] = useState(false)
-  const [aiModelsError, setAiModelsError] = useState('')
+  const [aiShowKeyIds, setAiShowKeyIds] = useState(new Set())
+  const [aiModelsMap, setAiModelsMap] = useState({})
+  const [aiFetchLoading, setAiFetchLoading] = useState({})
+  const [aiFetchError, setAiFetchError] = useState({})
+  const [rebuilding, setRebuilding] = useState(false)
 
   useEffect(() => {
     getSettings().then((s) => {
@@ -65,7 +68,10 @@ export default function SettingsView({
         token: info.token || ''
       })
     })
-    getAIConfig().then((c) => setAiForm(c))
+    getAIConfig().then((c) => {
+      setAiProviders(c.providers || [])
+      setAiSelectedId(c.selectedId || '')
+    })
   }, [])
 
   const handleCopyToken = async () => {
@@ -109,46 +115,88 @@ export default function SettingsView({
     setTimeout(() => setApiSaved(false), 1500)
   }
 
+  const updateProvider = (id, patch) => {
+    setAiProviders((list) =>
+      list.map((p) => (p.id === id ? { ...p, ...patch } : p))
+    )
+  }
+
+  const addProvider = () => {
+    const id = crypto.randomUUID()
+    setAiProviders((list) => [
+      ...list,
+      { id, name: '', baseUrl: '', key: '', model: 'gpt-4o-mini' }
+    ])
+    setAiSelectedId(id)
+  }
+
+  const removeProvider = (id) => {
+    setAiProviders((list) => list.filter((p) => p.id !== id))
+    if (aiSelectedId === id) {
+      setAiSelectedId('')
+    }
+  }
+
   const handleSaveAIConfig = async () => {
-    const next = await setAIConfig({
-      baseUrl: aiForm.baseUrl.trim(),
-      key: aiForm.key.trim(),
-      model: aiForm.model.trim() || 'gpt-4o-mini'
-    })
-    setAiForm(next)
+    const providers = aiProviders.map((p) => ({
+      id: p.id,
+      name: p.name?.trim() || '未命名',
+      baseUrl: p.baseUrl?.trim() || '',
+      key: p.key?.trim() || '',
+      model: p.model?.trim() || 'gpt-4o-mini'
+    }))
+    const selectedId = aiSelectedId
+    const next = await setAIConfig({ providers, selectedId })
+    setAiProviders(next.providers || [])
+    setAiSelectedId(next.selectedId || '')
     setAiSaved(true)
     setTimeout(() => setAiSaved(false), 1500)
   }
 
-  const handleFetchModels = async () => {
-    setAiModelsError('')
-    setAiModelsLoading(true)
-    // 先把当前输入框里的 baseUrl/key 保存到主进程设置中，fetchModels 会读取主进程配置
-    await setAIConfig({
-      baseUrl: aiForm.baseUrl.trim(),
-      key: aiForm.key.trim(),
-      model: aiForm.model.trim() || 'gpt-4o-mini'
+  const toggleShowKey = (id) => {
+    setAiShowKeyIds((set) => {
+      const next = new Set(set)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
     })
+  }
+
+  const handleFetchModels = async (providerId) => {
+    setAiFetchError((err) => ({ ...err, [providerId]: '' }))
+    setAiFetchLoading((load) => ({ ...load, [providerId]: true }))
     try {
-      const res = await fetchAIModels()
+      // 先把当前列表保存一次，确保主进程能读到最新 key/baseUrl
+      await handleSaveAIConfig()
+      const res = await fetchAIModels(providerId)
       if (!res.ok) {
-        setAiModelsError(t('ai_fetchModels_fail', { msg: res.error || 'unknown' }))
-        setAiModels([])
+        setAiFetchError((err) => ({ ...err, [providerId]: t('ai_fetchModels_fail', { msg: res.error || 'unknown' }) }))
+        setAiModelsMap((map) => ({ ...map, [providerId]: [] }))
       } else if (!res.models || res.models.length === 0) {
-        setAiModelsError(t('ai_fetchModels_empty'))
-        setAiModels([])
+        setAiFetchError((err) => ({ ...err, [providerId]: t('ai_fetchModels_empty') }))
+        setAiModelsMap((map) => ({ ...map, [providerId]: [] }))
       } else {
-        setAiModels(res.models)
-        // 如果当前模型不在列表中，默认选中第一个
-        if (!res.models.includes(aiForm.model.trim())) {
-          setAiForm((f) => ({ ...f, model: res.models[0] }))
+        setAiModelsMap((map) => ({ ...map, [providerId]: res.models }))
+        const p = aiProviders.find((x) => x.id === providerId)
+        if (p && !res.models.includes(p.model?.trim())) {
+          updateProvider(providerId, { model: res.models[0] })
         }
       }
     } catch (e) {
-      setAiModelsError(t('ai_fetchModels_fail', { msg: e.message || 'unknown' }))
-      setAiModels([])
+      setAiFetchError((err) => ({ ...err, [providerId]: t('ai_fetchModels_fail', { msg: e.message || 'unknown' }) }))
+      setAiModelsMap((map) => ({ ...map, [providerId]: [] }))
     } finally {
-      setAiModelsLoading(false)
+      setAiFetchLoading((load) => ({ ...load, [providerId]: false }))
+    }
+  }
+
+  const handleRebuildMeta = async () => {
+    if (rebuilding || !onRebuildMeta) return
+    setRebuilding(true)
+    try {
+      await onRebuildMeta()
+    } finally {
+      setRebuilding(false)
     }
   }
 
@@ -163,6 +211,35 @@ export default function SettingsView({
           transition={{ duration: 0.35, ease: EASE, delay: 0.05 }}
           className="space-y-4"
         >
+          {/* 数据管理 */}
+          <Section title={t('settings_dataManage')}>
+            <div className="space-y-2">
+              <ManageRow
+                icon={<Folder size={18} />}
+                title={t('settings_manageCategories')}
+                desc={t('settings_manageCategories_desc')}
+                onClick={onManageCategories}
+              />
+              <ManageRow
+                icon={<MapPin size={18} />}
+                title={t('settings_manageLocations')}
+                desc={t('settings_manageLocations_desc')}
+                onClick={onManageLocations}
+              />
+              <ManageRow
+                icon={rebuilding ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
+                title={t('settings_rebuildMeta')}
+                desc={t('settings_rebuildMeta_desc')}
+                onClick={handleRebuildMeta}
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <DataBtn icon={<Upload size={15} />} onClick={onImport}>{t('btn_import')} JSON</DataBtn>
+              <DataBtn icon={<FileJson size={15} />} onClick={onExportJSON}>{t('export_json')}</DataBtn>
+              <DataBtn icon={<FileSpreadsheet size={15} />} onClick={onExportCSV}>{t('export_csv')}</DataBtn>
+            </div>
+          </Section>
+
           {/* 语言 */}
           <Section title={t('settings_language')}>
             <div className="flex flex-wrap gap-2">
@@ -460,89 +537,141 @@ export default function SettingsView({
             </div>
           </Section>
 
-          {/* 更新日志 / 新功能 */}
-          <Section title={t('settings_whatsNew')} desc={t('settings_whatsNew_desc')}>
-            <ReleaseNotes />
-          </Section>
-
           {/* AI 视觉识别配置 */}
           <Section title={t('settings_aiVision')} desc={t('settings_aiVision_desc')}>
             <div className="space-y-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-text-secondary">{t('settings_aiVision_baseUrl')}</label>
-                <input
-                  type="text"
-                  value={aiForm.baseUrl}
-                  onChange={(e) => setAiForm((f) => ({ ...f, baseUrl: e.target.value }))}
-                  placeholder="https://api.openai.com/v1"
-                  className="input h-9 w-full text-xs"
-                />
-              </div>
-              <div className="space-y-1.5">
-              <label className="text-xs font-medium text-text-secondary">{t('settings_aiVision_model')}</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={aiForm.model}
-                  onChange={(e) => setAiForm((f) => ({ ...f, model: e.target.value }))}
-                  placeholder={t('settings_aiVision_modelPlaceholder')}
-                  className="input h-9 flex-1 text-xs"
-                />
-                <motion.button
-                  type="button"
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleFetchModels}
-                  disabled={aiModelsLoading || !aiForm.baseUrl.trim() || !aiForm.key.trim()}
-                  title={t('ai_fetchModels')}
-                  className={cn(
-                    'flex h-9 shrink-0 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-smooth',
-                    aiModelsLoading || !aiForm.baseUrl.trim() || !aiForm.key.trim()
-                      ? 'cursor-not-allowed border-border bg-surface text-text-tertiary'
-                      : 'border-border bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                  )}
-                >
-                  {aiModelsLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                  {aiModelsLoading ? t('ai_fetchModels_loading') : t('ai_fetchModels')}
-                </motion.button>
-              </div>
-              {aiModels.length > 0 && (
-                <select
-                  value={aiForm.model}
-                  onChange={(e) => setAiForm((f) => ({ ...f, model: e.target.value }))}
-                  className="input h-9 w-full text-xs"
-                >
-                  {aiModels.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
+              {aiProviders.length === 0 && (
+                <p className="text-xs text-text-tertiary">{t('settings_aiVision_empty')}</p>
               )}
-              {aiModelsError && (
-                <p className="text-xs text-danger">{aiModelsError}</p>
-              )}
-            </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-text-secondary">{t('settings_aiVision_key')}</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type={showAiKey ? 'text' : 'password'}
-                    value={aiForm.key}
-                    onChange={(e) => setAiForm((f) => ({ ...f, key: e.target.value }))}
-                    placeholder="sk-..."
-                    className="input h-9 flex-1 text-xs font-mono"
-                  />
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowAiKey((v) => !v)}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+
+              {aiProviders.map((p) => {
+                const isSelected = aiSelectedId === p.id
+                const showKey = aiShowKeyIds.has(p.id)
+                const models = aiModelsMap[p.id] || []
+                const fetching = aiFetchLoading[p.id]
+                const fetchErr = aiFetchError[p.id]
+                return (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      'rounded-xl border bg-bg p-3 transition-smooth',
+                      isSelected ? 'border-primary' : 'border-border'
+                    )}
                   >
-                    {showAiKey ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </motion.button>
-                </div>
-              </div>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="ai-provider"
+                          checked={isSelected}
+                          onChange={() => setAiSelectedId(p.id)}
+                          className="h-4 w-4 accent-primary"
+                          title={t('settings_aiVision_useThis')}
+                        />
+                        <input
+                          type="text"
+                          value={p.name}
+                          onChange={(e) => updateProvider(p.id, { name: e.target.value })}
+                          placeholder={t('settings_aiVision_namePlaceholder')}
+                          className="input h-8 w-28 text-xs"
+                        />
+                      </div>
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => removeProvider(p.id)}
+                        title={t('settings_aiVision_remove')}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-danger-soft hover:text-danger"
+                      >
+                        <Trash2 size={14} />
+                      </motion.button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={p.baseUrl}
+                        onChange={(e) => updateProvider(p.id, { baseUrl: e.target.value })}
+                        placeholder={t('settings_aiVision_baseUrl')}
+                        className="input h-8 w-full text-xs"
+                      />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={p.model}
+                          onChange={(e) => updateProvider(p.id, { model: e.target.value })}
+                          placeholder={t('settings_aiVision_modelPlaceholder')}
+                          className="input h-8 flex-1 text-xs"
+                        />
+                        <motion.button
+                          type="button"
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleFetchModels(p.id)}
+                          disabled={fetching || !p.baseUrl?.trim() || !p.key?.trim()}
+                          title={t('ai_fetchModels')}
+                          className={cn(
+                            'flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-xs font-medium transition-smooth',
+                            fetching || !p.baseUrl?.trim() || !p.key?.trim()
+                              ? 'cursor-not-allowed border-border bg-surface text-text-tertiary'
+                              : 'border-border bg-surface text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                          )}
+                        >
+                          {fetching ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                          {fetching ? t('ai_fetchModels_loading') : t('ai_fetchModels')}
+                        </motion.button>
+                      </div>
+                      {models.length > 0 && (
+                        <select
+                          value={p.model}
+                          onChange={(e) => updateProvider(p.id, { model: e.target.value })}
+                          className="input h-8 w-full text-xs"
+                        >
+                          {models.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      )}
+                      {fetchErr && <p className="text-xs text-danger">{fetchErr}</p>}
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type={showKey ? 'text' : 'password'}
+                          value={p.key}
+                          onChange={(e) => updateProvider(p.id, { key: e.target.value })}
+                          placeholder={t('settings_aiVision_key')}
+                          className="input h-8 flex-1 text-xs font-mono"
+                        />
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => toggleShowKey(p.id)}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+                        >
+                          {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </motion.button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={addProvider}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-surface px-3.5 py-2 text-sm font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+              >
+                <Plus size={15} />
+                {t('settings_aiVision_add')}
+              </motion.button>
+
               <motion.button
                 whileTap={{ scale: 0.97 }}
                 onClick={handleSaveAIConfig}
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
+                disabled={aiProviders.length > 0 && !aiSelectedId}
+                className={cn(
+                  'flex w-full items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-smooth',
+                  aiProviders.length > 0 && !aiSelectedId
+                    ? 'cursor-not-allowed bg-text-tertiary'
+                    : 'bg-primary hover:bg-primary-hover'
+                )}
               >
                 {aiSaved ? <Check size={15} /> : <Save size={15} />}
                 {aiSaved ? t('settings_aiVision_saved') : t('settings_aiVision_save')}
@@ -575,28 +704,11 @@ export default function SettingsView({
             <p className="mt-3 text-xs text-text-tertiary">提示：若扫描后打不开，请检查电脑防火墙是否放行应用，或尝试切换网络。</p>
           </Section>
 
-          {/* 数据管理 */}
-          <Section title={t('settings_dataManage')}>
-            <div className="space-y-2">
-              <ManageRow
-                icon={<Folder size={18} />}
-                title={t('settings_manageCategories')}
-                desc={t('settings_manageCategories_desc')}
-                onClick={onManageCategories}
-              />
-              <ManageRow
-                icon={<MapPin size={18} />}
-                title={t('settings_manageLocations')}
-                desc={t('settings_manageLocations_desc')}
-                onClick={onManageLocations}
-              />
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <DataBtn icon={<Upload size={15} />} onClick={onImport}>{t('btn_import')} JSON</DataBtn>
-              <DataBtn icon={<FileJson size={15} />} onClick={onExportJSON}>{t('export_json')}</DataBtn>
-              <DataBtn icon={<FileSpreadsheet size={15} />} onClick={onExportCSV}>{t('export_csv')}</DataBtn>
-            </div>
+          {/* 更新日志 / 新功能 */}
+          <Section title={t('settings_whatsNew')} desc={t('settings_whatsNew_desc')}>
+            <ReleaseNotes />
           </Section>
+
         </motion.div>
       </main>
     </div>

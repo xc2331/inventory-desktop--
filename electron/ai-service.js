@@ -1,4 +1,5 @@
 // AI 视觉识别服务：调用用户配置的 OpenAI 兼容多模态大模型，识别图片中的物品信息
+// v1.2.15 起支持多供应商配置：settings.aiProviders[] + settings.aiSelectedId
 const crypto = require('crypto')
 
 const CATEGORY_ALIASES = {
@@ -90,18 +91,77 @@ function sanitizeSuggestion(item, categories) {
   }
 }
 
+// ===== 多供应商配置迁移与选择 =====
+
+function migrateAIConfig(settings) {
+  if (!settings) settings = {}
+  const hasOld =
+    settings.aiBaseUrl !== undefined ||
+    settings.aiKey !== undefined ||
+    settings.aiModel !== undefined
+  if (!Array.isArray(settings.aiProviders) || settings.aiProviders.length === 0 || hasOld) {
+    const providers = Array.isArray(settings.aiProviders) ? [...settings.aiProviders] : []
+    if (hasOld) {
+      providers.push({
+        id: crypto.randomUUID(),
+        name: '默认',
+        baseUrl: String(settings.aiBaseUrl || '').trim(),
+        key: String(settings.aiKey || '').trim(),
+        model: String(settings.aiModel || '').trim() || 'gpt-4o-mini',
+        selected: true
+      })
+      delete settings.aiBaseUrl
+      delete settings.aiKey
+      delete settings.aiModel
+    }
+    settings.aiProviders = providers
+  }
+  // 确保 selectedId 有效
+  const selected =
+    settings.aiProviders.find((p) => p.id === settings.aiSelectedId) ||
+    settings.aiProviders.find((p) => p.selected) ||
+    settings.aiProviders[0]
+  settings.aiSelectedId = selected?.id || ''
+  return settings
+}
+
+function getActiveProvider(settings) {
+  const s = migrateAIConfig(settings)
+  if (!s.aiProviders || s.aiProviders.length === 0) return null
+  return (
+    s.aiProviders.find((p) => p.id === s.aiSelectedId) ||
+    s.aiProviders.find((p) => p.selected) ||
+    s.aiProviders[0]
+  )
+}
+
+function sanitizeProvider(p) {
+  return {
+    id: p.id || crypto.randomUUID(),
+    name: String(p.name || '').trim() || '未命名',
+    baseUrl: String(p.baseUrl || '').trim(),
+    key: String(p.key || '').trim(),
+    model: String(p.model || '').trim() || 'gpt-4o-mini',
+    selected: p.selected === true
+  }
+}
+
 /**
  * 调用外部视觉模型识别图片
  * @param {Object} options
  * @param {string} options.image 图片 data URL / URL / 本地路径
  * @param {object} options.db 数据库实例（用于读取分类）
  * @param {object} options.settings 应用设置对象
+ * @param {object} [options.provider] 指定使用的供应商（否则取当前选中供应商）
  * @returns {Promise<{ok:boolean, items?:object[], error?:string}>}
  */
-async function recognizeImage({ image, db, settings }) {
-  const baseUrl = String(settings?.aiBaseUrl || '').trim()
-  const key = String(settings?.aiKey || '').trim()
-  const model = String(settings?.aiModel || '').trim() || 'gpt-4o-mini'
+async function recognizeImage({ image, db, settings, provider }) {
+  const cfg = provider || getActiveProvider(settings)
+  if (!cfg) return { ok: false, error: '未配置 AI 供应商' }
+
+  const baseUrl = cfg.baseUrl
+  const key = cfg.key
+  const model = cfg.model || 'gpt-4o-mini'
 
   if (!baseUrl) return { ok: false, error: '未配置 AI 接口地址（Base URL）' }
   if (!key) return { ok: false, error: '未配置 AI 接口密钥（API Key）' }
@@ -158,10 +218,15 @@ async function recognizeImage({ image, db, settings }) {
   }
 }
 
-async function fetchModels({ baseUrl, key }) {
-  const url = `${String(baseUrl || '').replace(/\/$/, '')}/models`
-  const authKey = String(key || '').trim()
-  if (!url || url === '/models') {
+async function fetchModels({ settings, provider } = {}) {
+  const cfg = provider || getActiveProvider(settings)
+  if (!cfg) {
+    return { ok: false, error: '未配置 AI 供应商' }
+  }
+  const baseUrl = String(cfg.baseUrl || '').trim()
+  const authKey = String(cfg.key || '').trim()
+  const url = `${baseUrl.replace(/\/$/, '')}/models`
+  if (!baseUrl || url === '/models') {
     return { ok: false, error: '未配置 AI 接口地址（Base URL）' }
   }
   if (!authKey) {
@@ -192,4 +257,10 @@ async function fetchModels({ baseUrl, key }) {
   }
 }
 
-module.exports = { recognizeImage, fetchModels }
+module.exports = {
+  recognizeImage,
+  fetchModels,
+  migrateAIConfig,
+  getActiveProvider,
+  sanitizeProvider
+}

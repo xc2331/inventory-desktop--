@@ -9,7 +9,9 @@ contextBridge.exposeInMainWorld('lingguang', {
   sync: {
     exportData: () => ipcRenderer.invoke('sync:exportData'),
     importData: (jsonString) => ipcRenderer.invoke('sync:importData', jsonString),
-    exportCSV: () => ipcRenderer.invoke('sync:exportCSV')
+    exportCSV: () => ipcRenderer.invoke('sync:exportCSV'),
+    rebuildCategories: () => ipcRenderer.invoke('sync:rebuildCategories'),
+    rebuildLocations: () => ipcRenderer.invoke('sync:rebuildLocations')
   },
   file: {
     save: ({ content, defaultName, filters }) =>
@@ -61,7 +63,7 @@ contextBridge.exposeInMainWorld('lingguang', {
     getConfig: () => ipcRenderer.invoke('ai:getConfig'),
     setConfig: (patch) => ipcRenderer.invoke('ai:setConfig', patch),
     recognize: (image) => ipcRenderer.invoke('ai:recognize', { image }),
-    fetchModels: () => ipcRenderer.invoke('ai:fetchModels')
+    fetchModels: (opts) => ipcRenderer.invoke('ai:fetchModels', opts || {})
   },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),

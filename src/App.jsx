@@ -22,6 +22,7 @@ import HelpView from './components/HelpView'
 import MaterialLibrary from './components/MaterialLibrary'
 import LocationMap from './components/LocationMap'
 import FloorPlanEditor from './components/FloorPlanEditor'
+import ErrorBoundary from './components/ErrorBoundary'
 import {
   fetchAllItems,
   searchItems,
@@ -39,6 +40,8 @@ import {
   exportJSON,
   importJSON,
   exportCSV,
+  rebuildCategories,
+  rebuildLocations,
   saveFile,
   openFile,
   getSettings,
@@ -252,7 +255,7 @@ export default function App() {
   }, [refreshCategories, refreshLocations])
 
   useEffect(() => {
-    if (view === 'items') reload()
+    if (view === 'items' || view === 'locationMap') reload()
   }, [reload, view])
   useEffect(() => {
     refreshCounts()
@@ -328,6 +331,8 @@ export default function App() {
       setEditingItem(null)
       await reload()
       await refreshCounts()
+      await refreshCategories()
+      await refreshLocations()
     } catch (e) {
       showToast(t('toast_saveFail', { msg: e.message }), 'error')
     }
@@ -574,6 +579,25 @@ export default function App() {
     await refreshLocations()
   }
 
+  // 设置页：根据已有物品重建缺失的分类与位置
+  const handleRebuildMeta = async () => {
+    try {
+      const [catRes, locRes] = await Promise.all([rebuildCategories(), rebuildLocations()])
+      await refreshCategories()
+      await refreshLocations()
+      await refreshCounts()
+      await reload()
+      showToast(
+        t('toast_rebuildMeta', {
+          cats: catRes.created || 0,
+          locs: locRes.created || 0
+        })
+      )
+    } catch (e) {
+      showToast(t('toast_rebuildMetaFail', { msg: e.message }), 'error')
+    }
+  }
+
   // 同步菜单处理器引用（每渲染更新，避免陈旧闭包）
   handlersRef.current.imp = handleImportJSON
   handlersRef.current.ej = handleExportJSON
@@ -597,6 +621,7 @@ export default function App() {
       onResetDataDir={handleResetDataDir}
       onManageCategories={() => setView('categories')}
       onManageLocations={() => setView('locations')}
+      onRebuildMeta={handleRebuildMeta}
       onExportJSON={handleExportJSON}
       onExportCSV={handleExportCSV}
       onImport={handleImportJSON}
@@ -713,21 +738,23 @@ export default function App() {
               transition={{ duration: 0.1, ease: EASE }}
               className="absolute inset-0 will-change-transform"
             >
-              <LocationMap
-                items={allItems}
-                locations={locations}
-                onBack={() => setView('items')}
-                onSelectLocation={(path) => {
-                  setActiveLocation(path)
-                  setActiveCategory('')
-                  setView('items')
-                  exitBulkMode()
-                }}
-                onEditFloorPlan={(loc) => {
-                  setFloorPlanLocation(loc)
-                  setView('floorPlan')
-                }}
-              />
+              <ErrorBoundary onBack={() => setView('items')}>
+                <LocationMap
+                  items={allItems}
+                  locations={locations}
+                  onBack={() => setView('items')}
+                  onSelectLocation={(path) => {
+                    setActiveLocation(path)
+                    setActiveCategory('')
+                    setView('items')
+                    exitBulkMode()
+                  }}
+                  onEditFloorPlan={(loc) => {
+                    setFloorPlanLocation(loc)
+                    setView('floorPlan')
+                  }}
+                />
+              </ErrorBoundary>
             </motion.div>
           )}
           {view === 'floorPlan' && floorPlanLocation && (
@@ -739,23 +766,30 @@ export default function App() {
               transition={{ duration: 0.1, ease: EASE }}
               className="absolute inset-0 will-change-transform"
             >
-              <FloorPlanEditor
-                locationId={floorPlanLocation.id}
-                locationName={floorPlanLocation.name}
-                locations={locations}
-                items={allItems}
+              <ErrorBoundary
                 onBack={() => {
                   setFloorPlanLocation(null)
                   setView('locationMap')
                 }}
-                onSelectSubLocation={(path) => {
-                  setFloorPlanLocation(null)
-                  setActiveLocation(path)
-                  setActiveCategory('')
-                  setView('items')
-                  exitBulkMode()
-                }}
-              />
+              >
+                <FloorPlanEditor
+                  locationId={floorPlanLocation.id}
+                  locationName={floorPlanLocation.name}
+                  locations={locations}
+                  items={allItems}
+                  onBack={() => {
+                    setFloorPlanLocation(null)
+                    setView('locationMap')
+                  }}
+                  onSelectSubLocation={(path) => {
+                    setFloorPlanLocation(null)
+                    setActiveLocation(path)
+                    setActiveCategory('')
+                    setView('items')
+                    exitBulkMode()
+                  }}
+                />
+              </ErrorBoundary>
             </motion.div>
           )}
           {view === 'items' && (

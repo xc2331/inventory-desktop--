@@ -212,13 +212,25 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   }
 
   // AI 识别当前图片
+  const getActiveProviderFromConfig = (cfg) => {
+    if (!cfg) return null
+    // 多供应商配置
+    if (Array.isArray(cfg.providers)) {
+      return cfg.providers.find((p) => p.id === cfg.selectedId) || cfg.providers[0] || null
+    }
+    // 兼容旧版单供应商配置
+    if (cfg.baseUrl && cfg.key) return cfg
+    return null
+  }
+
   const handleRecognize = async () => {
     if (!form.photo) {
       setPhotoHint(t('ai_recognize_emptyPhoto'))
       return
     }
     const cfg = aiConfig || (await getAIConfig().catch(() => ({})))
-    if (!cfg?.baseUrl || !cfg?.key) {
+    const provider = getActiveProviderFromConfig(cfg)
+    if (!provider?.baseUrl || !provider?.key) {
       setAiState({ status: 'error', suggestions: [], error: t('ai_recognize_configFirst') })
       return
     }

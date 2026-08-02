@@ -8,7 +8,12 @@ const { ApiServer } = require('./api-server')
 const { generateItemNo } = require('./item-no')
 const { Updater } = require('./updater')
 const { QRUploadServer } = require('./qr-upload')
-const { recognizeImage, fetchModels } = require('./ai-service')
+const { recognizeImage, fetchModels, migrateAIConfig, sanitizeProvider, getActiveProvider } = require('./ai-service')
+const {
+  normalizeCategoryKey,
+  ensureCategoriesFromItems,
+  ensureLocationsFromItems
+} = require('./data-utils')
 
 // 确保 Windows 任务栏正确显示应用图标与分组
 app.setAppUserModelId(app.getName())
@@ -294,43 +299,6 @@ function toPhoneItem(row) {
   }
 }
 
-// 分类别名表（与前端 src/lib/api.js 保持一致）
-const CATEGORY_ALIASES = {
-  electronic: ['electronics', '电子', '电子产品', '電子', '電子產品'],
-  food: ['foods', '食品', '食物'],
-  beverage: ['beverages', '饮料', '飲料', 'drink', 'drinks'],
-  daily: ['dailies', '日用品', 'daily necessities'],
-  kitchen: ['kitchens', '厨房用品', '廚房用品', 'kitchenware'],
-  cleaning: ['cleanings', '清洁用品', '清潔用品', 'cleaning supplies'],
-  medical: ['medicals', '医药', '醫藥', 'medicine', 'medicines', 'drug', 'drugs'],
-  stationery: ['stationeries', '文具', 'office supplies'],
-  tools: ['tool', '工具', 'hand tools', 'power tools'],
-  other: ['others', '其他', '其它', 'misc', 'miscellaneous']
-}
-
-function normalizeCategoryKey(raw, categories = []) {
-  if (!raw) return ''
-  const key = String(raw).trim().toLowerCase()
-  if (!key) return ''
-
-  const direct = categories.find((c) => c.key && c.key.toLowerCase() === key)
-  if (direct) return direct.key
-
-  for (const [canonical, aliases] of Object.entries(CATEGORY_ALIASES)) {
-    if (canonical.toLowerCase() === key) return canonical
-    if (aliases.includes(key)) return canonical
-  }
-
-  const byName = categories.find(
-    (c) =>
-      (c.name && c.name.toLowerCase() === key) ||
-      (c.name_en && c.name_en.toLowerCase() === key)
-  )
-  if (byName) return byName.key
-
-  return raw
-}
-
 // 启动时一次性把历史数据的 category 归一化（幂等）
 function migrateCategoryKeys() {
   try {
@@ -563,6 +531,15 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
+
+  // 调试：开发模式下打开 DevTools 并把渲染进程 console 转发到主进程日志
+  if (isDev) {
+    mainWindow.webContents.openDevTools()
+    mainWindow.webContents.on('console-message', (_event, level, message, _line, _sourceId) => {
+      const label = ['log', 'warning', 'error', 'debug'][level] || level
+      console.log(`[renderer:${label}]`, message)
+    })
+  }
 }
 
 // ===== IPC：通用数据库查询/执行（参数化，防注入）=====
@@ -698,26 +675,49 @@ ipcMain.handle('settings:setApiConfig', (_event, patch) => {
   }
 })
 
-// ===== IPC：AI 视觉识别配置与调用 =====
+// ===== IPC：AI 视觉识别配置与调用（多供应商）=====
 ipcMain.handle('ai:getConfig', () => {
   const s = readAppSettings()
+  migrateAIConfig(s)
+  writeAppSettings(s)
   return {
-    baseUrl: s.aiBaseUrl || '',
-    key: s.aiKey || '',
-    model: s.aiModel || 'gpt-4o-mini'
+    providers: s.aiProviders || [],
+    selectedId: s.aiSelectedId || ''
   }
 })
 
 ipcMain.handle('ai:setConfig', (_event, patch) => {
   const s = readAppSettings()
-  if (patch.baseUrl !== undefined) s.aiBaseUrl = String(patch.baseUrl || '').trim()
-  if (patch.key !== undefined) s.aiKey = String(patch.key || '').trim()
-  if (patch.model !== undefined) s.aiModel = String(patch.model || '').trim()
+  migrateAIConfig(s)
+
+  if (Array.isArray(patch.providers)) {
+    s.aiProviders = patch.providers.map((p) => sanitizeProvider(p))
+  }
+  if (patch.selectedId !== undefined) {
+    s.aiSelectedId = String(patch.selectedId || '')
+  }
+
+  // 兼容旧版单供应商 patch（设置页保存当前供应商时可能仍传 baseUrl/key/model）
+  if (patch.baseUrl !== undefined || patch.key !== undefined || patch.model !== undefined) {
+    let provider = getActiveProvider(s)
+    if (!provider && (patch.baseUrl || patch.key || patch.model)) {
+      provider = sanitizeProvider({ name: '默认' })
+      s.aiProviders.push(provider)
+    }
+    if (provider) {
+      if (patch.baseUrl !== undefined) provider.baseUrl = String(patch.baseUrl || '').trim()
+      if (patch.key !== undefined) provider.key = String(patch.key || '').trim()
+      if (patch.model !== undefined) provider.model = String(patch.model || '').trim() || 'gpt-4o-mini'
+      if (!s.aiSelectedId) s.aiSelectedId = provider.id
+    }
+  }
+
+  // 再次确保 selectedId 有效
+  migrateAIConfig(s)
   writeAppSettings(s)
   return {
-    baseUrl: s.aiBaseUrl || '',
-    key: s.aiKey || '',
-    model: s.aiModel || 'gpt-4o-mini'
+    providers: s.aiProviders || [],
+    selectedId: s.aiSelectedId || ''
   }
 })
 
@@ -726,9 +726,13 @@ ipcMain.handle('ai:recognize', async (_event, { image }) => {
   return recognizeImage({ image, db, settings })
 })
 
-ipcMain.handle('ai:fetchModels', async () => {
+ipcMain.handle('ai:fetchModels', async (_event, { providerId } = {}) => {
   const settings = readAppSettings()
-  return fetchModels({ baseUrl: settings.aiBaseUrl, key: settings.aiKey })
+  migrateAIConfig(settings)
+  const provider = providerId
+    ? settings.aiProviders.find((p) => p.id === providerId)
+    : getActiveProvider(settings)
+  return fetchModels({ settings, provider })
 })
 
 // 选择文件夹对话框
@@ -1061,89 +1065,6 @@ ipcMain.handle('floorPlans:createSubLocation', (_event, { parentId, name }) => {
   return db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
 })
 
-// ===== 导入辅助：自动创建缺失分类 =====
-function ensureCategoriesFromItems(items) {
-  const categories = db.prepare('SELECT * FROM categories').all()
-  const existing = categories.map((r) => r.key)
-  const seen = new Set(existing)
-  const now = Date.now()
-  let maxOrder = db.prepare('SELECT MAX(sort_order) m FROM categories').get().m || 0
-  const ins = db.prepare(
-    'INSERT INTO categories (id,key,name,name_en,icon,sort_order,created_at,updated_at) VALUES (@id,@key,@name,@name_en,@icon,@sort_order,@created_at,@updated_at)'
-  )
-  for (const r of items) {
-    const key = normalizeCategoryKey(r.category, categories)
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    categories.push({ key, name: key, name_en: '' })
-    maxOrder += 1
-    ins.run({
-      id: crypto.randomUUID(),
-      key,
-      name: key,
-      name_en: '',
-      icon: '📦',
-      sort_order: maxOrder,
-      created_at: now,
-      updated_at: now
-    })
-  }
-}
-
-// 解析物品的位置层级路径
-function parseItemLocationPath(item) {
-  if (item.location) {
-    const parts = String(item.location).split(/\s*>\s*/).filter(Boolean)
-    if (parts.length) return parts
-  }
-  const path = []
-  if (item.room) path.push(String(item.room).trim())
-  if (item.position && item.position !== item.room) path.push(String(item.position).trim())
-  return path
-}
-
-// ===== 导入辅助：自动根据 location 创建位置树 =====
-function ensureLocationsFromItems(items) {
-  const now = Date.now()
-  const rows = db.prepare('SELECT * FROM locations').all()
-  const existing = new Map()
-  rows.forEach((r) => existing.set(`${r.parent_id || ''}|${r.name}`, r))
-
-  const createNode = (name, parentId) => {
-    const id = crypto.randomUUID()
-    const siblings =
-      db
-        .prepare('SELECT MAX(sort_order) m FROM locations WHERE parent_id IS ? OR parent_id = ?')
-        .get(parentId || null, parentId || '').m || 0
-    db.prepare(
-      'INSERT INTO locations (id,name,parent_id,sort_order,created_at,updated_at) VALUES (@id,@name,@parent_id,@sort_order,@created_at,@updated_at)'
-    ).run({
-      id,
-      name,
-      parent_id: parentId || '',
-      sort_order: siblings + 1,
-      created_at: now,
-      updated_at: now
-    })
-    return { id, name, parent_id: parentId || '' }
-  }
-
-  for (const item of items) {
-    const path = parseItemLocationPath(item)
-    if (!path.length) continue
-    let parentId = ''
-    for (const name of path) {
-      const key = `${parentId}|${name}`
-      let node = existing.get(key)
-      if (!node) {
-        node = createNode(name, parentId)
-        existing.set(key, node)
-      }
-      parentId = node.id
-    }
-  }
-}
-
 // ===== IPC：JSON 导出/导入，CSV 导出 =====
 ipcMain.handle('sync:exportData', () => {
   const items = db.prepare('SELECT * FROM items').all()
@@ -1167,8 +1088,8 @@ ipcMain.handle('sync:importData', (_event, jsonString) => {
   const delStmt = db.prepare('DELETE FROM items')
   const insStmt = db.prepare(insertSql)
   const tx = db.transaction((rows) => {
-    ensureCategoriesFromItems(rows)
-    ensureLocationsFromItems(rows)
+    ensureCategoriesFromItems(db, rows)
+    ensureLocationsFromItems(db, rows)
     delStmt.run()
     for (const r of rows) {
       insStmt.run(fromImportItem(r, now))
@@ -1176,6 +1097,18 @@ ipcMain.handle('sync:importData', (_event, jsonString) => {
   })
   tx(items)
   return { imported: items.length }
+})
+
+ipcMain.handle('sync:rebuildCategories', () => {
+  const items = db.prepare('SELECT * FROM items').all()
+  const created = ensureCategoriesFromItems(db, items)
+  return { ok: true, created }
+})
+
+ipcMain.handle('sync:rebuildLocations', () => {
+  const items = db.prepare('SELECT * FROM items').all()
+  const created = ensureLocationsFromItems(db, items)
+  return { ok: true, created }
 })
 
 function csvEscape(val) {
