@@ -1,6 +1,6 @@
 # 家庭物资管家 · 中文友好版（Inv-Manage + UTF-8 REST Client）
 
-> 当前文档对应版本：**v1.2.14**（2026-08-01）。本版本重点修复了通过 API 创建/更新物品时，位置与分类未能正确同步到位置地图和位置管理的问题；新增/修改物品后会自动把 `location`（或 `room` + `position`）同步到位置树。
+> 当前文档对应版本：**v1.2.17**（2026-08-04）。本版本将 Agent API 的图片 base64 从列表/详情响应中分离：默认返回 `hasPhoto` 布尔值，新增独立取图端点 `GET /api/items/:id/photo`，大幅减少 Agent 上下文长度。
 
 ## Overview
 
@@ -51,14 +51,21 @@
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/status` | 应用状态、数据库路径 |
-| GET | `/api/items?keyword=...&category=...` | 物品列表（模糊搜索） |
-| GET | `/api/items/<id 或名称>` | 单个物品（精确 id 或模糊候选） |
-| POST | `/api/items` | 新建物品 |
+| GET | `/api/items?keyword=...&category=...` | 物品列表（模糊搜索）。默认不含图片 base64，返回 `hasPhoto` 布尔值 |
+| GET | `/api/items/<id 或名称>` | 单个物品（精确 id 或模糊候选）。默认不含图片 |
+| GET | `/api/items/<id>/photo` | **独立获取物品图片 base64**（按需调用，避免上下文膨胀） |
+| POST | `/api/items` | 新建物品（可传 `photo` 字段设置图片） |
 | PATCH | `/api/items/<id>` | 更新物品（仅传要改的字段） |
 | DELETE | `/api/items/<id>` | 删除物品 |
 | GET | `/api/categories` | 分类列表 |
 | GET | `/api/locations` | 位置列表 |
+| GET | `/api/materials?type=...&keyword=...` | 材料列表。默认不含图片 base64 |
+| GET | `/api/materials/<id>/photo` | **独立获取材料图片 base64** |
 | GET | `/api/settings` | 设置信息 |
+
+> **图片分离说明（v1.2.17+）**：所有列表/详情接口默认返回 `hasPhoto: true/false` 而非 `photo` base64。如需完整图片，有两种方式：
+> 1. **按需取图**（推荐）：`GET /api/items/<id>/photo` → `{ id, photo: "data:image/..." }`
+> 2. **批量带图**：在列表/详情 URL 加 `?includePhoto=true`，响应中的每个对象会包含完整 `photo` 字段（向后兼容旧用法）
 
 ---
 

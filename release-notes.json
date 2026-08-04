@@ -1,5 +1,15 @@
 [
   {
+    "version": "v1.2.17",
+    "date": "2026-08-04",
+    "items": [
+      "Agent API 图片分离：列表/详情接口默认不再返回 base64 图片，改返回 hasPhoto 布尔值，大幅减少 Agent 上下文长度",
+      "新增 GET /api/items/:id/photo 和 GET /api/materials/:id/photo 独立取图端点，Agent 按需获取图片",
+      "所有列表/详情接口支持 ?includePhoto=true 参数 opt-in 返回完整 base64 图片（向后兼容）",
+      "软件版本号升级到 1.2.17"
+    ]
+  },
+  {
     "version": "v1.2.16",
     "date": "2026-08-02",
     "items": [

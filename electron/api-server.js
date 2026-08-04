@@ -40,6 +40,7 @@ function nowMs() {
   return Date.now()
 }
 
+// 精简格式：不含 base64 图片，仅返回 hasPhoto 布尔值，避免 Agent 上下文膨胀
 function toPhoneItem(row) {
   return {
     id: row.id,
@@ -50,12 +51,19 @@ function toPhoneItem(row) {
     location: row.location,
     quantity: row.quantity,
     minQuantity: row.min_quantity,
-    photo: row.photo,
+    hasPhoto: !!row.photo,
     category: row.category,
     expiryDate: row.expiry_date || 0,
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
   }
+}
+
+// 完整格式：包含 base64 图片（仅 ?includePhoto=true 时使用）
+function toPhoneItemFull(row) {
+  const item = toPhoneItem(row)
+  item.photo = row.photo || ''
+  return item
 }
 
 function toPhoneMaterial(row) {
@@ -66,11 +74,25 @@ function toPhoneMaterial(row) {
     content: row.content || '',
     url: row.url || '',
     tags: row.tags || '',
-    photo: row.photo || '',
+    hasPhoto: !!row.photo,
     meta: row.meta || '',
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
   }
+}
+
+function toPhoneMaterialFull(row) {
+  const m = toPhoneMaterial(row)
+  m.photo = row.photo || ''
+  return m
+}
+
+// 根据 ?includePhoto=true 选择精简或完整映射
+function itemMapper(url) {
+  return url && url.searchParams.get('includePhoto') === 'true' ? toPhoneItemFull : toPhoneItem
+}
+function materialMapper(url) {
+  return url && url.searchParams.get('includePhoto') === 'true' ? toPhoneMaterialFull : toPhoneMaterial
 }
 
 function fromInputItem(data, db) {
@@ -265,8 +287,10 @@ class ApiServer {
         this.listItems(req, res, url)
       } else if (path === '/api/items' && req.method === 'POST') {
         this.createItem(req, res)
+      } else if (path.startsWith('/api/items/') && path.endsWith('/photo') && req.method === 'GET') {
+        this.getItemPhoto(req, res, path)
       } else if (path.startsWith('/api/items/') && req.method === 'GET') {
-        this.getItem(req, res, path)
+        this.getItem(req, res, path, url)
       } else if (path.startsWith('/api/items/') && req.method === 'PATCH') {
         this.updateItem(req, res, path)
       } else if (path.startsWith('/api/items/') && req.method === 'DELETE') {
@@ -295,8 +319,10 @@ class ApiServer {
         this.listMaterials(req, res, url)
       } else if (path === '/api/materials' && req.method === 'POST') {
         this.createMaterial(req, res)
+      } else if (path.startsWith('/api/materials/') && path.endsWith('/photo') && req.method === 'GET') {
+        this.getMaterialPhoto(req, res, path)
       } else if (path.startsWith('/api/materials/') && req.method === 'GET') {
-        this.getMaterial(req, res, path)
+        this.getMaterial(req, res, path, url)
       } else if (path.startsWith('/api/materials/') && req.method === 'PATCH') {
         this.updateMaterial(req, res, path)
       } else if (path.startsWith('/api/materials/') && req.method === 'DELETE') {
@@ -388,7 +414,7 @@ class ApiServer {
     const settings = this.getSettingsObj()
     json(res, 200, {
       app: 'Family Inventory Agent API',
-      version: '1.0.0',
+      version: '1.2.17',
       dbPath: this.resolveDbPath(),
       dataDir: settings.dataDir || this.app.getPath('userData'),
       timestamp: nowMs()
@@ -419,7 +445,7 @@ class ApiServer {
     } else {
       rows = this.db.prepare('SELECT * FROM items ORDER BY updated_at DESC').all()
     }
-    json(res, 200, { items: rows.map(toPhoneItem) })
+    json(res, 200, { items: rows.map(itemMapper(url)) })
   }
 
   async createItem(req, res) {
@@ -449,12 +475,12 @@ class ApiServer {
     json(res, 201, { item: toPhoneItem(row), sync: { categories: createdCategories, locations: createdLocations } })
   }
 
-  getItem(req, res, path) {
+  getItem(req, res, path, url) {
     const id = decodeURIComponent(path.slice('/api/items/'.length))
     // 优先精确匹配 id
     const row = this.db.prepare('SELECT * FROM items WHERE id = ?').get(id)
     if (row) {
-      json(res, 200, { item: toPhoneItem(row) })
+      json(res, 200, { item: itemMapper(url)(row) })
       return
     }
     // 未命中则按名称/编号模糊搜索，返回候选列表供调用方判断
@@ -464,7 +490,7 @@ class ApiServer {
         `SELECT * FROM items WHERE name LIKE ? OR item_no LIKE ? ORDER BY updated_at DESC LIMIT 20`
       )
       .all(like, like)
-    json(res, 200, { query: id, candidates: rows.map(toPhoneItem) })
+    json(res, 200, { query: id, candidates: rows.map(itemMapper(url)) })
   }
 
   async updateItem(req, res, path) {
@@ -516,6 +542,17 @@ class ApiServer {
     const info = this.db.prepare('DELETE FROM items WHERE id = ?').run(id)
     this.notifyRenderer('items')
     json(res, 200, { deleted: info.changes })
+  }
+
+  // 独立获取物品图片 base64，避免列表接口返回超长数据
+  getItemPhoto(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/items/'.length, path.lastIndexOf('/photo')))
+    const row = this.db.prepare('SELECT photo FROM items WHERE id = ?').get(id)
+    if (!row) {
+      json(res, 404, { error: 'Not found' })
+      return
+    }
+    json(res, 200, { id, photo: row.photo || '' })
   }
 
   listCategories(req, res) {
@@ -774,17 +811,17 @@ class ApiServer {
     }
     sql += ' ORDER BY updated_at DESC'
     const rows = this.db.prepare(sql).all(...params)
-    json(res, 200, { materials: rows.map(toPhoneMaterial) })
+    json(res, 200, { materials: rows.map(materialMapper(url)) })
   }
 
-  getMaterial(req, res, path) {
+  getMaterial(req, res, path, url) {
     const id = decodeURIComponent(path.slice('/api/materials/'.length))
     const row = this.db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
     if (!row) {
       json(res, 404, { error: 'Not found' })
       return
     }
-    json(res, 200, { material: toPhoneMaterial(row) })
+    json(res, 200, { material: materialMapper(url)(row) })
   }
 
   async createMaterial(req, res) {
@@ -854,6 +891,17 @@ class ApiServer {
     const info = this.db.prepare('DELETE FROM materials WHERE id = ?').run(id)
     this.notifyRenderer('materials')
     json(res, 200, { deleted: info.changes })
+  }
+
+  // 独立获取材料图片 base64，避免列表接口返回超长数据
+  getMaterialPhoto(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/materials/'.length, path.lastIndexOf('/photo')))
+    const row = this.db.prepare('SELECT photo FROM materials WHERE id = ?').get(id)
+    if (!row) {
+      json(res, 404, { error: 'Not found' })
+      return
+    }
+    json(res, 200, { id, photo: row.photo || '' })
   }
 
   async recognize(req, res) {
