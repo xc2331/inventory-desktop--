@@ -76,6 +76,7 @@ function apiRequest(method, apiPath, data, host) {
     const body = data ? JSON.stringify(data) : null
     const options = {
       method,
+      rejectUnauthorized: false,
       headers: {
         'Accept': 'application/vnd.github+json',
         'Authorization': `Bearer ${TOKEN}`,
@@ -113,6 +114,7 @@ function uploadAsset(uploadUrl, filePath, name) {
 
     const options = {
       method: 'POST',
+      rejectUnauthorized: false,
       host: parsed.host,
       path: parsed.pathname + parsed.search,
       headers: {

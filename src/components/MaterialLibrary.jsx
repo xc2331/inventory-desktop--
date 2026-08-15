@@ -1478,8 +1478,9 @@ function ResourcePreview({ resource }) {
   )
 }
 
-function MaterialForm({ initial, onSave, onClose }) {
+function MaterialForm({ initial, materialTypes, onSave, onClose }) {
   const { t } = useI18n()
+  const safeTypes = materialTypes || DEFAULT_MATERIAL_TYPES
   const [form, setForm] = useState(() => ({
     type: initial?.type || 'note',
     title: initial?.title || '',
