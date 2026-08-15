@@ -1613,7 +1613,7 @@ function MaterialForm({ initial, materialTypes, onSave, onClose }) {
           <div className="grid grid-cols-2 gap-3.5">
             <Field label={t('materials_type')} className="col-span-2 sm:col-span-1">
               <select value={form.type} onChange={(e) => set('type', e.target.value)} className="input">
-                {materialTypes.map((type) => (
+                {safeTypes.map((type) => (
                   <option key={type.id} value={type.id}>{t(`materials_type_${type.id}`)}</option>
                 ))}
               </select>
