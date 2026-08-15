@@ -183,11 +183,21 @@ async function main() {
     if (releaseRes.data.assets && releaseRes.data.assets.length > 0) {
       console.log('  清理旧附件...')
       for (const asset of releaseRes.data.assets) {
-        await apiRequest('DELETE', `/repos/${OWNER}/${REPO}/releases/${releaseId}/assets/${asset.id}`)
+        try {
+          await apiRequest('DELETE', `/repos/${OWNER}/${REPO}/releases/${releaseId}/assets/${asset.id}`)
+          console.log(`  已删除: ${asset.name}`)
+        } catch { console.log(`  删除失败: ${asset.name}`) }
       }
-      console.log(`  已清理 ${releaseRes.data.assets.length} 个旧附件`)
-      // GitHub API 删除后需要短暂等待才能上传同名文件，否则报 already_exists
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      // GitHub 删除是异步的，轮询直到附件确认消失（最多等 60 秒）
+      let attempts = 0
+      while (attempts < 12) {
+        const fresh = await apiRequest('GET', `/repos/${OWNER}/${REPO}/releases/${releaseId}`)
+        if (!fresh.data || !fresh.data.assets || fresh.data.assets.length === 0) break
+        attempts++
+        console.log(`  等待删除生效 (${attempts}/12)... 还剩 ${fresh.data.assets.length} 个附件`)
+        await new Promise(resolve => setTimeout(resolve, 5000))
+      }
+      console.log(`  清理完成，开始上传新版本...`)
     }
   } else {
     console.log('  Release 不存在，正在创建...')
