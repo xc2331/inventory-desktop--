@@ -433,7 +433,7 @@ export default function MaterialLibrary({ onBack }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <ViewSwitcher view={view} onChange={onSwitchView} />
+          <ViewSwitcher view={view} onChange={onSwitchView} t={t} />
           <button
             type="button"
             onClick={() => {
@@ -636,15 +636,12 @@ export default function MaterialLibrary({ onBack }) {
 function ViewSwitcher({ view, onChange, t }) {
   return (
     <div className="no-drag relative flex items-center rounded-lg border border-border bg-surface p-0.5">
-      <motion.div
-        layoutId="view-switcher"
-        className="absolute inset-y-0.5 rounded-md bg-primary-soft"
-        initial={false}
-        animate={{
+      <div
+        className="absolute inset-y-0.5 rounded-md bg-primary-soft transition-all duration-200"
+        style={{
           left: view === 'category' ? '2px' : 'calc(50% - 2px)',
           width: 'calc(50% - 2px)'
         }}
-        transition={{ duration: 0.25, ease: EASE }}
       />
       <button
         type="button"

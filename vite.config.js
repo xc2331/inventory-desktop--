@@ -9,7 +9,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    target: 'es2020'
+    target: 'es2020',
+    sourcemap: true
   },
   resolve: {
     alias: {

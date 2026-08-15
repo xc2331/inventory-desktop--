@@ -7,7 +7,7 @@ import { Component } from 'react'
 export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props)
-    this.state = { hasError: false, error: null, errorInfo: null, showStack: false }
+    this.state = { hasError: false, error: null, errorInfo: null, showStack: false, showJsStack: false }
   }
 
   static getDerivedStateFromError(error) {
@@ -33,6 +33,22 @@ export default class ErrorBoundary extends Component {
               <p className="mb-3 rounded-lg bg-danger/10 p-2 text-[11px] text-danger font-mono break-all">
                 {this.state.error.message}
               </p>
+            )}
+            {this.state.error?.stack && (
+              <div className="mb-3 text-left">
+                <button
+                  type="button"
+                  onClick={() => this.setState((s) => ({ showJsStack: !s.showJsStack }))}
+                  className="mb-2 text-[11px] text-primary hover:underline"
+                >
+                  {this.state.showJsStack ? '隐藏 JS 调用栈' : '查看 JS 调用栈'}
+                </button>
+                {this.state.showJsStack && (
+                  <pre className="max-h-60 overflow-auto rounded-lg bg-bg p-3 text-[10px] text-text-secondary font-mono break-all ring-1 ring-border">
+                    {this.state.error.stack}
+                  </pre>
+                )}
+              </div>
             )}
             {stack && (
               <div className="mb-4 text-left">
@@ -60,7 +76,7 @@ export default class ErrorBoundary extends Component {
                 </button>
               )}
               <button
-                onClick={() => this.setState({ hasError: false, error: null, errorInfo: null, showStack: false })}
+                onClick={() => this.setState({ hasError: false, error: null, errorInfo: null, showStack: false, showJsStack: false })}
                 className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
               >
                 重试
