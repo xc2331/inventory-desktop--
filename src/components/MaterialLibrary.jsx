@@ -636,12 +636,15 @@ export default function MaterialLibrary({ onBack }) {
 function ViewSwitcher({ view, onChange, t }) {
   return (
     <div className="no-drag relative flex items-center rounded-lg border border-border bg-surface p-0.5">
-      <div
-        className="absolute inset-y-0.5 rounded-md bg-primary-soft transition-all duration-200"
-        style={{
+      <motion.div
+        layoutId="view-switcher"
+        className="absolute inset-y-0.5 rounded-md bg-primary-soft"
+        initial={false}
+        animate={{
           left: view === 'category' ? '2px' : 'calc(50% - 2px)',
           width: 'calc(50% - 2px)'
         }}
+        transition={{ duration: 0.25, ease: EASE }}
       />
       <button
         type="button"
