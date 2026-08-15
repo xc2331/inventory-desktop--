@@ -726,7 +726,9 @@ export default function App() {
               transition={{ duration: 0.1, ease: EASE }}
               className="absolute inset-0 will-change-transform"
             >
-              <MaterialLibrary onBack={() => setView('items')} />
+              <ErrorBoundary onBack={() => setView('items')}>
+                <MaterialLibrary onBack={() => setView('items')} />
+              </ErrorBoundary>
             </motion.div>
           )}
           {view === 'locationMap' && (

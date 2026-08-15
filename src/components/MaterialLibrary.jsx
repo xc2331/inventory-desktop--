@@ -26,7 +26,7 @@ import {
   Check,
   Monitor,
   LayoutGrid,
-  Grid3X3,
+  Grid3x3,
   ChevronRight,
   ChevronDown,
   SlidersHorizontal,
@@ -34,8 +34,8 @@ import {
   GripVertical,
   File,
   FileImage,
-  FileVideo,
-  FileAudio,
+  FileVideo2,
+  FileAudio2,
   FileArchive,
   FileCode,
   FileType,
@@ -112,14 +112,14 @@ const FILE_TYPE_GROUPS = [
   {
     key: 'video',
     labelKey: 'fileType_video',
-    icon: FileVideo,
+    icon: FileVideo2,
     color: 'text-purple-500',
     match: (item) => /\.(mp4|mov|avi|mkv|webm)$/i.test(getFilePath(item))
   },
   {
     key: 'audio',
     labelKey: 'fileType_audio',
-    icon: FileAudio,
+    icon: FileAudio2,
     color: 'text-amber-500',
     match: (item) => /\.(mp3|wav|flac|aac|ogg)$/i.test(getFilePath(item))
   },
@@ -498,7 +498,7 @@ export default function MaterialLibrary({ onBack }) {
                 )}
                 title={t('materials_cardMode')}
               >
-                {fileCardMode === 'rich' ? <LayoutGrid size={14} /> : <Grid3X3 size={14} />}
+                {fileCardMode === 'rich' ? <LayoutGrid size={14} /> : <Grid3x3 size={14} />}
                 {fileCardMode === 'rich' ? t('materials_richCards') : t('materials_compactCards')}
               </button>
             )}
@@ -665,7 +665,7 @@ function ViewSwitcher({ view, onChange, t }) {
           view === 'file' ? 'text-primary' : 'text-text-secondary hover:text-text-primary'
         )}
       >
-        <Grid3X3 size={13} />
+        <Grid3x3 size={13} />
         {t('view_file')}
       </button>
     </div>
