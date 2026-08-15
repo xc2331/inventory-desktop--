@@ -7,7 +7,7 @@ import { Component } from 'react'
 export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props)
-    this.state = { hasError: false, error: null }
+    this.state = { hasError: false, error: null, errorInfo: null, showStack: false }
   }
 
   static getDerivedStateFromError(error) {
@@ -16,21 +16,39 @@ export default class ErrorBoundary extends Component {
 
   componentDidCatch(error, errorInfo) {
     console.error('[ErrorBoundary] 组件渲染错误:', error, errorInfo)
+    this.setState({ errorInfo })
   }
 
   render() {
     if (this.state.hasError) {
+      const stack = this.state.errorInfo?.componentStack || ''
       return (
         <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-bg p-6 text-center">
-          <div className="rounded-2xl bg-surface p-6 shadow-card ring-1 ring-border max-w-md">
+          <div className="rounded-2xl bg-surface p-6 shadow-card ring-1 ring-border max-w-2xl w-full">
             <h2 className="mb-2 text-base font-semibold text-text-primary">页面加载出错</h2>
             <p className="mb-4 text-xs leading-relaxed text-text-secondary">
-              当前页面发生渲染错误，请尝试返回或刷新。如果问题持续存在，请反馈给开发者。
+              当前页面发生渲染错误，请尝试返回或刷新。如果问题持续存在，请把下方错误信息反馈给开发者。
             </p>
             {this.state.error?.message && (
-              <p className="mb-4 rounded-lg bg-danger/10 p-2 text-[11px] text-danger">
+              <p className="mb-3 rounded-lg bg-danger/10 p-2 text-[11px] text-danger font-mono break-all">
                 {this.state.error.message}
               </p>
+            )}
+            {stack && (
+              <div className="mb-4 text-left">
+                <button
+                  type="button"
+                  onClick={() => this.setState((s) => ({ showStack: !s.showStack }))}
+                  className="mb-2 text-[11px] text-primary hover:underline"
+                >
+                  {this.state.showStack ? '隐藏堆栈' : '查看组件堆栈'}
+                </button>
+                {this.state.showStack && (
+                  <pre className="max-h-60 overflow-auto rounded-lg bg-bg p-3 text-[10px] text-text-secondary font-mono break-all ring-1 ring-border">
+                    {stack}
+                  </pre>
+                )}
+              </div>
             )}
             <div className="flex justify-center gap-2">
               {this.props.onBack && (
@@ -42,7 +60,7 @@ export default class ErrorBoundary extends Component {
                 </button>
               )}
               <button
-                onClick={() => this.setState({ hasError: false, error: null })}
+                onClick={() => this.setState({ hasError: false, error: null, errorInfo: null, showStack: false })}
                 className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
               >
                 重试
