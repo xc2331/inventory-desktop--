@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket, Loader2, ScrollText, Cpu, Smartphone, ChevronDown, ChevronUp, Zap, Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
-import { getSettings, getApiToken, resetApiToken, setApiConfig, getAIConfig, setAIConfig, fetchAIModels } from '../lib/api'
+import { getSettings, setSettings, getApiToken, resetApiToken, setApiConfig, getAIConfig, setAIConfig, fetchAIModels } from '../lib/api'
 import { cn } from '../lib/cn'
 import { EASE } from '../lib/motion'
 import PageHeader from './PageHeader'
@@ -53,11 +53,15 @@ export default function SettingsView({
   const [aiFetchLoading, setAiFetchLoading] = useState({})
   const [aiFetchError, setAiFetchError] = useState({})
   const [rebuilding, setRebuilding] = useState(false)
+  const [materialDoubleClick, setMaterialDoubleClick] = useState('ask')
+  const [materialSaved, setMaterialSaved] = useState(false)
 
   useEffect(() => {
     getSettings().then((s) => {
       setDataDir(s.dataDir || '')
       setDefaultDataDir(s.defaultDataDir || '')
+      const action = s.materialDoubleClickAction
+      setMaterialDoubleClick(action === 'open' || action === 'edit' || action === 'ask' ? action : 'ask')
     })
     getApiToken().then((info) => {
       setApiInfo(info)
@@ -197,6 +201,17 @@ export default function SettingsView({
       await onRebuildMeta()
     } finally {
       setRebuilding(false)
+    }
+  }
+
+  const handleMaterialDoubleClickChange = async (action) => {
+    setMaterialDoubleClick(action)
+    try {
+      await setSettings({ materialDoubleClickAction: action, materialDoubleClickPrefAsked: true })
+      setMaterialSaved(true)
+      setTimeout(() => setMaterialSaved(false), 1500)
+    } catch (e) {
+      /* ignore */
     }
   }
 
@@ -349,6 +364,39 @@ export default function SettingsView({
             <p className="mt-3 flex items-start gap-1.5 text-xs text-text-tertiary/80">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
               {t('closeAction_note')}
+            </p>
+          </Section>
+
+          {/* 电子材料库 */}
+          <Section title={t('settings_materials')}>
+            <div className="space-y-2">
+              {['open', 'edit', 'ask'].map((action) => (
+                <label
+                  key={action}
+                  className={cn(
+                    'flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-3 text-sm transition-smooth',
+                    materialDoubleClick === action
+                      ? 'border-primary bg-primary-soft'
+                      : 'border-border bg-bg hover:bg-surface-hover'
+                  )}
+                >
+                  <span className={cn('font-medium', materialDoubleClick === action ? 'text-primary' : 'text-text-secondary')}>
+                    {t(`materials_doubleClick_${action}`)}
+                  </span>
+                  <input
+                    type="radio"
+                    name="material-double-click"
+                    value={action}
+                    checked={materialDoubleClick === action}
+                    onChange={() => handleMaterialDoubleClickChange(action)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                </label>
+              ))}
+            </div>
+            <p className="mt-3 flex items-center gap-1.5 text-xs text-text-tertiary/80">
+              {materialSaved ? <Check size={13} className="text-primary" /> : <Smartphone size={13} />}
+              {materialSaved ? t('toast_settingsSaved') : t('settings_materials_doubleClick')}
             </p>
           </Section>
 

@@ -2,47 +2,23 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useDebounce } from '../lib/useDebounce'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  ArrowLeft,
-  Plus,
-  Search,
-  X,
-  FileText,
-  Link,
-  Image as ImageIcon,
-  ChefHat,
-  GraduationCap,
-  FolderOpen,
-  MoreHorizontal,
-  Smartphone,
-  Trash2,
-  Edit2,
-  ExternalLink,
-  Tags,
-  Sparkles,
-  CheckSquare,
-  Square,
-  Folder,
-  Globe,
-  Check,
-  Monitor,
-  LayoutGrid,
-  Grid3x3,
-  ChevronRight,
-  ChevronDown,
-  SlidersHorizontal,
-  PanelRightClose,
-  GripVertical,
-  File,
-  FileImage,
-  FileVideo2,
-  FileAudio2,
-  FileArchive,
-  FileCode,
-  FileType,
-  ListFilter,
-  Type,
-  Clock,
-  Calendar
+  ArrowLeft, Plus, Search, X, FileText, Link, Image as ImageIcon, ChefHat, GraduationCap,
+  FolderOpen, MoreHorizontal, Smartphone, Trash2, Edit2, ExternalLink, Tags, Sparkles,
+  CheckSquare, Square, Folder, Globe, Check, Monitor, LayoutGrid, Grid3x3, ChevronRight,
+  ChevronDown, SlidersHorizontal, PanelRightClose, GripVertical, File, FileImage,
+  FileVideo2, FileAudio2, FileArchive, FileCode, FileType, ListFilter, Type, Clock,
+  Calendar, BookOpen, Bookmark, Camera, Music, Video, Mail, MapPin, Phone, ShoppingBag,
+  Star, Heart, Lightbulb, Coffee, Plane, Car, Home, Briefcase, Clipboard, Database,
+  Code, PenTool, Shield, Award, Flag, Gift, Key, Lock, Save, Search as SearchIcon,
+  Settings2, User, Users, Zap, Palette, Layers, Briefcase as BriefcaseIcon, Hash,
+  Radio, Receipt, ScrollText, Server, Store, Watch, Wrench, FileQuestion, FileCheck,
+  FileClock, FileCog, FileX, FileWarning, FileHeart, FileKey, FileLock, FilePlus,
+  FileSearch, FileStack, FileMinus, FileDigit, FileSpreadsheet, FileBadge, FileBox,
+  FileBarChart, Landmark, Leaf, Map as MapIcon, Megaphone, MessageSquare, Moon, Package,
+  Paperclip, Percent, PiggyBank, Pill, Puzzle, Repeat, Rocket, Ruler, Scale, School,
+  Scissors, Skull, Snowflake, Soup, Stethoscope, Sun as SunIcon, Sword, Syringe, Table,
+  Tablet, Tag, Target, Tent, Ticket, Timer, Train, TreeDeciduous, Trophy, Truck,
+  Tv, Umbrella, Vault, Wallet, Wind, Wine, Workflow, XCircle, Copy, CheckCircle2
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { EASE, EASE_SPRING } from '../lib/motion'
@@ -61,26 +37,71 @@ import {
   pickFile,
   pickFolder,
   openPath,
-  openExternal
+  openExternal,
+  getSettings,
+  setSettings
 } from '../lib/api'
 import { compressImageToBase64 } from '../lib/imageCompress'
 import ConfirmDialog from './ConfirmDialog'
 import Toast from './Toast'
 import Lightbox from './Lightbox'
-
-const MATERIAL_TYPES = ['note', 'url', 'photo', 'recipe', 'tutorial', 'doc', 'other']
-
-const TYPE_META = {
-  note: { icon: FileText, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20', labelKey: 'materials_type_note', cover: 'from-blue-50 to-indigo-50' },
-  url: { icon: Globe, color: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-900/20', labelKey: 'materials_type_url', cover: 'from-indigo-50 to-violet-50' },
-  photo: { icon: ImageIcon, color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-900/20', labelKey: 'materials_type_photo', cover: 'from-rose-50 to-orange-50' },
-  recipe: { icon: ChefHat, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/20', labelKey: 'materials_type_recipe', cover: 'from-orange-50 to-amber-50' },
-  tutorial: { icon: GraduationCap, color: 'text-teal-500', bg: 'bg-teal-50 dark:bg-teal-900/20', labelKey: 'materials_type_tutorial', cover: 'from-teal-50 to-emerald-50' },
-  doc: { icon: FolderOpen, color: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-900/20', labelKey: 'materials_type_doc', cover: 'from-slate-50 to-zinc-50' },
-  other: { icon: Tags, color: 'text-stone-500', bg: 'bg-stone-50 dark:bg-stone-900/20', labelKey: 'materials_type_other', cover: 'from-stone-50 to-neutral-50' }
-}
+import TypeManager from './TypeManager'
+import DoubleClickPrefDialog from './DoubleClickPrefDialog'
 
 const SIZE_STEPS = [130, 166, 202, 238, 274, 310]
+
+const DEFAULT_MATERIAL_TYPES = [
+  { id: 'note', name: { zh: '备忘', en: 'Note' }, icon: 'FileText', color: 'blue' },
+  { id: 'url', name: { zh: '网址', en: 'Link' }, icon: 'Globe', color: 'indigo' },
+  { id: 'photo', name: { zh: '证件/照片', en: 'Photo' }, icon: 'ImageIcon', color: 'rose' },
+  { id: 'recipe', name: { zh: '菜谱', en: 'Recipe' }, icon: 'ChefHat', color: 'orange' },
+  { id: 'tutorial', name: { zh: '教程', en: 'Tutorial' }, icon: 'GraduationCap', color: 'teal' },
+  { id: 'doc', name: { zh: '文档', en: 'Document' }, icon: 'FolderOpen', color: 'slate' },
+  { id: 'other', name: { zh: '其他', en: 'Other' }, icon: 'Tags', color: 'stone' }
+]
+
+const ICON_MAP = {
+  ArrowLeft, Plus, Search, X, FileText, Link, ImageIcon, ChefHat, GraduationCap,
+  FolderOpen, MoreHorizontal, Smartphone, Trash2, Edit2, ExternalLink, Tags, Sparkles,
+  CheckSquare, Square, Folder, Globe, Check, Monitor, LayoutGrid, Grid3x3, ChevronRight,
+  ChevronDown, SlidersHorizontal, PanelRightClose, GripVertical, File, FileImage,
+  FileVideo2, FileAudio2, FileArchive, FileCode, FileType, ListFilter, Type, Clock,
+  Calendar, BookOpen, Bookmark, Camera, Music, Video, Mail, MapPin, Phone, ShoppingBag,
+  Star, Heart, Lightbulb, Coffee, Plane, Car, Home, Briefcase, Clipboard, Database,
+  Code, PenTool, Shield, Award, Flag, Gift, Key, Lock, Save, SearchIcon,
+  Settings2, User, Users, Zap, Palette, Layers, BriefcaseIcon, Hash,
+  Radio, Receipt, ScrollText, Server, Store, Watch, Wrench, FileQuestion, FileCheck,
+  FileClock, FileCog, FileX, FileWarning, FileHeart, FileKey, FileLock, FilePlus,
+  FileSearch, FileStack, FileMinus, FileDigit, FileSpreadsheet, FileBadge, FileBox,
+  FileBarChart, Landmark, Leaf, MapIcon, Megaphone, MessageSquare, Moon, Package,
+  Paperclip, Percent, PiggyBank, Pill, Puzzle, Repeat, Rocket, Ruler, Scale, School,
+  Scissors, Skull, Snowflake, Soup, Stethoscope, SunIcon, Sword, Syringe, Table,
+  Tablet, Tag, Target, Tent, Ticket, Timer, Train, TreeDeciduous, Trophy, Truck,
+  Tv, Umbrella, Vault, Wallet, Wind, Wine, Workflow, XCircle, Copy, CheckCircle2
+}
+
+const COLOR_OPTIONS = [
+  { key: 'blue', label: 'Blue', text: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20', cover: 'from-blue-50 to-indigo-50', ring: 'ring-blue-500' },
+  { key: 'indigo', label: 'Indigo', text: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-900/20', cover: 'from-indigo-50 to-violet-50', ring: 'ring-indigo-500' },
+  { key: 'violet', label: 'Violet', text: 'text-violet-500', bg: 'bg-violet-50 dark:bg-violet-900/20', cover: 'from-violet-50 to-purple-50', ring: 'ring-violet-500' },
+  { key: 'purple', label: 'Purple', text: 'text-purple-500', bg: 'bg-purple-50 dark:bg-purple-900/20', cover: 'from-purple-50 to-fuchsia-50', ring: 'ring-purple-500' },
+  { key: 'rose', label: 'Rose', text: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-900/20', cover: 'from-rose-50 to-orange-50', ring: 'ring-rose-500' },
+  { key: 'orange', label: 'Orange', text: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/20', cover: 'from-orange-50 to-amber-50', ring: 'ring-orange-500' },
+  { key: 'amber', label: 'Amber', text: 'text-amber-500', bg: 'bg-amber-50 dark:bg-amber-900/20', cover: 'from-amber-50 to-yellow-50', ring: 'ring-amber-500' },
+  { key: 'yellow', label: 'Yellow', text: 'text-yellow-500', bg: 'bg-yellow-50 dark:bg-yellow-900/20', cover: 'from-yellow-50 to-lime-50', ring: 'ring-yellow-500' },
+  { key: 'lime', label: 'Lime', text: 'text-lime-500', bg: 'bg-lime-50 dark:bg-lime-900/20', cover: 'from-lime-50 to-green-50', ring: 'ring-lime-500' },
+  { key: 'green', label: 'Green', text: 'text-green-500', bg: 'bg-green-50 dark:bg-green-900/20', cover: 'from-green-50 to-emerald-50', ring: 'ring-green-500' },
+  { key: 'emerald', label: 'Emerald', text: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20', cover: 'from-emerald-50 to-teal-50', ring: 'ring-emerald-500' },
+  { key: 'teal', label: 'Teal', text: 'text-teal-500', bg: 'bg-teal-50 dark:bg-teal-900/20', cover: 'from-teal-50 to-cyan-50', ring: 'ring-teal-500' },
+  { key: 'cyan', label: 'Cyan', text: 'text-cyan-500', bg: 'bg-cyan-50 dark:bg-cyan-900/20', cover: 'from-cyan-50 to-sky-50', ring: 'ring-cyan-500' },
+  { key: 'sky', label: 'Sky', text: 'text-sky-500', bg: 'bg-sky-50 dark:bg-sky-900/20', cover: 'from-sky-50 to-blue-50', ring: 'ring-sky-500' },
+  { key: 'slate', label: 'Slate', text: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-900/20', cover: 'from-slate-50 to-zinc-50', ring: 'ring-slate-500' },
+  { key: 'zinc', label: 'Zinc', text: 'text-zinc-500', bg: 'bg-zinc-50 dark:bg-zinc-900/20', cover: 'from-zinc-50 to-neutral-50', ring: 'ring-zinc-500' },
+  { key: 'stone', label: 'Stone', text: 'text-stone-500', bg: 'bg-stone-50 dark:bg-stone-900/20', cover: 'from-stone-50 to-neutral-50', ring: 'ring-stone-500' },
+  { key: 'neutral', label: 'Neutral', text: 'text-neutral-500', bg: 'bg-neutral-50 dark:bg-neutral-900/20', cover: 'from-neutral-50 to-gray-50', ring: 'ring-neutral-500' },
+  { key: 'gray', label: 'Gray', text: 'text-gray-500', bg: 'bg-gray-50 dark:bg-gray-900/20', cover: 'from-gray-50 to-slate-50', ring: 'ring-gray-500' },
+  { key: 'red', label: 'Red', text: 'text-red-500', bg: 'bg-red-50 dark:bg-red-900/20', cover: 'from-red-50 to-rose-50', ring: 'ring-red-500' }
+]
 
 const FILE_TYPE_GROUPS = [
   {
@@ -150,12 +171,26 @@ function getFilePath(item) {
   return (item.photo || item.url || '').replace(/^file:\/+/i, '')
 }
 
-function TypeIcon({ type, size = 16 }) {
-  const meta = TYPE_META[type] || TYPE_META.other
+function getTypeMeta(types, typeId) {
+  const type = types?.find((t) => t.id === typeId)
+  const fallback = COLOR_OPTIONS.find((c) => c.key === 'stone')
+  if (!type) return { icon: Tags, ...fallback }
+  const color = COLOR_OPTIONS.find((c) => c.key === type.color) || fallback
+  const Icon = ICON_MAP[type.icon] || Tags
+  return { icon: Icon, ...color }
+}
+
+function getTypeLabel(typeObj, lang) {
+  if (!typeObj) return ''
+  return typeObj.name?.[lang] || typeObj.name?.zh || typeObj.name?.en || typeObj.id
+}
+
+function TypeIcon({ type, types, size = 16 }) {
+  const meta = getTypeMeta(types, type)
   const Icon = meta.icon
   return (
     <span className={cn('flex h-7 w-7 items-center justify-center rounded-lg', meta.bg)}>
-      <Icon size={size} className={meta.color} />
+      <Icon size={size} className={meta.text} />
     </span>
   )
 }
@@ -213,7 +248,7 @@ function formatDate(iso) {
 }
 
 export default function MaterialLibrary({ onBack }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [keyword, setKeyword] = useState('')
@@ -227,16 +262,107 @@ export default function MaterialLibrary({ onBack }) {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [fileTypeFilters, setFileTypeFilters] = useState(new Set())
   const [cardSize, setCardSize] = useState(4)
-  const [fileCardMode, setFileCardMode] = useState('rich')
+  const [fileCardMode, setFileCardMode] = useState('compact')
   const [detailItem, setDetailItem] = useState(null)
 
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [lightbox, setLightbox] = useState({ src: '', alt: '' })
 
+  const [materialTypes, setMaterialTypes] = useState(DEFAULT_MATERIAL_TYPES)
+  const [doubleClickAction, setDoubleClickAction] = useState('ask')
+  const [askedDoubleClickPref, setAskedDoubleClickPref] = useState(false)
+  const [typeManagerOpen, setTypeManagerOpen] = useState(false)
+  const [pendingDoubleClickItem, setPendingDoubleClickItem] = useState(null)
+
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type, id: Date.now() })
   }, [])
+
+  useEffect(() => {
+    getSettings().then((s) => {
+      const savedTypes = s.materialTypes
+      if (Array.isArray(savedTypes) && savedTypes.length > 0) {
+        setMaterialTypes(savedTypes)
+      }
+      const action = s.materialDoubleClickAction
+      if (action === 'open' || action === 'edit') {
+        setDoubleClickAction(action)
+      }
+      setAskedDoubleClickPref(!!s.materialDoubleClickPrefAsked)
+    }).catch(() => {})
+  }, [])
+
+  const saveMaterialTypes = async (nextTypes) => {
+    setMaterialTypes(nextTypes)
+    try {
+      await setSettings({ materialTypes: nextTypes })
+    } catch (e) {
+      showToast(t('toast_saveFail', { msg: e.message }), 'error')
+    }
+  }
+
+  const saveDoubleClickPref = async (action) => {
+    setDoubleClickAction(action)
+    setAskedDoubleClickPref(true)
+    try {
+      await setSettings({ materialDoubleClickAction: action, materialDoubleClickPrefAsked: true })
+    } catch (e) {
+      showToast(t('toast_saveFail', { msg: e.message }), 'error')
+    }
+  }
+
+  const openResource = async (item) => {
+    const resource = item.photo || item.url || ''
+    if (!resource) return false
+    if (isImageResource(resource)) {
+      const src = toPhotoSrc(resource)
+      if (src) setLightbox({ src, alt: item.title })
+      return true
+    }
+    if (isUrl(resource)) {
+      await openExternal(resource)
+      return true
+    }
+    await openPath(resource.replace(/^file:\/+/i, ''))
+    return true
+  }
+
+  const handleItemDoubleClick = async (item) => {
+    if (doubleClickAction === 'edit') {
+      openEdit(item)
+      return
+    }
+    if (doubleClickAction === 'open') {
+      const opened = await openResource(item)
+      if (!opened) openEdit(item)
+      return
+    }
+    setPendingDoubleClickItem(item)
+  }
+
+  const resolveDoubleClickPref = async (action) => {
+    const item = pendingDoubleClickItem
+    setPendingDoubleClickItem(null)
+    await saveDoubleClickPref(action)
+    if (!item) return
+    if (action === 'edit') {
+      openEdit(item)
+    } else {
+      const opened = await openResource(item)
+      if (!opened) openEdit(item)
+    }
+  }
+
+  const openAdd = () => {
+    setEditing(null)
+    setFormOpen(true)
+  }
+
+  const openEdit = (item) => {
+    setEditing(item)
+    setFormOpen(true)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -382,15 +508,6 @@ export default function MaterialLibrary({ onBack }) {
     }
   }
 
-  const openAdd = () => {
-    setEditing(null)
-    setFormOpen(true)
-  }
-
-  const openEdit = (item) => {
-    setEditing(item)
-    setFormOpen(true)
-  }
 
   const onCategoryCardClick = (type) => {
     setCategoryFilter(type)
@@ -468,6 +585,7 @@ export default function MaterialLibrary({ onBack }) {
           fileTypeFilters={fileTypeFilters}
           onCategoryClick={(type) => setCategoryFilter(type)}
           onFileTypeToggle={toggleFileType}
+          onManageTypes={() => setTypeManagerOpen(true)}
           t={t}
         />
 
@@ -539,8 +657,8 @@ export default function MaterialLibrary({ onBack }) {
                     className="input h-7 w-28 py-0 text-[11px]"
                   >
                     <option value="">{t('materials_bulkChangeType')}</option>
-                    {MATERIAL_TYPES.map((type) => (
-                      <option key={type} value={type}>{t(`materials_type_${type}`)}</option>
+                    {materialTypes.map((type) => (
+                      <option key={type.id} value={type.id}>{getTypeLabel(type, lang)}</option>
                     ))}
                   </select>
                 )}
@@ -574,13 +692,16 @@ export default function MaterialLibrary({ onBack }) {
               ) : view === 'category' ? (
                 <CategoryView
                   items={items}
+                  materialTypes={materialTypes}
                   cardWidth={SIZE_STEPS[cardSize - 1]}
                   onCardClick={onCategoryCardClick}
                   t={t}
+                  lang={lang}
                 />
               ) : (
                 <FileGridView
                   items={filteredItems}
+                  materialTypes={materialTypes}
                   cardWidth={SIZE_STEPS[cardSize - 1]}
                   cardMode={fileCardMode}
                   selectedIds={selectedIds}
@@ -590,7 +711,9 @@ export default function MaterialLibrary({ onBack }) {
                   onDelete={handleDelete}
                   onOpenLightbox={(src, alt) => setLightbox({ src, alt })}
                   onOpenDetail={setDetailItem}
+                  onDoubleClick={handleItemDoubleClick}
                   t={t}
+                  lang={lang}
                 />
               )}
             </div>
@@ -599,10 +722,12 @@ export default function MaterialLibrary({ onBack }) {
               {view === 'file' && detailItem && (
                 <DetailPanel
                   item={detailItem}
+                  materialTypes={materialTypes}
                   onClose={() => setDetailItem(null)}
                   onEdit={() => openEdit(detailItem)}
                   onDelete={() => handleDelete(detailItem)}
                   t={t}
+                  lang={lang}
                 />
               )}
             </AnimatePresence>
@@ -614,6 +739,8 @@ export default function MaterialLibrary({ onBack }) {
         {formOpen && (
           <MaterialForm
             initial={editing}
+            materialTypes={materialTypes}
+            lang={lang}
             onSave={handleSave}
             onClose={() => { setFormOpen(false); setEditing(null) }}
           />
@@ -628,6 +755,20 @@ export default function MaterialLibrary({ onBack }) {
         onCancel={() => setConfirm({ open: false, id: null, name: '', bulk: false, ids: [] })}
       />
       <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox({ src: '', alt: '' })} />
+      <TypeManager
+        open={typeManagerOpen}
+        materialTypes={materialTypes}
+        lang={lang}
+        onClose={() => setTypeManagerOpen(false)}
+        onChange={saveMaterialTypes}
+        t={t}
+      />
+      <DoubleClickPrefDialog
+        open={!!pendingDoubleClickItem}
+        onClose={() => setPendingDoubleClickItem(null)}
+        onChoose={resolveDoubleClickPref}
+        t={t}
+      />
       <Toast toast={toast} onDone={() => setToast(null)} />
     </div>
   )
@@ -721,8 +862,10 @@ function StatsCards({ stats, t }) {
   )
 }
 
-function Sidebar({ view, categoryFilter, fileTypeFilters, onCategoryClick, onFileTypeToggle, t }) {
-  const [expanded, setExpanded] = useState(() => new Set(['type-tree', 'file-tree']))
+
+
+function Sidebar({ view, fileTypeFilters, onFileTypeToggle, onManageTypes, t }) {
+  const [expanded, setExpanded] = useState(() => new Set(['file-tree']))
 
   const toggle = (key) => {
     setExpanded((prev) => {
@@ -736,52 +879,19 @@ function Sidebar({ view, categoryFilter, fileTypeFilters, onCategoryClick, onFil
   return (
     <aside className="w-52 shrink-0 overflow-y-auto border-r border-border bg-surface p-3">
       {view === 'category' ? (
-        <div>
-          <button
-            type="button"
-            onClick={() => toggle('type-tree')}
-            className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary hover:bg-surface-hover"
-          >
-            <span>{t('materials_type')}</span>
-            {expanded.has('type-tree') ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          </button>
-          <AnimatePresence initial={false}>
-            {expanded.has('type-tree') && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.22, ease: EASE }}
-                className="overflow-hidden"
-              >
-                <button
-                  type="button"
-                  onClick={() => onCategoryClick('')}
-                  className={cn(
-                    'mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-smooth',
-                    categoryFilter === '' ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-surface-hover'
-                  )}
-                >
-                  <Tags size={14} />
-                  {t('materials_allTypes')}
-                </button>
-                {MATERIAL_TYPES.map((type) => (
-                  <button
-                    type="button"
-                    key={type}
-                    onClick={() => onCategoryClick(type)}
-                    className={cn(
-                      'mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-smooth',
-                      categoryFilter === type ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-surface-hover'
-                    )}
-                  >
-                    <TypeIcon type={type} size={13} />
-                    {t(`materials_type_${type}`)}
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
+        <div className="space-y-3">
+          <div className="rounded-xl border border-border bg-bg p-3">
+            <h4 className="mb-1 text-xs font-semibold text-text-primary">{t('materials_manageTypes')}</h4>
+            <p className="mb-3 text-[11px] leading-relaxed text-text-tertiary">{t('materials_manageTypes_desc')}</p>
+            <button
+              type="button"
+              onClick={onManageTypes}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+            >
+              <Settings2 size={14} />
+              {t('materials_manageTypes')}
+            </button>
+          </div>
         </div>
       ) : (
         <div>
@@ -841,16 +951,18 @@ function Sidebar({ view, categoryFilter, fileTypeFilters, onCategoryClick, onFil
   )
 }
 
-function CategoryView({ items, cardWidth, onCardClick, t }) {
+
+
+function CategoryView({ items, materialTypes, cardWidth, onCardClick, t, lang }) {
   const counts = useMemo(() => {
     const map = {}
-    MATERIAL_TYPES.forEach((type) => (map[type] = 0))
+    materialTypes.forEach((type) => (map[type.id] = 0))
     items.forEach((it) => {
       if (map[it.type] !== undefined) map[it.type] += 1
       else map.other = (map.other || 0) + 1
     })
     return map
-  }, [items])
+  }, [items, materialTypes])
 
   return (
     <motion.div
@@ -863,31 +975,31 @@ function CategoryView({ items, cardWidth, onCardClick, t }) {
       className="grid gap-4"
       style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` }}
     >
-      {MATERIAL_TYPES.map((type, i) => {
-        const meta = TYPE_META[type]
+      {materialTypes.map((type, i) => {
+        const meta = getTypeMeta(materialTypes, type.id)
         const Icon = meta.icon
         return (
           <motion.div
-            key={type}
+            key={type.id}
             variants={{
               hidden: { opacity: 0, y: 14, scale: 0.97 },
               visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.28 + i * 0.02, ease: EASE } }
             }}
-            onClick={() => onCardClick(type)}
+            onClick={() => onCardClick(type.id)}
             className="group card-hover relative cursor-pointer overflow-hidden rounded-2xl border border-border bg-surface shadow-card transition-smooth hover:border-border-strong hover:shadow-float"
           >
             <div className={cn('relative h-28 w-full overflow-hidden bg-gradient-to-br', meta.cover)}>
               <div className="absolute inset-0 flex items-center justify-center opacity-30">
-                <Icon size={64} className={meta.color} />
+                <Icon size={64} className={meta.text} />
               </div>
               <div className="absolute left-3 top-3">
-                <TypeIcon type={type} size={18} />
+                <TypeIcon type={type.id} types={materialTypes} size={18} />
               </div>
-              <div className="absolute bottom-3 right-3 text-2xl font-bold text-text-primary/80">{counts[type] || 0}</div>
+              <div className="absolute bottom-3 right-3 text-2xl font-bold text-text-primary/80">{counts[type.id] || 0}</div>
             </div>
             <div className="p-3">
-              <h3 className="text-sm font-semibold text-text-primary">{t(`materials_type_${type}`)}</h3>
-              <p className="mt-0.5 text-[11px] text-text-tertiary">{t('materials_typeCount', { n: counts[type] || 0 })}</p>
+              <h3 className="text-sm font-semibold text-text-primary">{getTypeLabel(type, lang)}</h3>
+              <p className="mt-0.5 text-[11px] text-text-tertiary">{t('materials_typeCount', { n: counts[type.id] || 0 })}</p>
             </div>
           </motion.div>
         )
@@ -896,7 +1008,7 @@ function CategoryView({ items, cardWidth, onCardClick, t }) {
   )
 }
 
-function FileGridView({ items, cardWidth, cardMode, selectedIds, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox, onOpenDetail, t }) {
+function FileGridView({ items, materialTypes, cardWidth, cardMode, selectedIds, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox, onOpenDetail, onDoubleClick, t, lang }) {
   return (
     <motion.div
       initial="hidden"
@@ -913,6 +1025,7 @@ function FileGridView({ items, cardWidth, cardMode, selectedIds, bulkMode, onTog
           <MaterialCard
             key={item.id}
             item={item}
+            materialTypes={materialTypes}
             selected={selectedIds.has(item.id)}
             bulkMode={bulkMode}
             onToggleSelect={() => onToggleSelect(item.id)}
@@ -920,17 +1033,23 @@ function FileGridView({ items, cardWidth, cardMode, selectedIds, bulkMode, onTog
             onDelete={() => onDelete(item)}
             onOpenLightbox={onOpenLightbox}
             onClick={() => !bulkMode && onOpenDetail(item)}
+            onDoubleClick={() => !bulkMode && onDoubleClick(item)}
             index={i}
+            lang={lang}
           />
         ) : (
           <CompactFileCard
             key={item.id}
             item={item}
+            materialTypes={materialTypes}
             selected={selectedIds.has(item.id)}
             bulkMode={bulkMode}
             onToggleSelect={() => onToggleSelect(item.id)}
             onClick={() => !bulkMode && onOpenDetail(item)}
+            onEdit={() => onEdit(item)}
+            onDoubleClick={() => !bulkMode && onDoubleClick(item)}
             index={i}
+            lang={lang}
           />
         )
       )}
@@ -938,7 +1057,7 @@ function FileGridView({ items, cardWidth, cardMode, selectedIds, bulkMode, onTog
   )
 }
 
-function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox, onClick, index }) {
+function MaterialCard({ item, materialTypes, selected, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox, onClick, onDoubleClick, index, lang }) {
   const { t } = useI18n()
   const [menuOpen, setMenuOpen] = useState(false)
   const [imgErr, setImgErr] = useState(false)
@@ -979,8 +1098,7 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
       }}
       onDoubleClick={() => {
         if (bulkMode) return
-        if (resource) handleOpenResource()
-        else onEdit()
+        onDoubleClick()
       }}
       onContextMenu={(e) => { e.preventDefault(); onEdit() }}
       className={cn(
@@ -1005,7 +1123,7 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
           </>
         ) : (
           <div className="img-zoom flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface-hover to-bg text-text-tertiary/70">
-            <TypeIcon type={item.type} size={40} />
+            <TypeIcon type={item.type} types={materialTypes} size={40} />
           </div>
         )}
 
@@ -1023,8 +1141,8 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
         )}
 
         <span className="absolute left-2.5 top-2.5 z-10 inline-flex max-w-[70%] items-center gap-1 truncate rounded-full bg-surface/92 px-2 py-1 text-[11px] font-medium text-text-secondary shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface">
-          <TypeIcon type={item.type} size={12} />
-          <span className="truncate">{t(`materials_type_${item.type}`)}</span>
+          <TypeIcon type={item.type} types={materialTypes} size={12} />
+          <span className="truncate">{getTypeLabel(materialTypes.find((t) => t.id === item.type), lang)}</span>
         </span>
 
         <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-surface/88 p-1 shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface">
@@ -1133,11 +1251,12 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
   )
 }
 
-function CompactFileCard({ item, selected, bulkMode, onToggleSelect, onClick, index }) {
+function CompactFileCard({ item, materialTypes, selected, bulkMode, onToggleSelect, onClick, onEdit, onDoubleClick, index, lang }) {
   const { t } = useI18n()
   const group = fileTypeIcon(getFileType(item))
   const Icon = group.icon
   const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
+  const typeObj = materialTypes.find((t) => t.id === item.type)
 
   return (
     <motion.div
@@ -1150,6 +1269,11 @@ function CompactFileCard({ item, selected, bulkMode, onToggleSelect, onClick, in
         if (bulkMode) onToggleSelect()
         else onClick()
       }}
+      onDoubleClick={() => {
+        if (bulkMode) return
+        onDoubleClick()
+      }}
+      onContextMenu={(e) => { e.preventDefault(); onEdit() }}
       className={cn(
         'group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border bg-surface p-3 shadow-sm transition-all duration-300',
         selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-border-strong hover:shadow-card'
@@ -1178,7 +1302,7 @@ function CompactFileCard({ item, selected, bulkMode, onToggleSelect, onClick, in
   )
 }
 
-function DetailPanel({ item, onClose, onEdit, onDelete, t }) {
+function DetailPanel({ item, materialTypes, onClose, onEdit, onDelete, t, lang }) {
   const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
   const group = fileTypeIcon(getFileType(item))
   const Icon = group.icon
@@ -1211,7 +1335,7 @@ function DetailPanel({ item, onClose, onEdit, onDelete, t }) {
 
         <DetailField label={t('detail_description')} value={item.content || '-'} />
         <DetailField label={t('detail_path')} value={item.photo || item.url || '-'} monospace copy />
-        <DetailField label={t('detail_category')} value={t(`materials_type_${item.type}`)} />
+        <DetailField label={t('detail_category')} value={getTypeLabel(materialTypes.find((t) => t.id === item.type), lang)} />
         <DetailField label={t('detail_tags')}>
           {tags.length > 0 ? (
             <div className="flex flex-wrap gap-1">
