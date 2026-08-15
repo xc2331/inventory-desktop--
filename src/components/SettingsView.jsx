@@ -370,7 +370,7 @@ export default function SettingsView({
           {/* 电子材料库 */}
           <Section title={t('settings_materials')}>
             <div className="space-y-2">
-              {['open', 'edit', 'ask'].map((action) => (
+              {['openFile', 'openFolder'].map((action) => (
                 <label
                   key={action}
                   className={cn(

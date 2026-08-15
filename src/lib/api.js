@@ -511,6 +511,10 @@ export async function openPath(target) {
   return api.shell.openPath(target)
 }
 
+export async function showItemInFolder(target) {
+  return api.shell.showItemInFolder(target)
+}
+
 export async function openExternal(url) {
   return api.shell.openExternal(url)
 }

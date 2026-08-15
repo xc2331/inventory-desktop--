@@ -1,27 +1,21 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { ExternalLink, Pencil, HelpCircle, X } from 'lucide-react'
+import { FolderOpen, ExternalLink, HelpCircle, X } from 'lucide-react'
 import { cn } from '../lib/cn'
 import { EASE, EASE_SPRING } from '../lib/motion'
 
 export default function DoubleClickPrefDialog({ open, onClose, onChoose, t }) {
   const options = [
     {
-      key: 'open',
+      key: 'openFile',
       icon: ExternalLink,
-      title: t('materials_doubleClick_open'),
-      desc: t('materials_doubleClick_openDesc')
+      title: t('materials_doubleClick_openFile'),
+      desc: t('materials_doubleClick_openFileDesc')
     },
     {
-      key: 'edit',
-      icon: Pencil,
-      title: t('materials_doubleClick_edit'),
-      desc: t('materials_doubleClick_editDesc')
-    },
-    {
-      key: 'ask',
-      icon: HelpCircle,
-      title: t('materials_doubleClick_ask'),
-      desc: t('materials_doubleClick_askDesc')
+      key: 'openFolder',
+      icon: FolderOpen,
+      title: t('materials_doubleClick_openFolder'),
+      desc: t('materials_doubleClick_openFolderDesc')
     }
   ]
 
@@ -70,9 +64,13 @@ export default function DoubleClickPrefDialog({ open, onClose, onChoose, t }) {
                       'flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-smooth hover:border-primary hover:bg-primary-soft/50'
                     )}
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                      <Icon size={18} />
-                    </span>
+                    {Icon ? (
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                        <Icon size={18} />
+                      </span>
+                    ) : (
+                      <span className="h-9 w-9 shrink-0" />
+                    )}
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-medium text-text-primary">{opt.title}</span>
                       <span className="block text-xs text-text-tertiary">{opt.desc}</span>

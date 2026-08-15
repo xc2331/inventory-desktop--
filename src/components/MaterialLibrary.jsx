@@ -38,6 +38,7 @@ import {
   pickFolder,
   openPath,
   openExternal,
+  showItemInFolder,
   getSettings,
   setSettings
 } from '../lib/api'
@@ -286,27 +287,27 @@ export default function MaterialLibrary({ onBack }) {
         setMaterialTypes(savedTypes)
       }
       const action = s.materialDoubleClickAction
-      if (action === 'open' || action === 'edit') {
+      if (action === 'openFile' || action === 'openFolder' || action === 'ask') {
         setDoubleClickAction(action)
       }
       setAskedDoubleClickPref(!!s.materialDoubleClickPrefAsked)
     }).catch(() => {})
   }, [])
 
-  const saveMaterialTypes = async (nextTypes) => {
-    setMaterialTypes(nextTypes)
-    try {
-      await setSettings({ materialTypes: nextTypes })
-    } catch (e) {
-      showToast(t('toast_saveFail', { msg: e.message }), 'error')
-    }
-  }
-
   const saveDoubleClickPref = async (action) => {
     setDoubleClickAction(action)
     setAskedDoubleClickPref(true)
     try {
       await setSettings({ materialDoubleClickAction: action, materialDoubleClickPrefAsked: true })
+    } catch (e) {
+      showToast(t('toast_saveFail', { msg: e.message }), 'error')
+    }
+  }
+
+  const saveMaterialTypes = async (nextTypes) => {
+    setMaterialTypes(nextTypes)
+    try {
+      await setSettings({ materialTypes: nextTypes })
     } catch (e) {
       showToast(t('toast_saveFail', { msg: e.message }), 'error')
     }
@@ -329,16 +330,62 @@ export default function MaterialLibrary({ onBack }) {
   }
 
   const handleItemDoubleClick = async (item) => {
-    if (doubleClickAction === 'edit') {
-      openEdit(item)
+    if (doubleClickAction === 'openFile') {
+      await openResource(item)
       return
     }
-    if (doubleClickAction === 'open') {
-      const opened = await openResource(item)
-      if (!opened) openEdit(item)
+    if (doubleClickAction === 'openFolder') {
+      await openContainingFolder(item)
       return
     }
     setPendingDoubleClickItem(item)
+  }
+
+  const resolveLocalPath = (resource) => {
+    if (isUrl(resource)) return null
+    let p = resource.replace(/^file:\/{0,3}/i, '')
+    p = p.replace(/^\//, '')
+    return p || null
+  }
+
+  const resolveParentFolder = (resource) => {
+    const localPath = resolveLocalPath(resource)
+    if (!localPath) return null
+    const idxB = localPath.lastIndexOf('\\')
+    const idxF = localPath.lastIndexOf('/')
+    const idx = idxB >= 0 ? Math.max(idxB, idxF) : idxF
+    return idx > 0 ? localPath.substring(0, idx) : null
+  }
+
+  const openContainingFolder = async (item) => {
+    const resource = item.photo || item.url || ''
+    if (!resource) return
+    try {
+      const localPath = resolveLocalPath(resource)
+      const parentDir = resolveParentFolder(resource)
+      if (localPath) {
+        await showItemInFolder(localPath)
+        return
+      }
+      if (parentDir) {
+        await openPath(parentDir)
+        return
+      }
+    } catch {
+      try {
+        await openPath(item.path || '')
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const handleOpenFileFolder = async (item, action) => {
+    if (action === 'openFile') {
+      await openResource(item)
+    } else {
+      await openContainingFolder(item)
+    }
   }
 
   const resolveDoubleClickPref = async (action) => {
@@ -1100,7 +1147,7 @@ function MaterialCard({ item, materialTypes, selected, bulkMode, onToggleSelect,
         if (bulkMode) return
         onDoubleClick()
       }}
-      onContextMenu={(e) => { e.preventDefault(); onEdit() }}
+      onContextMenu={(e) => { e.preventDefault(); onEdit?.() }}
       className={cn(
         'card-hover group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card transition-all duration-300',
         selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-border-strong hover:shadow-float',
@@ -1565,8 +1612,8 @@ function MaterialForm({ initial, onSave, onClose }) {
           <div className="grid grid-cols-2 gap-3.5">
             <Field label={t('materials_type')} className="col-span-2 sm:col-span-1">
               <select value={form.type} onChange={(e) => set('type', e.target.value)} className="input">
-                {MATERIAL_TYPES.map((type) => (
-                  <option key={type} value={type}>{t(`materials_type_${type}`)}</option>
+                {materialTypes.map((type) => (
+                  <option key={type.id} value={type.id}>{t(`materials_type_${type.id}`)}</option>
                 ))}
               </select>
             </Field>
