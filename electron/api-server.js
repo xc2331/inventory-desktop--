@@ -414,7 +414,7 @@ class ApiServer {
     const settings = this.getSettingsObj()
     json(res, 200, {
       app: 'Family Inventory Agent API',
-      version: '1.2.17',
+      version: '1.2.18',
       dbPath: this.resolveDbPath(),
       dataDir: settings.dataDir || this.app.getPath('userData'),
       timestamp: nowMs()

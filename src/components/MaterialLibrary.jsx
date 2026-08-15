@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useDebounce } from '../lib/useDebounce'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft,
@@ -23,7 +24,25 @@ import {
   Folder,
   Globe,
   Check,
-  Monitor
+  Monitor,
+  LayoutGrid,
+  Grid3X3,
+  ChevronRight,
+  ChevronDown,
+  SlidersHorizontal,
+  PanelRightClose,
+  GripVertical,
+  File,
+  FileImage,
+  FileVideo,
+  FileAudio,
+  FileArchive,
+  FileCode,
+  FileType,
+  ListFilter,
+  Type,
+  Clock,
+  Calendar
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { EASE, EASE_SPRING } from '../lib/motion'
@@ -52,13 +71,83 @@ import Lightbox from './Lightbox'
 const MATERIAL_TYPES = ['note', 'url', 'photo', 'recipe', 'tutorial', 'doc', 'other']
 
 const TYPE_META = {
-  note: { icon: FileText, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20', labelKey: 'materials_type_note' },
-  url: { icon: Globe, color: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-900/20', labelKey: 'materials_type_url' },
-  photo: { icon: ImageIcon, color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-900/20', labelKey: 'materials_type_photo' },
-  recipe: { icon: ChefHat, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/20', labelKey: 'materials_type_recipe' },
-  tutorial: { icon: GraduationCap, color: 'text-teal-500', bg: 'bg-teal-50 dark:bg-teal-900/20', labelKey: 'materials_type_tutorial' },
-  doc: { icon: FolderOpen, color: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-900/20', labelKey: 'materials_type_doc' },
-  other: { icon: Tags, color: 'text-stone-500', bg: 'bg-stone-50 dark:bg-stone-900/20', labelKey: 'materials_type_other' }
+  note: { icon: FileText, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20', labelKey: 'materials_type_note', cover: 'from-blue-50 to-indigo-50' },
+  url: { icon: Globe, color: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-900/20', labelKey: 'materials_type_url', cover: 'from-indigo-50 to-violet-50' },
+  photo: { icon: ImageIcon, color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-900/20', labelKey: 'materials_type_photo', cover: 'from-rose-50 to-orange-50' },
+  recipe: { icon: ChefHat, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/20', labelKey: 'materials_type_recipe', cover: 'from-orange-50 to-amber-50' },
+  tutorial: { icon: GraduationCap, color: 'text-teal-500', bg: 'bg-teal-50 dark:bg-teal-900/20', labelKey: 'materials_type_tutorial', cover: 'from-teal-50 to-emerald-50' },
+  doc: { icon: FolderOpen, color: 'text-slate-500', bg: 'bg-slate-50 dark:bg-slate-900/20', labelKey: 'materials_type_doc', cover: 'from-slate-50 to-zinc-50' },
+  other: { icon: Tags, color: 'text-stone-500', bg: 'bg-stone-50 dark:bg-stone-900/20', labelKey: 'materials_type_other', cover: 'from-stone-50 to-neutral-50' }
+}
+
+const SIZE_STEPS = [130, 166, 202, 238, 274, 310]
+
+const FILE_TYPE_GROUPS = [
+  {
+    key: 'image',
+    labelKey: 'fileType_image',
+    icon: FileImage,
+    color: 'text-rose-500',
+    match: (item) => item.type === 'photo' || isImageResource(item.photo) || isImageResource(item.url)
+  },
+  {
+    key: 'doc',
+    labelKey: 'fileType_doc',
+    icon: FileText,
+    color: 'text-blue-500',
+    match: (item) => {
+      if (item.type === 'note') return true
+      if (item.type !== 'doc' && item.type !== 'other') return false
+      const path = getFilePath(item)
+      return /\.(docx?|pdf|txt|md|xlsx?|pptx?)$/i.test(path)
+    }
+  },
+  {
+    key: 'link',
+    labelKey: 'fileType_link',
+    icon: Link,
+    color: 'text-indigo-500',
+    match: (item) => item.type === 'url' || isUrl(item.url)
+  },
+  {
+    key: 'video',
+    labelKey: 'fileType_video',
+    icon: FileVideo,
+    color: 'text-purple-500',
+    match: (item) => /\.(mp4|mov|avi|mkv|webm)$/i.test(getFilePath(item))
+  },
+  {
+    key: 'audio',
+    labelKey: 'fileType_audio',
+    icon: FileAudio,
+    color: 'text-amber-500',
+    match: (item) => /\.(mp3|wav|flac|aac|ogg)$/i.test(getFilePath(item))
+  },
+  {
+    key: 'archive',
+    labelKey: 'fileType_archive',
+    icon: FileArchive,
+    color: 'text-orange-500',
+    match: (item) => /\.(zip|rar|7z|tar|gz)$/i.test(getFilePath(item))
+  },
+  {
+    key: 'folder',
+    labelKey: 'fileType_folder',
+    icon: Folder,
+    color: 'text-amber-600',
+    match: (item) => isFolderPath(getFilePath(item))
+  },
+  {
+    key: 'other',
+    labelKey: 'fileType_other',
+    icon: File,
+    color: 'text-stone-500',
+    match: () => true
+  }
+]
+
+function getFilePath(item) {
+  return (item.photo || item.url || '').replace(/^file:\/+/i, '')
 }
 
 function TypeIcon({ type, size = 16 }) {
@@ -102,16 +191,44 @@ function isImageResource(s) {
   return false
 }
 
+function getFileType(item) {
+  for (const g of FILE_TYPE_GROUPS) {
+    if (g.match(item) && g.key !== 'other') return g.key
+  }
+  return 'other'
+}
+
+function fileTypeIcon(key) {
+  const g = FILE_TYPE_GROUPS.find((x) => x.key === key)
+  return g || FILE_TYPE_GROUPS[FILE_TYPE_GROUPS.length - 1]
+}
+
+function formatDate(iso) {
+  if (!iso) return '-'
+  try {
+    return new Date(iso).toLocaleString()
+  } catch {
+    return '-'
+  }
+}
+
 export default function MaterialLibrary({ onBack }) {
   const { t } = useI18n()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
-  const [typeFilter, setTypeFilter] = useState('')
   const [keyword, setKeyword] = useState('')
+  const debouncedKeyword = useDebounce(keyword, 280)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [confirm, setConfirm] = useState({ open: false, id: null, name: '', bulk: false, ids: [] })
   const [toast, setToast] = useState(null)
+
+  const [view, setView] = useState('category')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [fileTypeFilters, setFileTypeFilters] = useState(new Set())
+  const [cardSize, setCardSize] = useState(4)
+  const [fileCardMode, setFileCardMode] = useState('rich')
+  const [detailItem, setDetailItem] = useState(null)
 
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
@@ -124,20 +241,19 @@ export default function MaterialLibrary({ onBack }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const rows = await fetchMaterials({ type: typeFilter, keyword: keyword.trim() || undefined })
+      const rows = await fetchMaterials({ keyword: debouncedKeyword.trim() || undefined })
       setItems(rows)
     } catch (e) {
       showToast(t('toast_loadFail', { msg: e.message }), 'error')
     } finally {
       setLoading(false)
     }
-  }, [typeFilter, keyword, t, showToast])
+  }, [debouncedKeyword, t, showToast])
 
   useEffect(() => {
     load()
   }, [load])
 
-  // Agent 外部接口修改电子材料库后，实时刷新当前列表
   useEffect(() => {
     const remove = window.lingguang.agent.onDataChanged((payload) => {
       if (payload.type === 'materials') {
@@ -150,6 +266,36 @@ export default function MaterialLibrary({ onBack }) {
   useEffect(() => {
     if (!bulkMode) setSelectedIds(new Set())
   }, [bulkMode])
+
+  const stats = useMemo(() => {
+    const total = items.length
+    const categoryCount = new Set(items.map((it) => it.type).filter(Boolean)).size
+    const tagSet = new Set()
+    items.forEach((it) => {
+      if (it.tags) {
+        it.tags.split(/[,，\s]+/).forEach((tag) => {
+          if (tag.trim()) tagSet.add(tag.trim())
+        })
+      }
+    })
+    const now = Date.now()
+    const sevenDays = 7 * 24 * 60 * 60 * 1000
+    const recent = items.filter((it) => it.updated_at && now - new Date(it.updated_at).getTime() <= sevenDays).length
+    return { total, categoryCount, tagCount: tagSet.size, recent }
+  }, [items])
+
+  const filteredItems = useMemo(() => {
+    let rows = items
+    if (view === 'file') {
+      if (categoryFilter) {
+        rows = rows.filter((it) => it.type === categoryFilter)
+      }
+      if (fileTypeFilters.size > 0) {
+        rows = rows.filter((it) => fileTypeFilters.has(getFileType(it)))
+      }
+    }
+    return rows
+  }, [items, view, categoryFilter, fileTypeFilters])
 
   const handleSave = async (data) => {
     try {
@@ -184,6 +330,9 @@ export default function MaterialLibrary({ onBack }) {
         await deleteMaterial(id)
         showToast(t('materials_toast_deleted'))
       }
+      if (detailItem && (bulk ? ids.includes(detailItem.id) : detailItem.id === id)) {
+        setDetailItem(null)
+      }
       load()
     } catch (e) {
       showToast(t('toast_deleteFail', { msg: e.message }), 'error')
@@ -200,10 +349,10 @@ export default function MaterialLibrary({ onBack }) {
   }
 
   const selectAll = () => {
-    if (selectedIds.size === items.length) {
+    if (selectedIds.size === filteredItems.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(items.map((it) => it.id)))
+      setSelectedIds(new Set(filteredItems.map((it) => it.id)))
     }
   }
 
@@ -243,6 +392,30 @@ export default function MaterialLibrary({ onBack }) {
     setFormOpen(true)
   }
 
+  const onCategoryCardClick = (type) => {
+    setCategoryFilter(type)
+    setView('file')
+  }
+
+  const onSwitchView = (nextView) => {
+    if (nextView === view) return
+    setView(nextView)
+    setDetailItem(null)
+    if (nextView === 'category') {
+      setCategoryFilter('')
+      setFileTypeFilters(new Set())
+    }
+  }
+
+  const toggleFileType = (key) => {
+    setFileTypeFilters((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg">
       <header className="drag-region flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-5">
@@ -260,6 +433,7 @@ export default function MaterialLibrary({ onBack }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <ViewSwitcher view={view} onChange={onSwitchView} />
           <button
             type="button"
             onClick={() => {
@@ -288,40 +462,18 @@ export default function MaterialLibrary({ onBack }) {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* 左侧类型筛选 */}
-        <aside className="w-48 shrink-0 border-r border-border bg-surface p-3">
-          <div className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/80">
-            {t('materials_type')}
-          </div>
-          <button
-            type="button"
-            onClick={() => setTypeFilter('')}
-            className={cn(
-              'mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-smooth',
-              typeFilter === '' ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-surface-hover'
-            )}
-          >
-            <Tags size={14} />
-            {t('materials_allTypes')}
-          </button>
-          {MATERIAL_TYPES.map((type) => (
-            <button
-              type="button"
-              key={type}
-              onClick={() => setTypeFilter(type)}
-              className={cn(
-                'mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-smooth',
-                typeFilter === type ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-surface-hover'
-              )}
-            >
-              <TypeIcon type={type} size={13} />
-              {t(`materials_type_${type}`)}
-            </button>
-          ))}
-        </aside>
+        <Sidebar
+          view={view}
+          categoryFilter={categoryFilter}
+          fileTypeFilters={fileTypeFilters}
+          onCategoryClick={(type) => setCategoryFilter(type)}
+          onFileTypeToggle={toggleFileType}
+          t={t}
+        />
 
-        {/* 主内容 */}
         <main className="flex flex-1 flex-col overflow-hidden">
+          {view === 'category' && <StatsCards stats={stats} t={t} />}
+
           <div className="flex items-center gap-3 border-b border-border px-5 py-3">
             <div className="relative flex-1">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
@@ -333,6 +485,23 @@ export default function MaterialLibrary({ onBack }) {
                 className="input w-full pl-9 text-xs"
               />
             </div>
+            <SizeSlider value={cardSize} onChange={setCardSize} t={t} />
+            {view === 'file' && (
+              <button
+                type="button"
+                onClick={() => setFileCardMode((m) => (m === 'rich' ? 'compact' : 'rich'))}
+                className={cn(
+                  'flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-smooth',
+                  fileCardMode === 'compact'
+                    ? 'border-primary/40 bg-primary-soft text-primary'
+                    : 'border-border bg-surface text-text-secondary hover:bg-surface-hover'
+                )}
+                title={t('materials_cardMode')}
+              >
+                {fileCardMode === 'rich' ? <LayoutGrid size={14} /> : <Grid3X3 size={14} />}
+                {fileCardMode === 'rich' ? t('materials_richCards') : t('materials_compactCards')}
+              </button>
+            )}
           </div>
 
           {bulkMode && (
@@ -343,7 +512,7 @@ export default function MaterialLibrary({ onBack }) {
                   onClick={selectAll}
                   className="flex items-center gap-1 rounded-md px-2 py-1 transition-smooth hover:bg-surface-hover"
                 >
-                  {selectedIds.size === items.length && items.length > 0 ? <CheckSquare size={13} className="text-primary" /> : <Square size={13} />}
+                  {selectedIds.size === filteredItems.length && filteredItems.length > 0 ? <CheckSquare size={13} className="text-primary" /> : <Square size={13} />}
                   {t('bulk_selectAll')}
                 </button>
                 <span className="text-text-tertiary">{t('bulk_selected', { n: selectedIds.size })}</span>
@@ -396,27 +565,47 @@ export default function MaterialLibrary({ onBack }) {
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto p-5">
-            {loading && items.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-sm text-text-tertiary">{t('loading')}</div>
-            ) : items.length === 0 ? (
-              <EmptyState onAdd={openAdd} />
-            ) : (
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                {items.map((item) => (
-                  <MaterialCard
-                    key={item.id}
-                    item={item}
-                    selected={selectedIds.has(item.id)}
-                    bulkMode={bulkMode}
-                    onToggleSelect={() => toggleSelect(item.id)}
-                    onEdit={() => openEdit(item)}
-                    onDelete={() => handleDelete(item)}
-                    onOpenLightbox={(src, alt) => setLightbox({ src, alt })}
-                  />
-                ))}
-              </div>
-            )}
+          <div className="relative flex flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-5">
+              {loading && items.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-sm text-text-tertiary">{t('loading')}</div>
+              ) : filteredItems.length === 0 ? (
+                <EmptyState onAdd={openAdd} t={t} />
+              ) : view === 'category' ? (
+                <CategoryView
+                  items={items}
+                  cardWidth={SIZE_STEPS[cardSize - 1]}
+                  onCardClick={onCategoryCardClick}
+                  t={t}
+                />
+              ) : (
+                <FileGridView
+                  items={filteredItems}
+                  cardWidth={SIZE_STEPS[cardSize - 1]}
+                  cardMode={fileCardMode}
+                  selectedIds={selectedIds}
+                  bulkMode={bulkMode}
+                  onToggleSelect={toggleSelect}
+                  onEdit={openEdit}
+                  onDelete={handleDelete}
+                  onOpenLightbox={(src, alt) => setLightbox({ src, alt })}
+                  onOpenDetail={setDetailItem}
+                  t={t}
+                />
+              )}
+            </div>
+
+            <AnimatePresence>
+              {view === 'file' && detailItem && (
+                <DetailPanel
+                  item={detailItem}
+                  onClose={() => setDetailItem(null)}
+                  onEdit={() => openEdit(detailItem)}
+                  onDelete={() => handleDelete(detailItem)}
+                  t={t}
+                />
+              )}
+            </AnimatePresence>
           </div>
         </main>
       </div>
@@ -444,7 +633,312 @@ export default function MaterialLibrary({ onBack }) {
   )
 }
 
-function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox }) {
+function ViewSwitcher({ view, onChange, t }) {
+  return (
+    <div className="no-drag relative flex items-center rounded-lg border border-border bg-surface p-0.5">
+      <motion.div
+        layoutId="view-switcher"
+        className="absolute inset-y-0.5 rounded-md bg-primary-soft"
+        initial={false}
+        animate={{
+          left: view === 'category' ? '2px' : 'calc(50% - 2px)',
+          width: 'calc(50% - 2px)'
+        }}
+        transition={{ duration: 0.25, ease: EASE }}
+      />
+      <button
+        type="button"
+        onClick={() => onChange('category')}
+        className={cn(
+          'relative z-10 flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition-colors',
+          view === 'category' ? 'text-primary' : 'text-text-secondary hover:text-text-primary'
+        )}
+      >
+        <LayoutGrid size={13} />
+        {t('view_category')}
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('file')}
+        className={cn(
+          'relative z-10 flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition-colors',
+          view === 'file' ? 'text-primary' : 'text-text-secondary hover:text-text-primary'
+        )}
+      >
+        <Grid3X3 size={13} />
+        {t('view_file')}
+      </button>
+    </div>
+  )
+}
+
+function SizeSlider({ value, onChange, t }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1">
+      <SlidersHorizontal size={13} className="text-text-tertiary" />
+      <input
+        type="range"
+        min={1}
+        max={6}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="h-1 w-24 cursor-pointer appearance-none rounded-full bg-border accent-primary"
+        title={t('materials_sizeSlider')}
+      />
+      <span className="w-5 text-center text-[10px] text-text-tertiary">{value}</span>
+    </div>
+  )
+}
+
+function StatsCards({ stats, t }) {
+  const cards = [
+    { key: 'total', icon: FolderOpen, label: t('stats_total'), value: stats.total },
+    { key: 'categories', icon: Tags, label: t('stats_categories'), value: stats.categoryCount },
+    { key: 'tags', icon: Type, label: t('stats_tags'), value: stats.tagCount },
+    { key: 'recent', icon: Clock, label: t('stats_recent'), value: stats.recent }
+  ]
+  return (
+    <div className="grid grid-cols-2 gap-3 border-b border-border bg-surface/50 px-5 py-3 md:grid-cols-4">
+      {cards.map((card, i) => (
+        <motion.div
+          key={card.key}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: i * 0.05, ease: EASE }}
+          className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-soft text-primary">
+            <card.icon size={18} />
+          </span>
+          <div>
+            <div className="text-lg font-semibold leading-none text-text-primary">{card.value}</div>
+            <div className="mt-1 text-[11px] text-text-tertiary">{card.label}</div>
+          </div>
+        </motion.div>
+      ))}
+    </div>
+  )
+}
+
+function Sidebar({ view, categoryFilter, fileTypeFilters, onCategoryClick, onFileTypeToggle, t }) {
+  const [expanded, setExpanded] = useState(() => new Set(['type-tree', 'file-tree']))
+
+  const toggle = (key) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  return (
+    <aside className="w-52 shrink-0 overflow-y-auto border-r border-border bg-surface p-3">
+      {view === 'category' ? (
+        <div>
+          <button
+            type="button"
+            onClick={() => toggle('type-tree')}
+            className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary hover:bg-surface-hover"
+          >
+            <span>{t('materials_type')}</span>
+            {expanded.has('type-tree') ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          </button>
+          <AnimatePresence initial={false}>
+            {expanded.has('type-tree') && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.22, ease: EASE }}
+                className="overflow-hidden"
+              >
+                <button
+                  type="button"
+                  onClick={() => onCategoryClick('')}
+                  className={cn(
+                    'mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-smooth',
+                    categoryFilter === '' ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-surface-hover'
+                  )}
+                >
+                  <Tags size={14} />
+                  {t('materials_allTypes')}
+                </button>
+                {MATERIAL_TYPES.map((type) => (
+                  <button
+                    type="button"
+                    key={type}
+                    onClick={() => onCategoryClick(type)}
+                    className={cn(
+                      'mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-smooth',
+                      categoryFilter === type ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-surface-hover'
+                    )}
+                  >
+                    <TypeIcon type={type} size={13} />
+                    {t(`materials_type_${type}`)}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      ) : (
+        <div>
+          <button
+            type="button"
+            onClick={() => toggle('file-tree')}
+            className="mb-1 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary hover:bg-surface-hover"
+          >
+            <span>{t('fileType_filter')}</span>
+            {expanded.has('file-tree') ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          </button>
+          <AnimatePresence initial={false}>
+            {expanded.has('file-tree') && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.22, ease: EASE }}
+                className="overflow-hidden"
+              >
+                {FILE_TYPE_GROUPS.map((group) => {
+                  const Icon = group.icon
+                  const checked = fileTypeFilters.has(group.key)
+                  return (
+                    <label
+                      key={group.key}
+                      className={cn(
+                        'mb-1 flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-smooth',
+                        checked ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-surface-hover'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'flex h-4 w-4 items-center justify-center rounded border transition-smooth',
+                          checked ? 'border-primary bg-primary text-white' : 'border-border bg-surface'
+                        )}
+                      >
+                        {checked && <Check size={10} strokeWidth={3} />}
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={checked}
+                        onChange={() => onFileTypeToggle(group.key)}
+                      />
+                      <Icon size={14} className={group.color} />
+                      {t(group.labelKey)}
+                    </label>
+                  )
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+    </aside>
+  )
+}
+
+function CategoryView({ items, cardWidth, onCardClick, t }) {
+  const counts = useMemo(() => {
+    const map = {}
+    MATERIAL_TYPES.forEach((type) => (map[type] = 0))
+    items.forEach((it) => {
+      if (map[it.type] !== undefined) map[it.type] += 1
+      else map.other = (map.other || 0) + 1
+    })
+    return map
+  }, [items])
+
+  return (
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      variants={{
+        hidden: {},
+        visible: { transition: { staggerChildren: 0.04 } }
+      }}
+      className="grid gap-4"
+      style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` }}
+    >
+      {MATERIAL_TYPES.map((type, i) => {
+        const meta = TYPE_META[type]
+        const Icon = meta.icon
+        return (
+          <motion.div
+            key={type}
+            variants={{
+              hidden: { opacity: 0, y: 14, scale: 0.97 },
+              visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.28 + i * 0.02, ease: EASE } }
+            }}
+            onClick={() => onCardClick(type)}
+            className="group card-hover relative cursor-pointer overflow-hidden rounded-2xl border border-border bg-surface shadow-card transition-smooth hover:border-border-strong hover:shadow-float"
+          >
+            <div className={cn('relative h-28 w-full overflow-hidden bg-gradient-to-br', meta.cover)}>
+              <div className="absolute inset-0 flex items-center justify-center opacity-30">
+                <Icon size={64} className={meta.color} />
+              </div>
+              <div className="absolute left-3 top-3">
+                <TypeIcon type={type} size={18} />
+              </div>
+              <div className="absolute bottom-3 right-3 text-2xl font-bold text-text-primary/80">{counts[type] || 0}</div>
+            </div>
+            <div className="p-3">
+              <h3 className="text-sm font-semibold text-text-primary">{t(`materials_type_${type}`)}</h3>
+              <p className="mt-0.5 text-[11px] text-text-tertiary">{t('materials_typeCount', { n: counts[type] || 0 })}</p>
+            </div>
+          </motion.div>
+        )
+      })}
+    </motion.div>
+  )
+}
+
+function FileGridView({ items, cardWidth, cardMode, selectedIds, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox, onOpenDetail, t }) {
+  return (
+    <motion.div
+      initial="hidden"
+      animate="visible"
+      variants={{
+        hidden: {},
+        visible: { transition: { staggerChildren: 0.02 } }
+      }}
+      className="grid gap-4"
+      style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` }}
+    >
+      {items.map((item, i) =>
+        cardMode === 'rich' ? (
+          <MaterialCard
+            key={item.id}
+            item={item}
+            selected={selectedIds.has(item.id)}
+            bulkMode={bulkMode}
+            onToggleSelect={() => onToggleSelect(item.id)}
+            onEdit={() => onEdit(item)}
+            onDelete={() => onDelete(item)}
+            onOpenLightbox={onOpenLightbox}
+            onClick={() => !bulkMode && onOpenDetail(item)}
+            index={i}
+          />
+        ) : (
+          <CompactFileCard
+            key={item.id}
+            item={item}
+            selected={selectedIds.has(item.id)}
+            bulkMode={bulkMode}
+            onToggleSelect={() => onToggleSelect(item.id)}
+            onClick={() => !bulkMode && onOpenDetail(item)}
+            index={i}
+          />
+        )
+      )}
+    </motion.div>
+  )
+}
+
+function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox, onClick, index }) {
   const { t } = useI18n()
   const [menuOpen, setMenuOpen] = useState(false)
   const [imgErr, setImgErr] = useState(false)
@@ -453,7 +947,6 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
   const resourceIsImage = isImageResource(resource)
   const photoSrc = resourceIsImage ? toPhotoSrc(resource) : ''
 
-  // 资源变化时重置图片错误状态
   useEffect(() => {
     setImgErr(false)
   }, [photoSrc])
@@ -468,49 +961,34 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
     }
     if (isUrl(resource)) {
       await openExternal(resource)
-    } else if (isFolderPath(resource)) {
-      await openPath(resource.replace(/^file:\/+/i, ''))
     } else {
-      // 其它文件：使用系统默认程序打开
       await openPath(resource.replace(/^file:\/+/i, ''))
     }
-  }
-
-  const handleContextMenu = (e) => {
-    e.preventDefault()
-    onEdit()
-  }
-
-  const handleDoubleClick = () => {
-    if (bulkMode) return
-    if (resource) {
-      handleOpenResource()
-    } else {
-      onEdit()
-    }
-  }
-
-  const handleCardClick = () => {
-    if (bulkMode) onToggleSelect()
   }
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.22, ease: EASE }}
-      onClick={handleCardClick}
-      onDoubleClick={handleDoubleClick}
-      onContextMenu={handleContextMenu}
+      variants={{
+        hidden: { opacity: 0, y: 12, scale: 0.98 },
+        visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.24, delay: (index % 8) * 0.02, ease: EASE } }
+      }}
+      onClick={() => {
+        if (bulkMode) onToggleSelect()
+        else onClick()
+      }}
+      onDoubleClick={() => {
+        if (bulkMode) return
+        if (resource) handleOpenResource()
+        else onEdit()
+      }}
+      onContextMenu={(e) => { e.preventDefault(); onEdit() }}
       className={cn(
-        'card-hover group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card transition-smooth',
+        'card-hover group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card transition-all duration-300',
         selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-border-strong hover:shadow-float',
-        bulkMode && 'cursor-pointer',
-        resourceIsImage && !bulkMode && 'cursor-zoom-in'
+        bulkMode && 'cursor-pointer'
       )}
     >
-      {/* 顶部大图区：有图片时占大头，无图片时显示类型大图标 */}
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-bg">
         {resourceIsImage && photoSrc && !imgErr ? (
           <>
@@ -520,7 +998,6 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
               className="img-zoom h-full w-full object-cover"
               onError={() => setImgErr(true)}
               draggable={false}
-              onDragStart={(e) => e.preventDefault()}
             />
             <span className="pointer-events-none absolute bottom-2 right-2 z-10 rounded-full bg-black/25 p-1.5 text-white backdrop-blur-sm opacity-0 transition-opacity duration-300 group-hover:opacity-100">
               <ImageIcon size={14} />
@@ -532,7 +1009,6 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
           </div>
         )}
 
-        {/* 批量勾选 */}
         {bulkMode && (
           <div
             className={cn(
@@ -546,13 +1022,11 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
           </div>
         )}
 
-        {/* 类型标签 */}
         <span className="absolute left-2.5 top-2.5 z-10 inline-flex max-w-[70%] items-center gap-1 truncate rounded-full bg-surface/92 px-2 py-1 text-[11px] font-medium text-text-secondary shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface">
           <TypeIcon type={item.type} size={12} />
           <span className="truncate">{t(`materials_type_${item.type}`)}</span>
         </span>
 
-        {/* 操作按钮组 */}
         <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-surface/88 p-1 shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface">
           <button
             type="button"
@@ -573,7 +1047,6 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
         </div>
       </div>
 
-      {/* 内容区 */}
       <div className="flex flex-1 flex-col p-4">
         <div className="mb-1 flex items-start justify-between gap-2">
           <h3 className="truncate text-[15px] font-semibold leading-tight text-text-primary" title={item.title || ''}>
@@ -653,10 +1126,151 @@ function MaterialCard({ item, selected, bulkMode, onToggleSelect, onEdit, onDele
         )}
 
         <div className="mt-2 text-[10px] text-text-tertiary/70">
-          {t('materials_updated')}: {item.updated_at ? new Date(item.updated_at).toLocaleString() : '-'}
+          {t('materials_updated')}: {formatDate(item.updated_at)}
         </div>
       </div>
     </motion.div>
+  )
+}
+
+function CompactFileCard({ item, selected, bulkMode, onToggleSelect, onClick, index }) {
+  const { t } = useI18n()
+  const group = fileTypeIcon(getFileType(item))
+  const Icon = group.icon
+  const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
+
+  return (
+    <motion.div
+      layout
+      variants={{
+        hidden: { opacity: 0, y: 10, scale: 0.98 },
+        visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.22, delay: (index % 8) * 0.02, ease: EASE } }
+      }}
+      onClick={() => {
+        if (bulkMode) onToggleSelect()
+        else onClick()
+      }}
+      className={cn(
+        'group relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border bg-surface p-3 shadow-sm transition-all duration-300',
+        selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-border-strong hover:shadow-card'
+      )}
+    >
+      {bulkMode && (
+        <div
+          className={cn(
+            'absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-smooth',
+            selected ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-transparent group-hover:border-primary'
+          )}
+        >
+          <Check size={10} strokeWidth={3} />
+        </div>
+      )}
+      <div className={cn('flex h-16 w-16 items-center justify-center rounded-2xl', group.color.replace('text-', 'bg-').replace('500', '50'))}>
+        <Icon size={32} className={group.color} />
+      </div>
+      <div className="w-full text-center">
+        <h4 className="truncate text-xs font-medium text-text-primary" title={item.title}>{item.title || t('materials_title')}</h4>
+        {tags.length > 0 && (
+          <p className="mt-1 truncate text-[10px] text-text-tertiary">{tags.slice(0, 2).join(', ')}</p>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
+function DetailPanel({ item, onClose, onEdit, onDelete, t }) {
+  const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
+  const group = fileTypeIcon(getFileType(item))
+  const Icon = group.icon
+
+  return (
+    <motion.div
+      initial={{ x: 340, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 340, opacity: 0 }}
+      transition={{ duration: 0.28, ease: EASE }}
+      className="z-20 flex w-80 shrink-0 flex-col border-l border-border bg-surface shadow-float"
+    >
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <h3 className="text-sm font-semibold text-text-primary">{t('detail_title')}</h3>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+        >
+          <PanelRightClose size={16} />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="mb-4 flex flex-col items-center gap-2">
+          <div className={cn('flex h-16 w-16 items-center justify-center rounded-2xl', group.color.replace('text-', 'bg-').replace('500', '50'))}>
+            <Icon size={32} className={group.color} />
+          </div>
+          <h4 className="text-center text-sm font-semibold text-text-primary" title={item.title}>{item.title}</h4>
+        </div>
+
+        <DetailField label={t('detail_description')} value={item.content || '-'} />
+        <DetailField label={t('detail_path')} value={item.photo || item.url || '-'} monospace copy />
+        <DetailField label={t('detail_category')} value={t(`materials_type_${item.type}`)} />
+        <DetailField label={t('detail_tags')}>
+          {tags.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {tags.map((tag, i) => (
+                <span key={i} className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-tertiary">{tag}</span>
+              ))}
+            </div>
+          ) : (
+            '-'
+          )}
+        </DetailField>
+        <DetailField label={t('detail_updated')} value={formatDate(item.updated_at)} />
+        <DetailField label={t('detail_fileType')} value={t(fileTypeIcon(getFileType(item)).labelKey)} />
+      </div>
+      <div className="flex items-center gap-2 border-t border-border px-4 py-3">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+        >
+          <Edit2 size={13} />
+          {t('materials_edit')}
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-danger-soft px-3 py-2 text-xs font-medium text-danger transition-smooth hover:bg-danger/10"
+        >
+          <Trash2 size={13} />
+          {t('materials_delete')}
+        </button>
+      </div>
+    </motion.div>
+  )
+}
+
+function DetailField({ label, value, monospace, copy, children }) {
+  const handleCopy = () => {
+    if (value && value !== '-') navigator.clipboard.writeText(value).catch(() => {})
+  }
+  return (
+    <div className="mb-3">
+      <div className="mb-1 text-[11px] font-medium text-text-tertiary">{label}</div>
+      {children || (
+        <div className={cn('flex items-start gap-2 rounded-lg border border-border bg-bg px-3 py-2 text-xs text-text-secondary', monospace && 'font-mono')}>
+          <span className="min-w-0 flex-1 break-all">{value}</span>
+          {copy && value && value !== '-' && (
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="shrink-0 text-text-tertiary transition-smooth hover:text-primary"
+              title="复制"
+            >
+              <Check size={13} />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -986,8 +1600,7 @@ function Field({ label, required, className = '', children }) {
   )
 }
 
-function EmptyState({ onAdd }) {
-  const { t } = useI18n()
+function EmptyState({ onAdd, t }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}

@@ -1,6 +1,6 @@
 # 家庭物资管家 · 中文友好版（Inv-Manage + UTF-8 REST Client）
 
-> 当前文档对应版本：**v1.2.17**（2026-08-04）。本版本将 Agent API 的图片 base64 从列表/详情响应中分离：默认返回 `hasPhoto` 布尔值，新增独立取图端点 `GET /api/items/:id/photo`，大幅减少 Agent 上下文长度。
+> 当前文档对应版本：**v1.2.18**（2026-08-06）。本版本将 Agent API 的图片 base64 从列表/详情响应中分离：默认返回 `hasPhoto` 布尔值，新增独立取图端点 `GET /api/items/:id/photo`，大幅减少 Agent 上下文长度。
 
 ## Overview
 
