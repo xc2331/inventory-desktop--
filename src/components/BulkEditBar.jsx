@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, CheckSquare, Square, Trash2, FolderInput, ChevronDown } from 'lucide-react'
+import { X, CheckSquare, Square, Trash2, FolderInput, ChevronDown, AlertTriangle, Calculator, Minus, Plus } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName } from '../lib/api'
 import { getCategoryIcon } from '../lib/categoryIcons'
@@ -15,11 +15,23 @@ export default function BulkEditBar({
   onClear,
   onChangeCategory,
   onDelete,
-  onClose
+  onClose,
+  onBulkUpdateQuantity,
+  onBulkPreview
 }) {
   const { t } = useI18n()
   const [showCat, setShowCat] = useState(false)
+  const [showQty, setShowQty] = useState(false)
+  const [qtyOp, setQtyOp] = useState('+')
+  const [qtyVal, setQtyVal] = useState('1')
   const allSelected = selectedCount > 0 && selectedCount === total
+
+  const handleQtySubmit = () => {
+    const v = Math.max(0, Number(qtyVal) || 0)
+    if (v <= 0 && (qtyOp === '+' || qtyOp === '-')) return
+    onBulkUpdateQuantity?.({ op: qtyOp, value: v })
+    setShowQty(false)
+  }
 
   return (
     <motion.div
@@ -97,13 +109,63 @@ export default function BulkEditBar({
           </AnimatePresence>
         </div>
 
+        {/* U-08 批量修改数量面板 */}
+        <div className="relative">
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            onClick={() => setShowQty((v) => !v)}
+            className="flex items-center gap-1.5 rounded-xl bg-surface px-3 py-2 text-sm font-medium text-primary shadow-sm transition-smooth hover:bg-primary-soft"
+            title={t('bulk_changeQty')}
+          >
+            <Calculator size={15} />
+            {t('bulk_changeQty')}
+            <ChevronDown size={13} className={`transition-transform ${showQty ? 'rotate-180' : ''}`} />
+          </motion.button>
+          <AnimatePresence>
+            {showQty && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.18, ease: EASE }}
+                className="absolute bottom-full right-0 z-30 mb-1.5 flex w-72 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-float"
+              >
+                <select
+                  value={qtyOp}
+                  onChange={(e) => setQtyOp(e.target.value)}
+                  className="w-16 rounded-lg border border-border bg-surface px-1.5 text-xs font-bold text-text-primary outline-none"
+                >
+                  <option value="+">{t('bulk_qtyAdd')}</option>
+                  <option value="-">{t('bulk_qtySub')}</option>
+                  <option value="=">{t('bulk_qtySet')}</option>
+                </select>
+                <input
+                  type="number"
+                  min="0"
+                  value={qtyVal}
+                  onChange={(e) => setQtyVal(e.target.value)}
+                  className="w-20 rounded-lg border border-border bg-surface px-2 text-xs font-medium text-text-primary outline-none"
+                />
+                <button
+                  onClick={handleQtySubmit}
+                  className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
+                >
+                  {t('bulk_apply')}
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={onDelete}
           className="flex items-center gap-1.5 rounded-xl bg-danger px-3 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:brightness-110"
+          title={t('bulk_deleteConfirm')}
         >
           <Trash2 size={15} />
           {t('bulk_delete')}
+          <AlertTriangle size={12} />
         </motion.button>
       </div>
     </motion.div>

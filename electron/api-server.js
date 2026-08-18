@@ -36,6 +36,7 @@ function readBody(req) {
   })
 }
 
+const pkg = require('../package.json')
 function nowMs() {
   return Date.now()
 }
@@ -70,7 +71,7 @@ function toPhoneMaterial(row) {
   return {
     id: row.id,
     type: row.type || 'note',
-    title: row.title || '',
+    title: '【电子材料】' + (row.title || ''),
     content: row.content || '',
     url: row.url || '',
     tags: row.tags || '',
@@ -315,17 +316,21 @@ class ApiServer {
         this.updateLocation(req, res, path)
       } else if (path.startsWith('/api/locations/') && req.method === 'DELETE') {
         this.deleteLocation(req, res, path)
-      } else if (path === '/api/materials' && req.method === 'GET') {
+      } else if (path === '/api/e-materials/types' && req.method === 'GET') {
+        this.listMaterialTypes(req, res)
+      } else if (path === '/api/e-materials/types' && req.method === 'PATCH') {
+        this.updateMaterialTypes(req, res)
+      } else if (path === '/api/e-materials' && req.method === 'GET') {
         this.listMaterials(req, res, url)
-      } else if (path === '/api/materials' && req.method === 'POST') {
+      } else if (path === '/api/e-materials' && req.method === 'POST') {
         this.createMaterial(req, res)
-      } else if (path.startsWith('/api/materials/') && path.endsWith('/photo') && req.method === 'GET') {
+      } else if (path.startsWith('/api/e-materials/') && path.endsWith('/photo') && req.method === 'GET') {
         this.getMaterialPhoto(req, res, path)
-      } else if (path.startsWith('/api/materials/') && req.method === 'GET') {
+      } else if (path.startsWith('/api/e-materials/') && req.method === 'GET') {
         this.getMaterial(req, res, path, url)
-      } else if (path.startsWith('/api/materials/') && req.method === 'PATCH') {
+      } else if (path.startsWith('/api/e-materials/') && req.method === 'PATCH') {
         this.updateMaterial(req, res, path)
-      } else if (path.startsWith('/api/materials/') && req.method === 'DELETE') {
+      } else if (path.startsWith('/api/e-materials/') && req.method === 'DELETE') {
         this.deleteMaterial(req, res, path)
       } else if (path === '/api/settings' && req.method === 'GET') {
         this.getSettingsEndpoint(req, res)
@@ -414,7 +419,7 @@ class ApiServer {
     const settings = this.getSettingsObj()
     json(res, 200, {
       app: 'Family Inventory Agent API',
-      version: '1.2.18',
+      version: pkg.version,
       dbPath: this.resolveDbPath(),
       dataDir: settings.dataDir || this.app.getPath('userData'),
       timestamp: nowMs()
@@ -814,8 +819,29 @@ class ApiServer {
     json(res, 200, { materials: rows.map(materialMapper(url)) })
   }
 
+  // ===== 电子材料类型管理 =====
+  listMaterialTypes(req, res) {
+    const settings = this.getSettingsObj()
+    json(res, 200, { materialTypes: settings.materialTypes || [] })
+  }
+
+  async updateMaterialTypes(req, res) {
+    const data = await readBody(req)
+    let types = data.types || data
+    if (typeof types === 'string') types = [types]
+    if (!Array.isArray(types)) {
+      json(res, 400, { error: 'Bad request', message: 'types must be an array or string' })
+      return
+    }
+    types = types.map((t) => String(t).trim()).filter(Boolean)
+    const settings = this.getSettingsObj()
+    settings.materialTypes = types
+    this.writeAppSettings(settings)
+    json(res, 200, { materialTypes: types })
+  }
+
   getMaterial(req, res, path, url) {
-    const id = decodeURIComponent(path.slice('/api/materials/'.length))
+    const id = decodeURIComponent(path.slice('/api/e-materials/'.length))
     const row = this.db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
     if (!row) {
       json(res, 404, { error: 'Not found' })
@@ -857,7 +883,7 @@ class ApiServer {
   }
 
   async updateMaterial(req, res, path) {
-    const id = decodeURIComponent(path.slice('/api/materials/'.length))
+    const id = decodeURIComponent(path.slice('/api/e-materials/'.length))
     const cur = this.db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
     if (!cur) {
       json(res, 404, { error: 'Not found' })
@@ -887,7 +913,7 @@ class ApiServer {
   }
 
   deleteMaterial(req, res, path) {
-    const id = decodeURIComponent(path.slice('/api/materials/'.length))
+    const id = decodeURIComponent(path.slice('/api/e-materials/'.length))
     const info = this.db.prepare('DELETE FROM materials WHERE id = ?').run(id)
     this.notifyRenderer('materials')
     json(res, 200, { deleted: info.changes })
@@ -895,7 +921,7 @@ class ApiServer {
 
   // 独立获取材料图片 base64，避免列表接口返回超长数据
   getMaterialPhoto(req, res, path) {
-    const id = decodeURIComponent(path.slice('/api/materials/'.length, path.lastIndexOf('/photo')))
+    const id = decodeURIComponent(path.slice('/api/e-materials/'.length, path.lastIndexOf('/photo')))
     const row = this.db.prepare('SELECT photo FROM materials WHERE id = ?').get(id)
     if (!row) {
       json(res, 404, { error: 'Not found' })

@@ -250,13 +250,34 @@ Agent 收到自然语言位置描述后，应先调用本接口。服务会：
 }
 ```
 
-### 电子材料库管理
+### 电子材料库管理（v1.3.0.a+，路由已从 `/api/materials` 改为 `/api/e-materials`，与实物库存 `/api/items` 明确区分）
+
+#### 列出材料类型
+
+```http
+GET /api/e-materials/types
+```
+
+响应：`{ "materialTypes": [...] }`
+
+#### 更新材料类型列表
+
+```http
+PATCH /api/e-materials/types
+Content-Type: application/json
+
+{ "types": ["note", "url", "photo", "recipe", "tutorial", "doc", "other"] }
+```
+
+`types` 为字符串数组；也可直接传逗号分隔字符串。返回更新后的类型列表。
 
 #### 列出材料
 
 ```http
-GET /api/materials?type=url&keyword=教程
+GET /api/e-materials?type=url&keyword=教程
 ```
+
+> 注意：响应体中 `title` 字段带 `【电子材料】` 前缀，与实物库存（`/api/items`）明确区分。
 
 支持查询参数：
 
@@ -266,13 +287,13 @@ GET /api/materials?type=url&keyword=教程
 #### 获取单个材料
 
 ```http
-GET /api/materials/<id>
+GET /api/e-materials/<id>
 ```
 
 #### 创建材料
 
 ```http
-POST /api/materials
+POST /api/e-materials
 Content-Type: application/json
 
 {
@@ -291,7 +312,7 @@ Content-Type: application/json
 #### 更新材料
 
 ```http
-PATCH /api/materials/<id>
+PATCH /api/e-materials/<id>
 Content-Type: application/json
 
 {
@@ -302,7 +323,7 @@ Content-Type: application/json
 #### 删除材料
 
 ```http
-DELETE /api/materials/<id>
+DELETE /api/e-materials/<id>
 ```
 
 ### 设置信息

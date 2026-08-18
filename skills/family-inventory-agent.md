@@ -59,8 +59,13 @@
 | DELETE | `/api/items/<id>` | 删除物品 |
 | GET | `/api/categories` | 分类列表 |
 | GET | `/api/locations` | 位置列表 |
-| GET | `/api/materials?type=...&keyword=...` | 材料列表。默认不含图片 base64 |
-| GET | `/api/materials/<id>/photo` | **独立获取材料图片 base64** |
+| GET | `/api/e-materials?type=...&keyword=...` | **电子材料库**列表（v1.3.0.a 起）。默认不含图片 base64，`title` 带【电子材料】前缀 |
+| GET | `/api/e-materials/types` | **电子材料库类型列表**（v1.3.0.a 新增） |
+| PATCH | `/api/e-materials/types` | **电子材料库类型更新**（v1.3.0.a 新增） |
+| GET | `/api/e-materials/<id>/photo` | **电子材料库图片** base64（按需调用） |
+| POST | `/api/e-materials` | 新建电子材料 |
+| PATCH | `/api/e-materials/<id>` | 更新电子材料 |
+| DELETE | `/api/e-materials/<id>` | 删除电子材料 |
 | GET | `/api/settings` | 设置信息 |
 
 > **图片分离说明（v1.2.17+）**：所有列表/详情接口默认返回 `hasPhoto: true/false` 而非 `photo` base64。如需完整图片，有两种方式：

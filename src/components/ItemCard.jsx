@@ -1,12 +1,23 @@
-import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { Pencil, Trash2, Minus, Plus, MapPin, AlertTriangle, CalendarClock, Check, Image as ImageIcon } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Pencil, Trash2, Minus, Plus, MapPin, AlertTriangle, CalendarClock, Check, Image as ImageIcon, ShieldAlert, MoreVertical, Copy, ExternalLink } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName } from '../lib/api'
 import { getCategoryIcon } from '../lib/categoryIcons'
 import { expiryStatus } from '../lib/utils'
+import { formatDate } from '../lib/format'
 import { cn } from '../lib/cn'
-import { EASE, cardHover } from '../lib/motion'
+import SearchHighlight from './SearchHighlight'
+import { EASE, EASE_SPRING, cardHover } from '../lib/motion'
+
+// 过期卡片脉冲动画（内联 keyframes 不可用于 framer-motion，改用 CSS variable + animate 替代）
+const expiredKeyframes = [
+  { boxShadow: '0 0 0 0 rgba(239,68,68,0.45)' },
+  { boxShadow: '0 0 0 8px rgba(239,68,68,0)' }
+]
+const expiredShake = [
+  { rotate: 0 }, { rotate: -5 }, { rotate: 5 }, { rotate: 0 }
+]
 
 function normalizePhotoUrl(photo) {
   if (!photo) return ''
@@ -28,16 +39,43 @@ export default function ItemCard({
   onEdit,
   onDelete,
   onDoubleClick,
+  onAddToCart,
+  onCopyItemNo,
+  onOpenInMap,
   selected,
   onToggleSelect,
   bulkMode,
+  keyword,
   index = 0
 }) {
   const { t } = useI18n()
+  const localeKey = lang === 'en' || lang === 'en_US' ? 'en_US' : 'zh_CN'
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
   const cat = categories.find((c) => c.key === item.category)
   const expiry = expiryStatus(item.expiry_date)
   const lowStock = item.min_quantity > 0 && item.quantity <= item.min_quantity
+  const isExpired = expiry && expiry.tone === 'expired'
+  const isExpiringSoon = expiry && expiry.tone === 'warn'
   const [imgErr, setImgErr] = useState(false)
+  const updatedAtStr = item.updated_at ? formatDate(item.updated_at, localeKey) : ''
+
+  // U-09 右键菜单关闭：点击别处 / 按 Esc
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e) => {
+      if (e.key === 'Escape') {
+        setMenuOpen(false)
+        return
+      }
+      // 仅左键关闭菜单；右键不关闭，避免右键打开菜单后被 mousedown 立即关闭
+      if (e.type === 'mousedown' && e.button !== 0) return
+      if (!menuRef.current?.contains(e.target)) setMenuOpen(false)
+    }
+    window.addEventListener('mousedown', handler)
+    window.addEventListener('keydown', handler)
+    return () => { window.removeEventListener('mousedown', handler); window.removeEventListener('keydown', handler) }
+  }, [menuOpen])
 
   const locationText = [item.room, item.position, item.location]
     .filter((x, i, a) => x && a.indexOf(x) === i)
@@ -58,7 +96,19 @@ export default function ItemCard({
 
   const handleContextMenu = (e) => {
     e.preventDefault()
-    onEdit(item)
+    // 设置菜单位置（相对视口）
+    setMenuOpen({ x: e.clientX, y: e.clientY })
+  }
+
+  const handleMenuAction = (action) => {
+    setMenuOpen(false)
+    if (action === 'edit') onEdit(item)
+    else if (action === 'delete') onDelete(item.id, item.name)
+    else if (action === 'add') onAdjust(item.id, 1)
+    else if (action === 'sub') onAdjust(item.id, -1)
+    else if (action === 'cart') onAddToCart?.(item.id)
+    else if (action === 'copy') onCopyItemNo?.(item.item_no)
+    else if (action === 'map') onOpenInMap?.(item)
   }
 
   const handleDoubleClick = () => {
@@ -69,22 +119,76 @@ export default function ItemCard({
     <motion.div
       layout
       initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={cardHover}
+      animate={{ opacity: 1, y: 0,
+        boxShadow: isExpired ? '0 0 0 2px rgba(239,68,68,0.4), 0 4px 16px rgba(239,68,68,0.12)' : undefined
+      }}
+      whileHover={menuOpen ? undefined : (isExpired ? cardHover : { ...cardHover, scale: 1.015 })}
       transition={{ duration: 0.3, ease: EASE, delay: Math.min(index * 0.025, 0.12) }}
       onClick={handleCardClick}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
       className={cn(
         'card-hover group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card',
-        selected ? 'border-primary' : 'border-border',
+        selected ? 'border-primary shadow-[0_0_0_3px_rgba(16,185,129,0.15)]' : 'border-border',
+        isExpired ? 'border-danger' : undefined,
+        isExpiringSoon ? 'border-warn' : undefined,
         bulkMode && 'cursor-pointer',
         hasPhoto && 'cursor-zoom-in'
       )}
     >
-      {selected && <span className="pointer-events-none absolute inset-0 z-10 rounded-2xl ring-2 ring-primary/30" />}
+      {/* U-01 选中指示环（强化：外发光 + 顶部角标） */}
+      {selected && (
+        <AnimatePresence>
+          <motion.span
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.2, ease: EASE_SPRING }}
+            className="pointer-events-none absolute inset-0 z-[15] rounded-2xl ring-2 ring-primary"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="pointer-events-none absolute right-2.5 top-2.5 z-[16] flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white shadow-lg"
+          >
+            <Check size={12} strokeWidth={3} />
+          </motion.div>
+        </AnimatePresence>
+      )}
 
-      {/* 图片区 */}
+      {/* U-02 过期遮罩层（强视觉警示：红色脉冲 + 大图标） */}
+      {isExpired && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.92, boxShadow: '0 0 0 0 rgba(239,68,68,0.4)' }}
+          transition={{ duration: 0.3 }}
+          className="pointer-events-none absolute inset-0 z-[12] rounded-2xl bg-gradient-to-br from-danger/90 to-danger-soft/80 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2"
+        >
+          <motion.div
+            animate={expiredShake}
+            transition={{ duration: 0.5, repeat: Infinity, repeatType: 'reverse' }}
+            className="flex h-14 w-14 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm"
+          >
+            <ShieldAlert size={32} className="text-white" />
+          </motion.div>
+          <span className="text-sm font-bold uppercase tracking-wider text-white">{t('card_expired')}</span>
+        </motion.div>
+      )}
+
+      {/* U-02 即将过期横幅（顶部黄色渐变带） */}
+      {isExpiringSoon && !isExpired && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: EASE_SPRING }}
+          className="absolute inset-x-0 top-0 z-[12] flex items-center justify-center gap-1.5 rounded-t-2xl bg-gradient-to-r from-warn to-amber-400 px-3 py-1.5 text-[11px] font-bold text-amber-950 shadow-sm"
+        >
+          <CalendarClock size={12} />
+          <span>{expiry.days} 天后过期</span>
+        </motion.div>
+      )}
+
+      {/* 图片区 (P-02：懒加载 + 错误恢复占位) */}
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-bg">
         {hasPhoto ? (
           <>
@@ -92,6 +196,7 @@ export default function ItemCard({
               src={photoUrl}
               alt={item.name}
               className="img-zoom h-full w-full object-cover"
+              loading="lazy"
               onError={() => setImgErr(true)}
               draggable={false}
               onDragStart={(e) => e.preventDefault()}
@@ -100,9 +205,13 @@ export default function ItemCard({
               <ImageIcon size={14} />
             </span>
           </>
+        ) : imgErr ? (
+          <div className="flex h-full w-full items-center justify-center bg-bg text-text-tertiary">
+            <ImageIcon size={28} className="opacity-30" />
+          </div>
         ) : (
-          <div className="img-zoom flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface-hover to-bg text-text-tertiary/70">
-            <CategoryIcon size={40} strokeWidth={1.4} />
+          <div className="flex h-full w-full items-center justify-center">
+            <CategoryIcon className="text-text-tertiary/30" size={32} />
           </div>
         )}
 
@@ -163,7 +272,7 @@ export default function ItemCard({
       <div className="flex flex-1 flex-col p-4">
         <div className="flex items-start justify-between gap-2">
           <h3 className="truncate text-[15px] font-semibold leading-tight text-text-primary" title={item.name}>
-            {item.name || '—'}
+            <SearchHighlight text={item.name || '—'} keyword={keyword} />
           </h3>
           {item.item_no && (
             <span className="shrink-0 rounded-md bg-bg px-1.5 py-0.5 font-mono text-[11px] text-text-tertiary">
@@ -247,6 +356,44 @@ export default function ItemCard({
           </div>
         )}
       </div>
+
+      {/* U-09 右键菜单 */}
+      <AnimatePresence>
+        {menuOpen && (
+          <motion.div
+            ref={menuRef}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.15, ease: EASE }}
+            className="absolute z-50 min-w-[160px] rounded-xl border border-border bg-surface p-1.5 shadow-float"
+            style={{
+              left: Math.min(menuOpen.x, window.innerWidth - 180),
+              top: Math.min(menuOpen.y, window.innerHeight - 220),
+              position: 'fixed'
+            }}
+          >
+            <button onClick={() => handleMenuAction('edit')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
+              <Pencil size={13} /> {t('card_edit')}
+            </button>
+            <button onClick={() => handleMenuAction('add')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
+              <Plus size={13} /> {t('card_add1')}
+            </button>
+            <button onClick={() => handleMenuAction('sub')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
+              <Minus size={13} /> {t('card_sub1')}
+            </button>
+            {item.item_no && (
+              <button onClick={() => handleMenuAction('copy')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
+                <Copy size={13} /> {t('card_copyNo')}
+              </button>
+            )}
+            <div className="my-1 h-px bg-border" />
+            <button onClick={() => handleMenuAction('delete')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-danger transition-smooth hover:bg-danger-soft">
+              <Trash2 size={13} /> {t('card_delete')}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }

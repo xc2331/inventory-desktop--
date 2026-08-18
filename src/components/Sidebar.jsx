@@ -5,6 +5,8 @@ import {
   MapPin,
   Settings,
   ChevronRight,
+  ChevronUp,
+  AlertTriangle as AlertTriangleIcon,
   Folder,
   Boxes,
   BarChart3,
@@ -51,7 +53,10 @@ export default function Sidebar({
   onOpenHelp,
   onOpenMaterials,
   onOpenLocationMap,
-  activeView
+  activeView,
+  showExpired = false,
+  onToggleExpired,
+  onClearLocation
 }) {
   const { t } = useI18n()
   const totalCount = Object.values(counts).reduce((a, b) => a + b, 0)
@@ -96,6 +101,14 @@ export default function Sidebar({
               badge={counts[c.key] || 0}
             />
           ))}
+          <IconButton
+            active={showExpired}
+            onClick={onToggleExpired}
+            icon={
+              <span className={cn(showExpired && 'text-danger')}><AlertTriangleIcon size={18} /></span>
+            }
+            label={t('filter_expired')}
+          />
         </div>
 
         <div className="flex flex-col items-center gap-1 border-t border-border py-2">
@@ -168,8 +181,40 @@ export default function Sidebar({
             />
           )
         })}
+        <button
+          onClick={onToggleExpired}
+          className={cn(
+            'relative mb-0.5 flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-sm transition-smooth',
+            showExpired ? 'font-medium text-danger' : 'text-text-secondary hover:bg-surface-hover'
+          )}
+        >
+          {showExpired && (
+            <motion.span
+              layoutId="sidebar-active-pill"
+              transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+              className="absolute inset-0 rounded-xl bg-danger/10"
+            />
+          )}
+          <span className="relative flex min-w-0 items-center gap-2">
+            <span className="flex h-5 w-5 items-center justify-center">
+              <AlertTriangleIcon size={16} />
+            </span>
+            <span className="truncate">{t('filter_expired')}</span>
+          </span>
+        </button>
 
         {/* 位置 */}
+        {activeLocation && activeLocation.length > 0 ? (
+          <div className="flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-xs text-text-secondary hover:text-text-primary">
+            <button
+              onClick={onClearLocation}
+              className="flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-primary transition-smooth hover:bg-primary-soft"
+            >
+              <ChevronUp size={13} />
+              <span>{t('nav_back_all')}</span>
+            </button>
+          </div>
+        ) : null}
         <div className="mt-4 px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/80">
           {t('nav_locations')}
         </div>
@@ -278,8 +323,15 @@ function NavRow({ active, onClick, icon, label, badge }) {
         <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
         <span className="truncate">{label}</span>
       </span>
-      <span className={cn('relative shrink-0 text-xs tabular-nums', active ? 'text-primary' : 'text-text-tertiary')}>
-        {badge}
+      <span className={cn('relative shrink-0', active ? 'text-primary' : 'text-text-tertiary')}>
+        <span className={cn(
+          'inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums transition-smooth',
+          active
+            ? 'bg-primary/15 text-primary'
+            : badge > 0 ? 'bg-surface-hover text-text-secondary' : ''
+        )}>
+          {badge}
+        </span>
       </span>
     </button>
   )

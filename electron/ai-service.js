@@ -257,9 +257,38 @@ async function fetchModels({ settings, provider } = {}) {
   }
 }
 
+async function testConnection({ settings, provider } = {}) {
+  const cfg = provider || getActiveProvider(settings)
+  if (!cfg) {
+    return { ok: false, error: '未配置 AI 供应商' }
+  }
+  const baseUrl = String(cfg.baseUrl || '').trim().replace(/\/$/, '')
+  const authKey = String(cfg.key || '').trim()
+  if (!baseUrl) {
+    return { ok: false, error: 'AI 服务地址未配置' }
+  }
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 10000)
+    const res = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
+      headers: authKey ? { Authorization: `Bearer ${authKey}` } : {},
+      signal: controller.signal
+    })
+    clearTimeout(timer)
+    if (!res.ok) {
+      return { ok: false, error: `服务返回 ${res.status}` }
+    }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e.message || '连接失败' }
+  }
+}
+
 module.exports = {
   recognizeImage,
   fetchModels,
+  testConnection,
   migrateAIConfig,
   getActiveProvider,
   sanitizeProvider

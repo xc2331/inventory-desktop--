@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, Component } from 'react'
 import { useDebounce } from '../lib/useDebounce'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -48,6 +48,7 @@ import Toast from './Toast'
 import Lightbox from './Lightbox'
 import TypeManager from './TypeManager'
 import DoubleClickPrefDialog from './DoubleClickPrefDialog'
+import SearchBar from './MaterialLibrary/SearchBar'
 
 const SIZE_STEPS = [130, 166, 202, 238, 274, 310]
 
@@ -248,7 +249,36 @@ function formatDate(iso) {
   }
 }
 
-export default function MaterialLibrary({ onBack }) {
+class MaterialLibraryErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-bg p-6 text-center">
+          <XCircle size={36} className="text-red-500" />
+          <h2 className="text-lg font-bold text-text-primary">MaterialLibrary 渲染崩溃</h2>
+          <div className="max-w-lg rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-left text-xs font-mono text-red-700 dark:bg-red-950 dark:text-red-300">
+            <p className="font-semibold mb-2">错误信息（请复制到聊天记录）：</p>
+            <p>{this.state.error.message}</p>
+            <p className="mt-3 pt-2 border-t border-red-200 dark:border-red-800">{this.state.error.stack}</p>
+          </div>
+          <button onClick={this.props.onBack} className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">
+            返回上一页
+          </button>
+        </div>
+      )
+    }
+    return <MaterialLibraryInner onBack={this.props.onBack} />
+  }
+}
+
+function MaterialLibraryInner({ onBack }) {
   const { t, lang } = useI18n()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
@@ -275,6 +305,7 @@ export default function MaterialLibrary({ onBack }) {
   const [askedDoubleClickPref, setAskedDoubleClickPref] = useState(false)
   const [typeManagerOpen, setTypeManagerOpen] = useState(false)
   const [pendingDoubleClickItem, setPendingDoubleClickItem] = useState(null)
+  const [linkConfirm, setLinkConfirm] = useState(null)
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type, id: Date.now() })
@@ -282,6 +313,7 @@ export default function MaterialLibrary({ onBack }) {
 
   useEffect(() => {
     getSettings().then((s) => {
+      if (!s) return
       const savedTypes = s.materialTypes
       if (Array.isArray(savedTypes) && savedTypes.length > 0) {
         setMaterialTypes(savedTypes)
@@ -291,8 +323,45 @@ export default function MaterialLibrary({ onBack }) {
         setDoubleClickAction(action)
       }
       setAskedDoubleClickPref(!!s.materialDoubleClickPrefAsked)
-    }).catch(() => {})
+      if (typeof s.materialCardSize === 'number' && s.materialCardSize >= 1 && s.materialCardSize <= 6) {
+        setCardSize(s.materialCardSize)
+      }
+      if (s.materialFileCardMode === 'rich' || s.materialFileCardMode === 'compact') {
+        setFileCardMode(s.materialFileCardMode)
+      }
+      if (s.materialView === 'category' || s.materialView === 'file') {
+        setView(s.materialView)
+      }
+    }).catch((e) => {
+      console.error('[MaterialLibrary] getSettings failed:', e && e.message || e)
+    })
   }, [])
+
+  const saveLayout = async (patch) => {
+    try {
+      // 防御性：先读全量 settings 再合并，防止并发写盘时丢失其他字段
+      const cur = await getSettings()
+      await setSettings({ ...cur, ...patch })
+    } catch (e) {
+      showToast(t('toast_saveFail', { msg: e.message }), 'error')
+    }
+  }
+
+  const setCardSizePersisted = (v) => {
+    setCardSize(v)
+    saveLayout({ materialCardSize: v })
+  }
+
+  const setFileCardModePersisted = (next) => {
+    const resolved = typeof next === 'function' ? next(fileCardMode) : next
+    setFileCardMode(resolved)
+    saveLayout({ materialFileCardMode: resolved })
+  }
+
+  const setViewPersisted = (v) => {
+    setView(v)
+    saveLayout({ materialView: v })
+  }
 
   const saveDoubleClickPref = async (action) => {
     setDoubleClickAction(action)
@@ -335,10 +404,29 @@ export default function MaterialLibrary({ onBack }) {
       return
     }
     if (doubleClickAction === 'openFolder') {
+      const resource = item.photo || item.url || ''
+      if (resource && isUrl(resource)) {
+        setLinkConfirm({ item, resource })
+        return
+      }
       await openContainingFolder(item)
       return
     }
     setPendingDoubleClickItem(item)
+  }
+
+  const handleLinkConfirm = async (choice) => {
+    const { item, resource } = linkConfirm
+    setLinkConfirm(null)
+    if (choice === 'openLink') {
+      await openResource(item)
+    } else if (choice === 'openFolder' && item.path) {
+      try {
+        await openPath(item.path)
+      } catch {
+        showToast(t('toast_openFail'), 'error')
+      }
+    }
   }
 
   const resolveLocalPath = (resource) => {
@@ -558,12 +646,12 @@ export default function MaterialLibrary({ onBack }) {
 
   const onCategoryCardClick = (type) => {
     setCategoryFilter(type)
-    setView('file')
+    setViewPersisted('file')
   }
 
   const onSwitchView = (nextView) => {
     if (nextView === view) return
-    setView(nextView)
+    setViewPersisted(nextView)
     setDetailItem(null)
     if (nextView === 'category') {
       setCategoryFilter('')
@@ -637,37 +725,18 @@ export default function MaterialLibrary({ onBack }) {
         />
 
         <main className="flex flex-1 flex-col overflow-hidden">
-          {view === 'category' && <StatsCards stats={stats} t={t} />}
+          {view === 'category' && <StatsCards stats={stats} t={t} categoryFilter={categoryFilter} setCategoryFilter={setCategoryFilter} />}
 
-          <div className="flex items-center gap-3 border-b border-border px-5 py-3">
-            <div className="relative flex-1">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
-              <input
-                type="text"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                placeholder={t('materials_search')}
-                className="input w-full pl-9 text-xs"
-              />
-            </div>
-            <SizeSlider value={cardSize} onChange={setCardSize} t={t} />
-            {view === 'file' && (
-              <button
-                type="button"
-                onClick={() => setFileCardMode((m) => (m === 'rich' ? 'compact' : 'rich'))}
-                className={cn(
-                  'flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-smooth',
-                  fileCardMode === 'compact'
-                    ? 'border-primary/40 bg-primary-soft text-primary'
-                    : 'border-border bg-surface text-text-secondary hover:bg-surface-hover'
-                )}
-                title={t('materials_cardMode')}
-              >
-                {fileCardMode === 'rich' ? <LayoutGrid size={14} /> : <Grid3x3 size={14} />}
-                {fileCardMode === 'rich' ? t('materials_richCards') : t('materials_compactCards')}
-              </button>
-            )}
-          </div>
+          <SearchBar
+            keyword={keyword}
+            setKeyword={setKeyword}
+            cardSize={cardSize}
+            setCardSize={setCardSizePersisted}
+            fileCardMode={fileCardMode}
+            setFileCardMode={setFileCardModePersisted}
+            view={view}
+            t={t}
+          />
 
           {bulkMode && (
             <div className="flex items-center justify-between border-b border-border bg-surface px-5 py-2">
@@ -816,6 +885,65 @@ export default function MaterialLibrary({ onBack }) {
         onChoose={resolveDoubleClickPref}
         t={t}
       />
+      <AnimatePresence>
+        {linkConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+            onClick={() => setLinkConfirm(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 6 }}
+              transition={{ duration: 0.25, ease: EASE_SPRING }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm overflow-hidden rounded-2xl bg-surface shadow-float"
+            >
+              <div className="flex items-start gap-3.5 p-6">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+                  <ExternalLink size={20} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base font-semibold text-text-primary">{t('materials_nonLocalTitle')}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-text-tertiary">
+                    {t('materials_nonLocalMessage', { name: linkConfirm.item.name || '' })}
+                  </p>
+                  <p className="mt-2 rounded-lg bg-bg/60 px-3 py-2 text-xs text-text-secondary break-all">
+                    {linkConfirm.resource}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 border-t border-border bg-bg/50 px-6 py-3.5">
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => setLinkConfirm(null)}
+                  className="flex-1 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+                >
+                  {t('btn_cancel')}
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => handleLinkConfirm('openFolder')}
+                  className="flex-1 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary transition-smooth hover:bg-surface-hover"
+                >
+                  {t('materials_openFolderOnly')}
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => handleLinkConfirm('openLink')}
+                  className="flex-1 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:brightness-110"
+                >
+                  {t('materials_openLinkDirectly')}
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <Toast toast={toast} onDone={() => setToast(null)} />
     </div>
   )
@@ -879,7 +1007,7 @@ function SizeSlider({ value, onChange, t }) {
   )
 }
 
-function StatsCards({ stats, t }) {
+function StatsCards({ stats, t, categoryFilter, setCategoryFilter }) {
   const cards = [
     { key: 'total', icon: FolderOpen, label: t('stats_total'), value: stats.total },
     { key: 'categories', icon: Tags, label: t('stats_categories'), value: stats.categoryCount },
@@ -889,27 +1017,40 @@ function StatsCards({ stats, t }) {
   return (
     <div className="grid grid-cols-2 gap-3 border-b border-border bg-surface/50 px-5 py-3 md:grid-cols-4">
       {cards.map((card, i) => (
-        <motion.div
+        <motion.button
+          type="button"
           key={card.key}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.96 }}
           transition={{ duration: 0.28, delay: i * 0.05, ease: EASE }}
-          className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm"
+          onClick={() => {
+            if (card.key === 'total' || card.key === 'categories') {
+              setCategoryFilter(null)
+            }
+          }}
+          className={cn(
+            'group flex w-full items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 shadow-sm cursor-pointer',
+            'transition-all duration-150 ease-out',
+            'hover:border-border-strong hover:bg-surface-hover hover:shadow-md'
+          )}
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-soft text-primary">
+          <span className={cn(
+            'flex h-9 w-9 items-center justify-center rounded-lg bg-primary-soft text-primary transition-colors',
+            'group-hover:bg-primary/20'
+          )}>
             <card.icon size={18} />
           </span>
           <div>
             <div className="text-lg font-semibold leading-none text-text-primary">{card.value}</div>
-            <div className="mt-1 text-[11px] text-text-tertiary">{card.label}</div>
+            <div className="mt-1 text-[11px] text-text-tertiary group-hover:text-text-secondary transition-colors">{card.label}</div>
           </div>
-        </motion.div>
+        </motion.button>
       ))}
     </div>
   )
 }
-
-
 
 function Sidebar({ view, fileTypeFilters, onFileTypeToggle, onManageTypes, t }) {
   const [expanded, setExpanded] = useState(() => new Set(['file-tree']))
@@ -1349,7 +1490,8 @@ function CompactFileCard({ item, materialTypes, selected, bulkMode, onToggleSele
   )
 }
 
-function DetailPanel({ item, materialTypes, onClose, onEdit, onDelete, t, lang }) {
+function DetailPanel({ item, materialTypes, onClose, onEdit, onDelete, lang }) {
+  const { t } = useI18n()
   const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
   const group = fileTypeIcon(getFileType(item))
   const Icon = group.icon
@@ -1359,10 +1501,15 @@ function DetailPanel({ item, materialTypes, onClose, onEdit, onDelete, t, lang }
       initial={{ x: 340, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 340, opacity: 0 }}
-      transition={{ duration: 0.28, ease: EASE }}
+      transition={{ duration: 0.3, ease: EASE }}
       className="z-20 flex w-80 shrink-0 flex-col border-l border-border bg-surface shadow-float"
     >
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.18, duration: 0.22 }}
+        className="flex items-center justify-between border-b border-border px-4 py-3"
+      >
         <h3 className="text-sm font-semibold text-text-primary">{t('detail_title')}</h3>
         <button
           type="button"
@@ -1371,8 +1518,13 @@ function DetailPanel({ item, materialTypes, onClose, onEdit, onDelete, t, lang }
         >
           <PanelRightClose size={16} />
         </button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-4">
+      </motion.div>
+      <motion.div
+        initial={{ opacity: 0, x: 12 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay: 0.22, duration: 0.28, ease: EASE }}
+        className="flex-1 overflow-y-auto p-4"
+      >
         <div className="mb-4 flex flex-col items-center gap-2">
           <div className={cn('flex h-16 w-16 items-center justify-center rounded-2xl', group.color.replace('text-', 'bg-').replace('500', '50'))}>
             <Icon size={32} className={group.color} />
@@ -1396,7 +1548,7 @@ function DetailPanel({ item, materialTypes, onClose, onEdit, onDelete, t, lang }
         </DetailField>
         <DetailField label={t('detail_updated')} value={formatDate(item.updated_at)} />
         <DetailField label={t('detail_fileType')} value={t(fileTypeIcon(getFileType(item)).labelKey)} />
-      </div>
+      </motion.div>
       <div className="flex items-center gap-2 border-t border-border px-4 py-3">
         <button
           type="button"
@@ -1419,7 +1571,7 @@ function DetailPanel({ item, materialTypes, onClose, onEdit, onDelete, t, lang }
   )
 }
 
-function DetailField({ label, value, monospace, copy, children }) {
+function DetailField({ label, value, children, monospace, copy }) {
   const handleCopy = () => {
     if (value && value !== '-') navigator.clipboard.writeText(value).catch(() => {})
   }
@@ -1796,3 +1948,7 @@ function EmptyState({ onAdd, t }) {
     </motion.div>
   )
 }
+
+// Named exports for MaterialLibrary sub-component re-exports
+export default MaterialLibraryErrorBoundary
+export { ViewSwitcher, StatsCards, MaterialCard, DetailPanel, CompactFileCard }

@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* U-21: Material ripple effect — 应用于 button / interactive */
+@layer base {
+  button:active {
+    transform: scale(0.97);
+    box-shadow: inset 0 0 0 2px var(--color-primary-soft);
+  }
+  button:active:focus {
+    outline: none;
+  }
+}
+
 :root {
   color-scheme: light;
 
@@ -50,9 +61,9 @@
   --color-surface-active: #3a3530;
   --color-border: #2f2b27;
   --color-border-strong: #46413c;
-  --color-text-primary: #f5f5f4;
-  --color-text-secondary: #d8d4d2;
-  --color-text-tertiary: #78716c;
+  --color-text-primary: #fafaf9;
+  --color-text-secondary: #e7e5e4;
+  --color-text-tertiary: #b6ad9f;
   --color-primary: #34d399;
   --color-primary-hover: #6ee7b7;
   --color-primary-soft: #064e3b;

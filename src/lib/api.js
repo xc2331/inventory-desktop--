@@ -1,5 +1,27 @@
 // 前端数据访问层：封装 window.lingguang preload API
-const api = window.lingguang
+// 延迟取值：模块加载时 preload 可能尚未注入，用递归 Proxy 包装，
+// 实际调用时才读取 window.lingguang，避免顶层引用导致白屏崩溃
+function buildProxy(basePath) {
+  return new Proxy({}, {
+    get(_, prop) {
+      if (!window.lingguang) return undefined
+      const obj = basePath.reduce((o, p) => (o?.[p] ?? null), window.lingguang)
+      if (!obj) return undefined
+      const v = obj[prop]
+      if (typeof v === 'undefined') return undefined
+      if (typeof v === 'function') return (...args) => v.apply(obj, args)
+      if (v === null || typeof v !== 'object') return v
+      if (v instanceof Array || v instanceof Date || v instanceof RegExp || v instanceof Error) return v
+      return buildProxy([...basePath, prop])
+    }
+  })
+}
+
+const api = buildProxy([])
+
+// Memoized regex used by normalizeCategoryKey to convert whitespace
+// sequences to underscores without re-compiling on every call.
+const CATEGORY_KEY_RE = /[\s\u00A0]+/g
 
 export function uid() {
   return (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) + Math.random().toString(16).slice(2)
@@ -37,128 +59,61 @@ export function fetchByCategoryAndKeyword(category, keyword) {
   })
 }
 
+// Pagination helpers (P-02): fetch a slice of items and total count
+// Each function pairs a paginated query (offset + limit) with a matching COUNT(*) query
+export function fetchItemsPaged(offset, limit, opts = {}) {
+  const { category, keyword, showExpired } = opts
+  let sql = 'SELECT * FROM items'
+  const binds = []
+  if (showExpired) {
+    // Client-side filtering is still used in useItems, but keep pagination intact
+    // by applying the base filter and returning up to `limit` rows for filtering
+    sql = 'SELECT * FROM items'
+  } else if (category && keyword) {
+    const like = `%${keyword}%`
+    sql += ' WHERE category = ? AND (name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?)'
+    binds.push(category, like, like, like, like, like)
+  } else if (category) {
+    sql += ' WHERE category = ?'
+    binds.push(category)
+  } else if (keyword) {
+    const like = `%${keyword}%`
+    sql += ' WHERE name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?'
+    binds.push(like, like, like, like, like)
+  }
+  sql += ' ORDER BY updated_at DESC LIMIT ? OFFSET ?'
+  binds.push(limit, offset)
+  return api.db.query({ sql, binds })
+}
+
+export function fetchItemsTotal(opts = {}) {
+  const { category, keyword } = opts
+  let sql = 'SELECT COUNT(*) AS cnt FROM items'
+  const binds = []
+  if (category && keyword) {
+    const like = `%${keyword}%`
+    sql += ' WHERE category = ? AND (name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?)'
+    binds.push(category, like, like, like, like, like)
+  } else if (category) {
+    sql += ' WHERE category = ?'
+    binds.push(category)
+  } else if (keyword) {
+    const like = `%${keyword}%`
+    sql += ' WHERE name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?'
+    binds.push(like, like, like, like, like)
+  }
+  return api.db.query({ sql, binds })
+}
+
 export function fetchCategoryCounts() {
   return api.db.query({
     sql: 'SELECT category, COUNT(*) as count FROM items GROUP BY category'
   })
 }
 
-// ===== 统计页数据 =====
+// ===== 统计页数据（P-03：聚合逻辑已移至后端 sync:stats，仅转发）=====
 export async function fetchStatistics() {
-  const [items, categories, locations] = await Promise.all([
-    api.db.query({ sql: 'SELECT * FROM items' }),
-    api.categories.list(),
-    api.locations.list()
-  ])
-
-  const now = Date.now()
-  const oneDay = 86400000
-
-  // 分类统计
-  const categoryMap = {}
-  items.forEach((it) => {
-    const key = it.category || 'other'
-    categoryMap[key] = (categoryMap[key] || 0) + 1
-  })
-  const categoryStats = Object.entries(categoryMap)
-    .map(([key, count]) => {
-      const cat = categories.find((c) => c.key === key)
-      return {
-        key,
-        name: cat ? categoryDisplayName(cat, 'zh') : key,
-        name_en: cat?.name_en || key,
-        count
-      }
-    })
-    .sort((a, b) => b.count - a.count)
-
-  // 位置统计（按 location 路径）
-  const locationMap = {}
-  items.forEach((it) => {
-    const loc = it.location?.trim() || it.room?.trim() || '未指定位置'
-    locationMap[loc] = (locationMap[loc] || 0) + 1
-  })
-  const locationStats = Object.entries(locationMap)
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 12)
-
-  // 过期状态
-  let expired = 0
-  let expiring7 = 0
-  let expiring30 = 0
-  let normal = 0
-  let noExpiry = 0
-  items.forEach((it) => {
-    if (!it.expiry_date) {
-      noExpiry++
-      return
-    }
-    const days = Math.ceil((it.expiry_date - now) / oneDay)
-    if (days < 0) expired++
-    else if (days <= 7) expiring7++
-    else if (days <= 30) expiring30++
-    else normal++
-  })
-  const expiryStats = [
-    { name: '已过期', name_en: 'Expired', key: 'expired', count: expired, color: '#ef4444' },
-    { name: '7天内过期', name_en: '≤7 days', key: 'expiring7', count: expiring7, color: '#f97316' },
-    { name: '30天内过期', name_en: '≤30 days', key: 'expiring30', count: expiring30, color: '#fbbf24' },
-    { name: '正常', name_en: 'Normal', key: 'normal', count: normal, color: '#22c55e' },
-    { name: '无过期日', name_en: 'No date', key: 'noExpiry', count: noExpiry, color: '#94a3b8' }
-  ]
-
-  // 库存状态
-  const lowStock = items.filter((it) => it.min_quantity > 0 && it.quantity <= it.min_quantity).length
-  const stockStats = [
-    { name: '库存不足', name_en: 'Low stock', key: 'low', count: lowStock, color: '#ef4444' },
-    { name: '库存充足', name_en: 'Sufficient', key: 'ok', count: items.length - lowStock, color: '#22c55e' }
-  ]
-
-  // 时间维度：按创建月份
-  const createdMonthMap = {}
-  const updatedMonthMap = {}
-  const monthFormatter = (ts) => {
-    const d = new Date(ts)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-  }
-  items.forEach((it) => {
-    if (it.created_at) {
-      const m = monthFormatter(it.created_at)
-      createdMonthMap[m] = (createdMonthMap[m] || 0) + 1
-    }
-    if (it.updated_at) {
-      const m = monthFormatter(it.updated_at)
-      updatedMonthMap[m] = (updatedMonthMap[m] || 0) + 1
-    }
-  })
-  const months = Array.from(new Set([...Object.keys(createdMonthMap), ...Object.keys(updatedMonthMap)])).sort()
-  const timeStats = months.map((m) => ({
-    month: m,
-    created: createdMonthMap[m] || 0,
-    updated: updatedMonthMap[m] || 0
-  }))
-
-  // 数量分布
-  const quantityStats = items.map((it) => ({
-    name: it.name,
-    quantity: it.quantity,
-    min: it.min_quantity
-  })).sort((a, b) => b.quantity - a.quantity).slice(0, 15)
-
-  // 总体指标
-  const totalQuantity = items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
-
-  return {
-    total: items.length,
-    totalQuantity,
-    categoryStats,
-    locationStats,
-    expiryStats,
-    stockStats,
-    timeStats,
-    quantityStats
-  }
+  return api.sync.stats()
 }
 
 export async function createItem(item) {
@@ -261,6 +216,36 @@ export async function bulkUpdateCategory(ids, category) {
   return { updated: res.changes || 0 }
 }
 
+// U-08 批量操作预览：返回各字段变更前的 diff，供前端预览
+export async function bulkPreview(ids, patch) {
+  if (!ids || ids.length === 0) return []
+  const ph = ids.map(() => '?').join(',')
+  const rows = await api.db.query({
+    sql: `SELECT id, name, quantity, unit, item_no, category, consume_rate, min_quantity FROM items WHERE id IN (${ph})`,
+    binds: ids
+  })
+  const changed = []
+  for (const r of rows) {
+    const before = {}
+    const after = {}
+    for (const [k, v] of Object.entries(patch)) {
+      if (r[k] === undefined) continue
+      before[k] = r[k]
+      after[k] = v
+      if (JSON.stringify(before[k]) !== JSON.stringify(after[k])) changed.push({ id: r.id, name: r.name, before, after })
+    }
+  }
+  return changed
+}
+
+// U-08 批量字段更新（category/quantity/unit/item_no/consume_rate/min_quantity 等）
+// Uses IPC batch handler to wrap in a single transaction
+export async function bulkUpdateField(ids, field, value) {
+  if (!ids || ids.length === 0) return { updated: 0 }
+  const res = await api.items.batchUpdate(field, value, ids)
+  return { updated: res.updated || 0 }
+}
+
 // ===== 分类（动态）=====
 export async function fetchCategories() {
   return api.categories.list()
@@ -276,6 +261,10 @@ export async function updateCategory(id, patch) {
 
 export async function deleteCategory(id) {
   return api.categories.delete(id)
+}
+
+export async function reorderCategories(ids) {
+  return api.categories.reorder(ids)
 }
 
 export async function mergeCategories(fromKey, toKey) {
@@ -462,6 +451,14 @@ export async function exportCSV() {
   return api.sync.exportCSV()
 }
 
+export async function exportSelectedJSON(ids) {
+  return api.sync.exportByIds(ids || [])
+}
+
+export async function exportExpiringReport() {
+  return api.sync.exportExpiringReport()
+}
+
 export async function rebuildCategories() {
   return api.sync.rebuildCategories()
 }
@@ -525,7 +522,8 @@ export async function generateItemNo() {
 
 // ===== 电子材料库 =====
 export async function fetchMaterials({ type, keyword } = {}) {
-  return api.materials.list({ type, keyword })
+  const result = await api.materials.list({ type, keyword })
+  return result
 }
 
 export async function getMaterial(id) {
@@ -586,6 +584,10 @@ export async function fetchAIModels(providerId) {
   return api.ai.fetchModels(providerId ? { providerId } : {})
 }
 
+export async function testAIConnection(providerId) {
+  return api.ai.testConnection(providerId ? { providerId } : {})
+}
+
 // ===== 平面图 =====
 export async function fetchFloorPlan(locationId) {
   return api.floorPlans.get(locationId)
@@ -625,6 +627,22 @@ export async function resetApiToken() {
 
 export async function setApiConfig(patch) {
   return api.settings.setApiConfig(patch)
+}
+
+export async function getMaterialTypes() {
+  try {
+    const res = api.settings.getMaterialTypes?.() || null
+    return Array.isArray(res) ? res : DEFAULT_MATERIAL_TYPES
+  } catch (e) {
+    return DEFAULT_MATERIAL_TYPES
+  }
+}
+
+export async function setMaterialTypes(types) {
+  try {
+    api.settings.setMaterialTypes?.(types)
+  } catch {}
+  return Array.isArray(types) ? types : DEFAULT_MATERIAL_TYPES
 }
 
 // ===== 软件内更新 =====
@@ -706,4 +724,33 @@ export function onUpdateInstalling(cb) {
 
 export function onUpdateError(cb) {
   return api.updater.onError(cb)
+}
+
+// ===== 图片存储 =====
+/** 把压缩后的 base64 存到 <dataDir>/photos/，返回相对路径。 */
+export async function savePhoto(base64, filename = null) {
+  const result = await api.photo.save(base64, filename)
+  if (result && result.ok) return result.relPath
+  throw new Error(result?.error || '照片保存失败')
+}
+
+/** 读取照片文件，返回带 data: 前缀的 base64（用于 fallback 回显）。 */
+export async function readPhoto(relPath) {
+  const result = await api.photo.read(relPath)
+  if (result && result.ok) return result.data
+  throw new Error(result?.error || '照片读取失败')
+}
+
+/** 删除照片文件。 */
+export async function deletePhoto(relPath) {
+  if (!relPath) return
+  const result = await api.photo.delete(relPath)
+  return result
+}
+
+/** 把 DB 中 photo 字段的值归一化为 <img src> 可直接使用的 URL。 */
+export function photoPath(value) {
+  if (!value) return ''
+  if (/^(data:|https?:|file:)/i.test(value)) return value
+  return value // relative path: 直接传给 <img src>，Electron 会自动解析
 }

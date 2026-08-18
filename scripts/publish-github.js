@@ -55,7 +55,26 @@ const outputDir = process.env.OUTPUT_DIR
   ? path.resolve(__dirname, '..', process.env.OUTPUT_DIR)
   : path.resolve(__dirname, '..', pkg.build.directories.output || 'release-v10')
 const filename = `${productName} ${version}.exe`
-const exePath = path.join(outputDir, filename)
+const exactExePath = path.join(outputDir, filename)
+
+let exePath = exactExePath
+if (!fs.existsSync(exactExePath)) {
+  const candidates = fs.readdirSync(outputDir)
+    .filter((f) => f.startsWith(productName + ' ') && f.endsWith('.exe'))
+  const pkgNorm = version.replace(/[-_ ]/g, '')
+  const matched = candidates.filter((f) => {
+    const fv = f.slice(productName.length + 1, -4)
+    return fv.replace(/[-_ ]/g, '') === pkgNorm
+  })
+  if (matched.length > 0) {
+    exePath = path.join(outputDir, matched[0])
+    console.log(`[publish:github] 精确文件名 ${filename} 未找到，使用版本匹配: ${path.basename(exePath)}`)
+  }
+}
+if (!fs.existsSync(exePath)) {
+  console.error(`[publish:github] 找不到 exe 文件: ${exePath}`)
+  process.exit(1)
+}
 const infoPath = path.join(outputDir, 'update-info.json')
 const tag = `v${version}`
 
@@ -221,7 +240,7 @@ async function main() {
   console.log('[2/4] 上传 exe 文件...')
   const exeSize = fs.statSync(exePath).size
   console.log(`  文件大小: ${(exeSize / 1024 / 1024).toFixed(1)} MB`)
-  const exeRes = await uploadAsset(uploadUrl, exePath, filename)
+  const exeRes = await uploadAsset(uploadUrl, exePath, path.basename(exePath))
   if (exeRes.status === 201) {
     console.log('  ✅ exe 上传成功')
   } else {

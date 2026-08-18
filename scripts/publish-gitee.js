@@ -56,7 +56,28 @@ const outputDir = process.env.OUTPUT_DIR
   ? path.resolve(__dirname, '..', process.env.OUTPUT_DIR)
   : path.resolve(__dirname, '..', pkg.build.directories.output || 'release-v5')
 const filename = `${productName} ${version}.exe`
-const exePath = path.join(outputDir, filename)
+const exactExePath = path.join(outputDir, filename)
+
+// electron-builder 可能把版本中的字母后缀转成连字符（如 1.3.0a -> 1.3.0-a）
+// 如果精确文件名不存在，用版本规范化匹配实际文件
+let exePath = exactExePath
+if (!fs.existsSync(exactExePath)) {
+  const candidates = fs.readdirSync(outputDir)
+    .filter((f) => f.startsWith(productName + ' ') && f.endsWith('.exe'))
+  const pkgNorm = version.replace(/[-_ ]/g, '')
+  const matched = candidates.filter((f) => {
+    const fv = f.slice(productName.length + 1, -4)
+    return fv.replace(/[-_ ]/g, '') === pkgNorm
+  })
+  if (matched.length > 0) {
+    exePath = path.join(outputDir, matched[0])
+    console.log(`[publish:gitee] 精确文件名 ${filename} 未找到，使用版本匹配: ${path.basename(exePath)}`)
+  }
+}
+if (!fs.existsSync(exePath)) {
+  console.error(`[publish:gitee] 找不到 exe 文件: ${exePath}`)
+  process.exit(1)
+}
 const infoPath = path.join(outputDir, 'update-info.json')
 const tag = `v${version}`
 
@@ -240,7 +261,7 @@ async function main() {
   console.log('[3/4] 上传 exe 文件...')
   const exeSize = fs.statSync(exePath).size
   console.log(`  文件大小: ${(exeSize / 1024 / 1024).toFixed(1)} MB`)
-  const exeRes = await uploadAsset(releaseId, exePath, filename)
+  const exeRes = await uploadAsset(releaseId, exePath, path.basename(exePath))
   if (exeRes.status === 200 || exeRes.status === 201) {
     console.log('  ✅ exe 上传成功')
   } else {

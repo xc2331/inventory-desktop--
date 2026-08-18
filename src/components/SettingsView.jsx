@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Sun, Moon, Monitor, Folder, MapPin, Upload, FileJson, FileSpreadsheet, ChevronRight, FolderOpen, RotateCcw, KeyRound, RefreshCw, Copy, Check, Globe, Save, AlertTriangle, Sparkles, Minimize2, X, Download, Rocket, Loader2, ScrollText, Cpu, Smartphone, ChevronDown, ChevronUp, Zap, Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
 import { useI18n, LANGS } from '../lib/i18n'
-import { getSettings, setSettings, getApiToken, resetApiToken, setApiConfig, getAIConfig, setAIConfig, fetchAIModels } from '../lib/api'
+import { getSettings, setSettings, getApiToken, resetApiToken, setApiConfig, getAIConfig, setAIConfig, fetchAIModels, testAIConnection } from '../lib/api'
 import { cn } from '../lib/cn'
 import { EASE } from '../lib/motion'
 import PageHeader from './PageHeader'
@@ -52,6 +52,8 @@ export default function SettingsView({
   const [aiModelsMap, setAiModelsMap] = useState({})
   const [aiFetchLoading, setAiFetchLoading] = useState({})
   const [aiFetchError, setAiFetchError] = useState({})
+  const [aiTestLoading, setAiTestLoading] = useState(false)
+  const [aiTestResult, setAiTestResult] = useState(null)
   const [rebuilding, setRebuilding] = useState(false)
   const [materialDoubleClick, setMaterialDoubleClick] = useState('ask')
   const [materialSaved, setMaterialSaved] = useState(false)
@@ -61,7 +63,11 @@ export default function SettingsView({
       setDataDir(s.dataDir || '')
       setDefaultDataDir(s.defaultDataDir || '')
       const action = s.materialDoubleClickAction
-      setMaterialDoubleClick(action === 'open' || action === 'edit' || action === 'ask' ? action : 'ask')
+      const valid = action === 'openFile' || action === 'openFolder' || action === 'ask'
+      setMaterialDoubleClick(valid ? action : 'ask')
+    }).catch(() => {
+      setDefaultDataDir('')
+      setMaterialDoubleClick('ask')
     })
     getApiToken().then((info) => {
       setApiInfo(info)
@@ -71,10 +77,15 @@ export default function SettingsView({
         lanMode: info.lanMode || false,
         token: info.token || ''
       })
+    }).catch(() => {
+      setApiForm({ port: 3001, host: '127.0.0.1', lanMode: false, token: '' })
     })
     getAIConfig().then((c) => {
-      setAiProviders(c.providers || [])
+      setAiProviders(Array.isArray(c.providers) ? c.providers : [])
       setAiSelectedId(c.selectedId || '')
+    }).catch(() => {
+      setAiProviders([])
+      setAiSelectedId('')
     })
   }, [])
 
@@ -191,6 +202,25 @@ export default function SettingsView({
       setAiModelsMap((map) => ({ ...map, [providerId]: [] }))
     } finally {
       setAiFetchLoading((load) => ({ ...load, [providerId]: false }))
+    }
+  }
+
+  const handleTestConnection = async () => {
+    setAiTestLoading(true)
+    setAiTestResult(null)
+    try {
+      const res = await testAIConnection(aiSelectedId || undefined)
+      if (res.ok) {
+        setAiTestResult(t('settings_testSuccess'))
+      } else {
+        setAiTestResult(t('settings_testFailed', { msg: res.error || 'unknown' }))
+      }
+      setTimeout(() => setAiTestResult(null), 3000)
+    } catch (e) {
+      setAiTestResult(t('settings_testFailed', { msg: e.message || 'unknown' }))
+      setTimeout(() => setAiTestResult(null), 3000)
+    } finally {
+      setAiTestLoading(false)
     }
   }
 
@@ -624,15 +654,44 @@ export default function SettingsView({
                           className="input h-8 w-28 text-xs"
                         />
                       </div>
-                      <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => removeProvider(p.id)}
-                        title={t('settings_aiVision_remove')}
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-danger-soft hover:text-danger"
-                      >
-                        <Trash2 size={14} />
-                      </motion.button>
+                      <div className="flex items-center gap-2">
+                        {isSelected && (
+                          <motion.button
+                            type="button"
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handleTestConnection}
+                            disabled={aiTestLoading || !p.baseUrl?.trim() || !p.key?.trim()}
+                            title={t('settings_testConnection')}
+                            className="flex items-center gap-1 rounded-lg border border-border bg-bg px-2 py-1 text-[11px] font-medium text-text-secondary transition-smooth hover:border-primary hover:text-primary disabled:opacity-50"
+                          >
+                            {aiTestLoading ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                            {aiTestLoading ? t('ai_recognize_loading') : t('settings_testConnection')}
+                          </motion.button>
+                        )}
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => removeProvider(p.id)}
+                          title={t('settings_aiVision_remove')}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-danger-soft hover:text-danger"
+                        >
+                          <Trash2 size={14} />
+                        </motion.button>
+                      </div>
                     </div>
+
+                    {isSelected && aiTestResult && (
+                      <div
+                        className={cn(
+                          'mb-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs',
+                          aiTestResult === t('settings_testSuccess')
+                            ? 'bg-accent-soft text-accent'
+                            : 'bg-danger-soft text-danger'
+                        )}
+                      >
+                        <Check size={12} />
+                        {aiTestResult}
+                      </div>
+                    )}
 
                     <div className="space-y-2">
                       <input
@@ -783,7 +842,7 @@ function ReleaseNotes() {
             </button>
             {open && (
               <ul className="space-y-1.5 px-3.5 pb-3 text-xs leading-relaxed text-text-secondary">
-                {note.items.map((item, i) => (
+                {(note.items || note.features || []).map((item, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-primary" />
                     {item}
@@ -814,10 +873,13 @@ function CapabilityRow({ icon, title, status }) {
 
 function Section({ title, desc, children }) {
   return (
-    <section className="rounded-2xl border border-border bg-surface p-4 shadow-card">
-      <h2 className="mb-1 text-sm font-semibold text-text-primary">{title}</h2>
+    <section className="rounded-2xl border border-border bg-surface/60 p-4 shadow-card">
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-text-primary">
+        <span className="h-3.5 w-px shrink-0 bg-primary/60" />
+        {title}
+      </h2>
       {desc && <p className="mb-3 text-xs leading-relaxed text-text-tertiary">{desc}</p>}
-      {children}
+      <div className="border-t border-border pt-3">{children}</div>
     </section>
   )
 }

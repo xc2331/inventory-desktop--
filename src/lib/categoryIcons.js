@@ -673,13 +673,22 @@ export const CATEGORY_ICON_POOL = Object.entries(CATEGORY_ICON_MAP)
   .filter(([key]) => !['all', 'default'].includes(key))
   .map(([key, Icon]) => ({ key, Icon }))
 
+const EXTRA_ICONS = {}
+
+export function registerCategoryIcon(key, iconComponent) {
+  if (!key || typeof key !== 'string' || typeof iconComponent !== 'function') return
+  EXTRA_ICONS[key.toLowerCase().trim()] = iconComponent
+}
+
 export function getCategoryIcon(category) {
   if (!category) return CATEGORY_ICON_MAP.default
   const key = typeof category === 'string' ? category : category.key
   const icon = category?.icon
   // 如果分类存储的是 lucide 图标名，可直接映射
   if (icon && CATEGORY_ICON_MAP[icon]) return CATEGORY_ICON_MAP[icon]
+  if (icon && EXTRA_ICONS[icon]) return EXTRA_ICONS[icon]
   if (key && CATEGORY_ICON_MAP[key]) return CATEGORY_ICON_MAP[key]
+  if (key && EXTRA_ICONS[key.toLowerCase()]) return EXTRA_ICONS[key.toLowerCase()]
   return CATEGORY_ICON_MAP.default
 }
 

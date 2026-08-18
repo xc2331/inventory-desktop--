@@ -2,16 +2,24 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('lingguang', {
+  invoke: async (channel, data) => ipcRenderer.invoke(channel, data),
+  diag: {
+    log: async (msg) => ipcRenderer.invoke('diag:log', msg),
+    invoke: async (channel, data) => ipcRenderer.invoke(channel, data)
+  },
   db: {
     query: ({ sql, binds }) => ipcRenderer.invoke('db:query', { sql, binds }),
     execute: ({ sql, binds }) => ipcRenderer.invoke('db:execute', { sql, binds })
   },
   sync: {
     exportData: () => ipcRenderer.invoke('sync:exportData'),
-    importData: (jsonString) => ipcRenderer.invoke('sync:importData', jsonString),
+    exportByIds: (ids) => ipcRenderer.invoke('sync:exportByIds', ids),
     exportCSV: () => ipcRenderer.invoke('sync:exportCSV'),
+    exportExpiringReport: () => ipcRenderer.invoke('sync:exportExpiringReport'),
+    importData: (jsonString) => ipcRenderer.invoke('sync:importData', jsonString),
     rebuildCategories: () => ipcRenderer.invoke('sync:rebuildCategories'),
-    rebuildLocations: () => ipcRenderer.invoke('sync:rebuildLocations')
+    rebuildLocations: () => ipcRenderer.invoke('sync:rebuildLocations'),
+    stats: () => ipcRenderer.invoke('sync:stats')
   },
   file: {
     save: ({ content, defaultName, filters }) =>
@@ -30,7 +38,9 @@ contextBridge.exposeInMainWorld('lingguang', {
     resetDataDir: () => ipcRenderer.invoke('settings:resetDataDir'),
     getApiToken: () => ipcRenderer.invoke('settings:getApiToken'),
     resetApiToken: () => ipcRenderer.invoke('settings:resetApiToken'),
-    setApiConfig: (patch) => ipcRenderer.invoke('settings:setApiConfig', patch)
+    setApiConfig: (patch) => ipcRenderer.invoke('settings:setApiConfig', patch),
+    getMaterialTypes: () => ipcRenderer.invoke('settings:getMaterialTypes'),
+    setMaterialTypes: (types) => ipcRenderer.invoke('settings:setMaterialTypes', types)
   },
   dialog: {
     pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
@@ -38,7 +48,15 @@ contextBridge.exposeInMainWorld('lingguang', {
     pickFile: () => ipcRenderer.invoke('dialog:pickFile')
   },
   items: {
-    generateItemNo: () => ipcRenderer.invoke('items:generateItemNo')
+    generateItemNo: () => ipcRenderer.invoke('items:generateItemNo'),
+    batchDelete: (ids) => ipcRenderer.invoke('items:batchDelete', { ids }),
+    batchUpdate: (field, value, ids) => ipcRenderer.invoke('items:batchUpdate', { field, value, ids }),
+    batchChangeQty: (ids, type, value) => ipcRenderer.invoke('items:batchChangeQty', { ids, type, value })
+  },
+  photo: {
+    save: async (base64, filename) => ipcRenderer.invoke('photo:save', { base64, filename }),
+    read: async (relPath) => ipcRenderer.invoke('photo:read', relPath),
+    delete: async (relPath) => ipcRenderer.invoke('photo:delete', relPath)
   },
   materials: {
     list: (opts) => ipcRenderer.invoke('materials:list', opts),
@@ -63,7 +81,8 @@ contextBridge.exposeInMainWorld('lingguang', {
     getConfig: () => ipcRenderer.invoke('ai:getConfig'),
     setConfig: (patch) => ipcRenderer.invoke('ai:setConfig', patch),
     recognize: (image) => ipcRenderer.invoke('ai:recognize', { image }),
-    fetchModels: (opts) => ipcRenderer.invoke('ai:fetchModels', opts || {})
+    fetchModels: (opts) => ipcRenderer.invoke('ai:fetchModels', opts || {}),
+    testConnection: (opts) => ipcRenderer.invoke('ai:testConnection', opts || {})
   },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),

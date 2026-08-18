@@ -12,6 +12,7 @@ import {
 import { EASE } from '../lib/motion'
 import ConfirmDialog from './ConfirmDialog'
 import PageHeader from './PageHeader'
+import EmptyState from './EmptyState'
 
 export default function LocationManager({ locations, lang, onBack, onChanged, showToast }) {
   const { t } = useI18n()
@@ -147,13 +148,10 @@ export default function LocationManager({ locations, lang, onBack, onChanged, sh
         </AnimatePresence>
 
         {tree.length === 0 && !addingRoot ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="rounded-2xl border border-dashed border-border bg-surface px-4 py-16 text-center text-sm text-text-tertiary"
-          >
-            {t('loc_empty')}
-          </motion.div>
+          <EmptyState
+            icon={<FolderOpen size={28} />}
+            title={t('loc_empty')}
+          />
         ) : (
           <div className="rounded-2xl border border-border bg-surface p-3 shadow-card">
             {tree.map((node, idx) => (

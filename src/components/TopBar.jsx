@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName, winControl } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -20,7 +20,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   AlertTriangle,
-  CalendarClock
+  CalendarClock,
+  Bell,
+  LayoutGrid
 } from 'lucide-react'
 import { getCategoryIcon } from '../lib/categoryIcons'
 
@@ -34,6 +36,8 @@ export default function TopBar({
   onImport,
   onExportJSON,
   onExportCSV,
+  onExportSelected,
+  onExportReport,
   activeCategory,
   activeLocation,
   categories,
@@ -44,12 +48,41 @@ export default function TopBar({
   sidebarCollapsed,
   total,
   lowStock,
-  expiringSoon
+  expiringSoon,
+  onDensityChange,
+  notifOn,
+  onToggleNotif
 }) {
   const { t } = useI18n()
   const [exportOpen, setExportOpen] = useState(false)
   const [maximized, setMaximized] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const [history, setHistory] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('searchHistory') || '[]')
+    } catch {
+      return []
+    }
+  })
+  const inputRef = useRef(null)
+
+  // 保存搜索历史到 localStorage
+  useEffect(() => {
+    localStorage.setItem('searchHistory', JSON.stringify(history))
+  }, [history])
+
+  const addToHistory = (kw) => {
+    const trimmed = kw.trim()
+    if (!trimmed) return
+    const deduped = history.filter((h) => h !== trimmed)
+    setHistory([trimmed, ...deduped].slice(0, 5))
+  }
+
   const cat = categories.find((c) => c.key === activeCategory)
+
+  // U-03 匹配数 badge 颜色
+  const matchCount = total
+  const matchTone = matchCount > 0 ? 'text-primary' : 'text-danger'
 
   useEffect(() => {
     let alive = true
@@ -113,26 +146,73 @@ export default function TopBar({
         )}
       </div>
 
-      {/* 搜索框 */}
+      {/* 搜索框 (U-03：焦点态强化 + 匹配数 badge + 关键词高亮预留) */}
       <div className="group no-drag relative mx-auto flex w-full max-w-xl flex-1 px-2">
         <Search
           size={15}
-          className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-text-tertiary transition-smooth group-focus-within:text-primary"
+          className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-text-tertiary transition-all duration-300 group-focus-within:text-primary group-focus-within:scale-110"
         />
         <input
+          ref={inputRef}
+          id="search-input"
           type="text"
           value={keyword}
           onChange={(e) => onKeywordChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              if (keyword) addToHistory(keyword)
+              onKeywordChange('')
+            }
+          }}
           placeholder={t('search_placeholder')}
-          className="h-9 w-full rounded-full border border-border bg-surface/60 pl-10 pr-9 text-sm text-text-primary outline-none transition-smooth placeholder:text-text-tertiary hover:border-border-strong hover:bg-surface focus:border-primary/60 focus:bg-surface focus:shadow-glow"
+          className="h-9 w-full rounded-full border border-border bg-surface/60 pl-10 pr-24 text-sm text-text-primary outline-none transition-all duration-300 placeholder:text-text-tertiary hover:border-border-strong hover:bg-surface focus:border-primary/70 focus:bg-surface focus:shadow-glow focus:ring-2 focus:ring-primary/10"
         />
-        {keyword && (
-          <button
-            onClick={() => onKeywordChange('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-text-tertiary transition hover:bg-surface-hover hover:text-text-secondary"
-          >
-            <X size={12} strokeWidth={2.5} />
-          </button>
+        {keyword ? (
+          <>
+            {/* 匹配数 badge (U-03) */}
+            <span className={`absolute right-12 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[11px] font-semibold tabular-nums ${matchTone} transition-all duration-300`}>
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
+              {matchCount}
+            </span>
+            <button
+              onClick={() => {
+                if (keyword) addToHistory(keyword)
+                onKeywordChange('')
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-text-tertiary transition hover:bg-danger hover:text-white"
+              title={t('search_clear')}
+            >
+              <X size={12} strokeWidth={2.5} />
+            </button>
+          </>
+        ) : (
+          <span className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] font-medium text-text-tertiary opacity-0 transition-opacity duration-300 group-hover:opacity-100" title="Esc 退出">
+            <X size={9} />
+          </span>
+        )}
+        {/* 搜索历史下拉（U-12：仅当输入聚焦且关键词为空时显示） */}
+        {focused && !keyword && history.length > 0 && (
+          <div className="absolute left-2 right-2 top-[calc(100%+0.25rem)] z-50 rounded-xl border border-border bg-surface p-1.5 shadow-float">
+            <div className="px-3 py-1.5 text-[10px] font-medium text-text-tertiary">{t('search_history')}</div>
+            {history.map((h, i) => (
+              <button
+                key={i}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  onKeywordChange(h)
+                  setFocused(true)
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm text-text-secondary transition hover:bg-surface-hover hover:text-text-primary"
+              >
+                <Search size={12} className="shrink-0 text-text-tertiary" />
+                <span className="truncate">{h}</span>
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
@@ -171,6 +251,21 @@ export default function TopBar({
                 <FileSpreadsheet size={14} className="text-primary" />
                 {t('export_csv')}
               </button>
+              <div className="my-1 h-px bg-border" />
+              <button
+                onMouseDown={onExportSelected}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-text-secondary transition hover:bg-surface-hover"
+              >
+                <CheckSquare size={14} className="text-primary" />
+                {t('export_selected')}
+              </button>
+              <button
+                onMouseDown={onExportReport}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-text-secondary transition hover:bg-surface-hover"
+              >
+                <AlertTriangle size={14} className="text-amber-500" />
+                {t('export_report')}
+              </button>
             </div>
           )}
         </div>
@@ -187,6 +282,29 @@ export default function TopBar({
         >
           {bulkMode ? <CheckSquare size={14} /> : <Square size={14} />}
           {t('bulk_select')}
+        </button>
+
+        <button
+          onClick={onDensityChange}
+          title={t('density_toggle')}
+          className="flex h-8 items-center gap-1 rounded-lg border border-border bg-surface/60 px-2.5 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+        >
+          <LayoutGrid size={14} />
+          {t('density_toggle')}
+        </button>
+
+        <button
+          onClick={onToggleNotif}
+          title={notifOn ? t('notify_disabled') : t('notify_enabled')}
+          className={cn(
+            'flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-smooth',
+            notifOn
+              ? 'border-primary/40 bg-primary-soft text-primary shadow-sm'
+              : 'border-border bg-surface/60 text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+          )}
+        >
+          <Bell size={14} />
+          {notifOn ? t('notify_enabled') : t('notify_disabled')}
         </button>
 
         <button

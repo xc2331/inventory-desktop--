@@ -314,6 +314,7 @@ inventory-desktop/
 
 ## 最近更新
 
+- **v1.3.0c**：电子材料库白屏修复（补全 `SearchBar` 组件导入）；为 App 增加全局异步错误监听（`window.onerror` + `unhandledrejection`），位置图、平面图编辑器、材料库新增 ErrorBoundary 错误捕获层，白屏时显示完整错误信息供复制排查
 - **v1.3.0.b**：修复 Agent API 状态接口版本号返回过时的问题（`getStatus` 版本字段从硬编码改为动态读取 package.json）
 - **v1.3.0.a**：修复材料库卡片大小/视图模式/卡片风格重启后丢失；电子材料库接口从 `/api/materials` 改为 `/api/e-materials`，响应体标题加【电子材料】前缀；新增 `/api/e-materials/types` 接口供 Agent 管理类型列表
 - **v1.3.0**：家庭食材消耗日志（按日期/食材追踪消耗量）、Agent AI 识别自动入库（含 AI 建议来源字段）、批量导入（物品 + 耗材 + 材料）

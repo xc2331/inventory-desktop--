@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect, Component, Suspense } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Search, PackageOpen, Plus, Loader2 } from 'lucide-react'
+import { Search, PackageOpen, Plus, Loader2, XCircle } from 'lucide-react'
 import { useI18n } from './lib/i18n'
 import { EASE } from './lib/motion'
 import { cn } from './lib/cn'
@@ -9,8 +9,10 @@ import TopBar from './components/TopBar'
 import ItemCard from './components/ItemCard'
 import ItemForm from './components/ItemForm'
 import Lightbox from './components/Lightbox'
+import EmptyState from './components/EmptyState'
 import ConfirmDialog from './components/ConfirmDialog'
 import CloseActionDialog from './components/CloseActionDialog'
+import ShortcutPanel from './components/ShortcutPanel'
 import UpdateDialog from './components/UpdateDialog'
 import Toast from './components/Toast'
 import SettingsView from './components/SettingsView'
@@ -31,15 +33,20 @@ import {
   fetchCategoryCounts,
   fetchCategories,
   fetchLocations,
+  fetchStatistics,
   createItem,
   updateItem,
   adjustQuantity,
   deleteItem,
   bulkDeleteItems,
   bulkUpdateCategory,
+  bulkPreview,
+  bulkUpdateField,
   exportJSON,
-  importJSON,
   exportCSV,
+  exportSelectedJSON,
+  exportExpiringReport,
+  importJSON,
   rebuildCategories,
   rebuildLocations,
   saveFile,
@@ -72,6 +79,13 @@ import {
   onUpdateInstalling,
   onUpdateError
 } from './lib/api'
+import {
+  useToasts,
+  useFilters,
+  useBulk,
+  useSettings,
+  useItems
+} from './hooks'
 
 function applyThemeClass(theme) {
   const isDark =
@@ -80,72 +94,218 @@ function applyThemeClass(theme) {
 }
 
 export default function App() {
-  const { t, lang, setLang } = useI18n()
-  const [view, setView] = useState('items') // items | settings | statistics | categories | locations | materials | locationMap | floorPlan
-  const [items, setItems] = useState([])
-  const [allItems, setAllItems] = useState([]) // 全量物品，用于位置计数（不受筛选影响）
+  const { t, lang: i18nLang, setLang: setI18nLang } = useI18n()
+  const [globalError, setGlobalError] = useState(null)
+
+  // 全局异步错误兜底：捕获 useEffect、异步回调、Promise 未处理拒绝等 ErrorBoundary 捕获不到的错误
+  useEffect(() => {
+    const handler = (event) => {
+      event.preventDefault()
+      const msg = event.error?.message || String(event.error || 'Unknown error')
+      const stack = event.error?.stack || ''
+      setGlobalError({ message: msg, stack })
+      console.error('[GlobalErrorHandler]', msg, stack)
+    }
+    window.addEventListener('error', handler)
+    window.addEventListener('unhandledrejection', handler)
+    return () => {
+      window.removeEventListener('error', handler)
+      window.removeEventListener('unhandledrejection', handler)
+    }
+  }, [])
+
+  if (globalError) {
+    return (
+      <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-bg p-6 text-center">
+        <XCircle size={36} className="text-red-500" />
+        <h2 className="text-lg font-bold text-text-primary">应用发生异步错误</h2>
+        <div className="max-w-lg rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-left text-xs font-mono text-red-700 dark:bg-red-950 dark:text-red-300">
+          <p className="font-semibold mb-2">错误信息（请复制到聊天记录）：</p>
+          <p>{globalError.message}</p>
+          <p className="mt-3 pt-2 border-t border-red-200 dark:border-red-800 max-h-48 overflow-auto break-all">{globalError.stack}</p>
+        </div>
+        <button onClick={() => setGlobalError(null)} className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">
+          重试
+        </button>
+      </div>
+    )
+  }
+
+  // ---- Extracted hooks ----
+  const { toast, setToast, showToast } = useToasts()
+  const {
+    keyword, setKeyword,
+    keywordInput, setKeywordInput,
+    activeCategory, setActiveCategory,
+    activeLocation, setActiveLocation,
+    showExpired, setShowExpired,
+    searchHistory, setSearchHistory,
+    loadSearchHistory,
+    saveSearchHistory,
+    applyFilter
+  } = useFilters()
+
+  const {
+    theme, setTheme,
+    animations, setAnimations,
+    closeAction, setCloseAction,
+    lang, setLang,
+    warmItems, setWarmItems,
+    warmStats, setWarmStats,
+    handleChangeLang,
+    handleChangeTheme,
+    handleChangeAnimations,
+    handleChangeCloseAction
+  } = useSettings(getSettings, setSettings, applyThemeClass)
+
+  const itemsHook = useItems({
+    keyword,
+    activeCategory,
+    showExpired,
+    showToast,
+    t
+  })
+  const {
+    items, setItems,
+    allItems, setAllItems,
+    loadingItems: loading,
+    setLoadingItems: setLoading,
+    counts, setCounts,
+    categories, setCategories,
+    locations, setLocations,
+    confirm, setConfirm,
+    selectedIds, setSelectedIds,
+    fetchItems,
+    reload,
+    refreshCategories,
+    refreshLocations,
+    refreshCounts,
+    handleBulkDelete,
+    handleConfirmBulkDelete,
+    handleAdjust,
+    handleBulkChangeCategory,
+    handleBulkUpdateQuantity,
+    handleBulkChangeQty,
+    handleBulkUpdateField,
+    handleBulkPreview,
+    handleExportJSON,
+    handleExportCSV,
+    handleExportSelected,
+    handleExportExpiringReport,
+    handleImport: handleImportJSON,
+    paginationPage,
+    paginationLoading,
+    paginationHasMore,
+    loadNextPage,
+    totalCount,
+    totalAllCount
+  } = itemsHook
+
+  const filteredItems = useMemo(() => {
+    if (!activeLocation || activeLocation.length === 0) return items
+    return items.filter((it) => locationMatchesPath(it, activeLocation))
+  }, [items, activeLocation])
+
+  // Infinite scroll: auto-load next page when user scrolls near bottom of items grid
+  const itemsGridRef = useRef(null)
+  useEffect(() => {
+    if (showExpired || paginationLoading || !paginationHasMore || !itemsGridRef.current) return
+    const el = itemsGridRef.current
+    const handler = () => {
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 400) {
+        loadNextPage()
+      }
+    }
+    el.addEventListener('scroll', handler, { passive: true })
+    return () => el.removeEventListener('scroll', handler)
+  }, [paginationLoading, paginationHasMore, showExpired, loadNextPage])
+
+  const locationCounts = useMemo(() => buildLocationCounts(allItems), [allItems])
+
+  const {
+    bulkMode, setBulkMode,
+    toggleSelect,
+    clearSelection,
+    handleSelectAll,
+    handleClearSelection,
+    exitBulkMode,
+    isBulkEmpty
+  } = useBulk(filteredItems, selectedIds, setSelectedIds)
+
+  // ---- Local App state ----
+  const [view, setView] = useState('items')
   const [lightbox, setLightbox] = useState({ src: '', alt: '' })
-  const [keywordInput, setKeywordInput] = useState('')
-  const [keyword, setKeyword] = useState('')
-  const [activeCategory, setActiveCategory] = useState('')
-  const [activeLocation, setActiveLocation] = useState([]) // 位置路径数组
-  const [counts, setCounts] = useState({})
-  const [categories, setCategories] = useState([])
-  const [locations, setLocations] = useState([])
-  const [formOpen, setFormOpen] = useState(false)
-  const [editingItem, setEditingItem] = useState(null)
-  const [confirm, setConfirm] = useState({ open: false, id: null, name: '' })
-  const [toast, setToast] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [bulkMode, setBulkMode] = useState(false)
-  const [selectedIds, setSelectedIds] = useState(new Set())
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [theme, setTheme] = useState('light')
-  const [animations, setAnimations] = useState(true)
-  const [closeAction, setCloseAction] = useState('')
   const [closePromptOpen, setClosePromptOpen] = useState(false)
   const [updaterInfo, setUpdaterInfo] = useState({ currentVersion: '', source: '', sources: [], autoCheck: true })
   const [updateDialog, setUpdateDialog] = useState({ open: false, status: 'idle', info: null, progress: { downloaded: 0, total: 0, percent: 0 }, downloadPath: '' })
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const [floorPlanLocation, setFloorPlanLocation] = useState(null)
+  const [cardDensity, setCardDensity] = useState('medium')
+  const [notifyEnabled, setNotifyEnabled] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('notifyEnabled') || 'false') } catch { return false }
+  })
 
-  // 切换页面时清除悬浮层状态，避免回到物品页后重复显示弹窗/对话框/大图
+  const exitBulkRef = useRef(null)
+  const lastNotifyCount = useRef(0)
+
   useEffect(() => {
     setToast(null)
     setLightbox({ src: '', alt: '' })
     setConfirm({ open: false, id: null, name: '' })
   }, [view])
 
-  // 初始化主题、动效与关闭行为
   useEffect(() => {
-    getSettings().then((s) => {
-      const initialTheme = s.theme || 'light'
-      setTheme(initialTheme)
-      applyThemeClass(initialTheme)
-      const anim = s.animations !== false
-      setAnimations(anim)
-      document.documentElement.classList.toggle('no-anim', !anim)
-      setCloseAction(s.closeAction || '')
-    })
-  }, [])
+    localStorage.setItem('notifyEnabled', JSON.stringify(notifyEnabled))
+  }, [notifyEnabled])
 
-  // 监听系统主题变化（仅在 auto 模式）
   useEffect(() => {
-    if (theme !== 'system') return
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = () => applyThemeClass(theme)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [theme])
+    if (notifyEnabled && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
 
-  // 首次关闭窗口时，主进程请求渲染进程弹出选择框
+    if (!notifyEnabled) return
+
+    const intervalId = setInterval(async () => {
+      try {
+        const all = await fetchAllItems()
+        const now = Date.now()
+        const expired = all.filter((it) => it.expiry_date && it.expiry_date < now)
+        const expiring = all.filter((it) => it.expiry_date && it.expiry_date >= now && it.expiry_date < now + 7 * 86400000)
+        const list = expired.concat(expiring)
+
+        if (
+          typeof Notification !== 'undefined' &&
+          Notification.permission === 'granted' &&
+          notifyEnabled &&
+          list.length > 0 &&
+          list.length > lastNotifyCount.current
+        ) {
+          lastNotifyCount.current = list.length
+          const preview = list.slice(0, 3).map((it) => it.name || it.item_no || '—')
+          new Notification(t('notify_expiryTitle'), {
+            body: `${list.length} ${t('notify_expiryBody')} · ${preview.join('、')}`,
+            tag: 'expiry-' + Date.now()
+          })
+        }
+      } catch (e) {
+        console.warn('[App] 过期通知检查失败', e)
+      }
+    }, 60_000)
+
+    return () => clearInterval(intervalId)
+  }, [notifyEnabled, t])
+
   useEffect(() => {
     const remove = winControl.onRequestCloseAction(() => setClosePromptOpen(true))
     return remove
   }, [])
 
-  // 初始化更新器信息并监听更新事件
   useEffect(() => {
-    getUpdaterInfo().then((info) => setUpdaterInfo(info))
+    getUpdaterInfo().then((info) => setUpdaterInfo(info)).catch(() => {
+      console.warn('[App] 更新器信息获取失败，使用默认值')
+      setUpdaterInfo({ currentVersion: '', source: '', sources: [], autoCheck: true })
+    })
 
     const removes = []
     removes.push(
@@ -187,73 +347,6 @@ export default function App() {
     return () => removes.forEach((fn) => fn())
   }, [])
 
-  const showToast = useCallback((message, type = 'success') => {
-    setToast({ message, type, id: Date.now() })
-  }, [])
-
-  useEffect(() => {
-    const tm = setTimeout(() => setKeyword(keywordInput.trim()), 250)
-    return () => clearTimeout(tm)
-  }, [keywordInput])
-
-  const refreshCategories = useCallback(async () => {
-    try {
-      setCategories(await fetchCategories())
-    } catch (e) {
-      /* ignore */
-    }
-  }, [])
-
-  const refreshLocations = useCallback(async () => {
-    try {
-      setLocations(await fetchLocations())
-    } catch (e) {
-      /* ignore */
-    }
-  }, [])
-
-  const refreshCounts = useCallback(async () => {
-    try {
-      const rows = await fetchCategoryCounts()
-      const m = {}
-      rows.forEach((r) => (m[r.category] = r.count))
-      setCounts(m)
-    } catch (e) {
-      /* ignore */
-    }
-  }, [])
-
-  const reload = useCallback(async () => {
-    setLoading(true)
-    try {
-      // 并行：当前筛选列表 + 全量物品（用于位置计数，不受筛选影响）
-      const [rows, all] = await Promise.all([
-        (async () => {
-          if (keyword) {
-            return activeCategory
-              ? await fetchByCategoryAndKeyword(activeCategory, keyword)
-              : await searchItems(keyword)
-          } else if (activeCategory) {
-            return await fetchByCategory(activeCategory)
-          }
-          return await fetchAllItems()
-        })(),
-        fetchAllItems()
-      ])
-      setItems(rows)
-      setAllItems(all)
-    } catch (e) {
-      showToast(t('toast_loadFail', { msg: e.message }), 'error')
-    } finally {
-      setLoading(false)
-    }
-  }, [keyword, activeCategory, showToast, t])
-
-  useEffect(() => {
-    refreshCategories()
-    refreshLocations()
-  }, [refreshCategories, refreshLocations])
-
   useEffect(() => {
     if (view === 'items' || view === 'locationMap') reload()
   }, [reload, view])
@@ -261,7 +354,6 @@ export default function App() {
     refreshCounts()
   }, [refreshCounts])
 
-  // 菜单快捷键：用 ref 持有最新处理器，避免陈旧闭包
   const handlersRef = useRef({ imp: () => {}, ej: () => {}, ec: () => {} })
   useEffect(() => {
     const api = window.lingguang
@@ -270,240 +362,102 @@ export default function App() {
     api.menu.onExportCsv(() => handlersRef.current.ec())
   }, [])
 
-  // Agent API 外部操作后通知前端刷新（解决 Agent 新建/修改/删除物品 UI 不同步问题）
-  useEffect(() => {
-    const remove = window.lingguang.agent.onDataChanged(async (payload) => {
-      await reload()
-      await refreshCounts()
-      if (payload.type === 'categories') {
-        await refreshCategories()
-      } else if (payload.type === 'locations') {
-        await refreshLocations()
-      }
-    })
-    return remove
-  }, [reload, refreshCounts, refreshCategories, refreshLocations])
-
-  // 当前可见物品（含位置筛选）
-  const filteredItems = useMemo(() => {
-    if (!activeLocation || activeLocation.length === 0) return items
-    return items.filter((it) => locationMatchesPath(it, activeLocation))
-  }, [items, activeLocation])
-
-  // 位置计数基于全量数据，选分类时数量保持不变
-  const locationCounts = useMemo(() => buildLocationCounts(allItems), [allItems])
-
-  const total = filteredItems.length
-  const lowStock = filteredItems.filter((it) => it.min_quantity > 0 && it.quantity <= it.min_quantity).length
-  const expiringSoon = filteredItems.filter((it) => {
+  const total = useMemo(() => {
+    if (showExpired) return filteredItems.length
+    return totalCount || filteredItems.length
+  }, [totalCount, filteredItems.length, showExpired])
+  const lowStock = useMemo(() => filteredItems.filter((it) => it.min_quantity > 0 && it.quantity <= it.min_quantity).length, [filteredItems])
+  const expiringSoon = useMemo(() => filteredItems.filter((it) => {
     if (!it.expiry_date) return false
     return Math.ceil((it.expiry_date - Date.now()) / 86400000) <= 7
-  }).length
+  }).length, [filteredItems])
 
   const handleOpenNew = () => {
-    setEditingItem(null)
-    setFormOpen(true)
+    itemsHook.setEditingItem(null)
+    itemsHook.setFormOpen(true)
   }
   const handleOpenEdit = (item) => {
-    setEditingItem(item)
-    setFormOpen(true)
+    itemsHook.setEditingItem(item)
+    itemsHook.setFormOpen(true)
+  }
+
+  const handleToggleExpired = () => {
+    const next = !showExpired
+    setShowExpired(next)
+    if (next) {
+      setActiveCategory('')
+      setKeyword('')
+      setKeywordInput('')
+      setActiveLocation([])
+    }
+  }
+  const handleClearLocation = () => {
+    setActiveLocation([])
   }
 
   const handleSave = async (data) => {
     try {
       const payload = { ...data }
-      // 新建物品且编号留空时，参考已有数据规则自动生成编号
-      if (!editingItem && !payload.item_no?.trim()) {
+      if (!itemsHook.editingItem && !payload.item_no?.trim()) {
         try {
           payload.item_no = await generateItemNo()
-        } catch (e) {
-          /* 生成失败则保留空值 */
-        }
+        } catch { /* keep empty */ }
       }
-      if (editingItem) {
-        await updateItem(editingItem.id, payload)
+      if (itemsHook.editingItem) {
+        await updateItem(itemsHook.editingItem.id, payload)
         showToast(t('toast_updated', { name: data.name || '—' }))
       } else {
         await createItem(payload)
         showToast(t('toast_added', { name: data.name || '—' }))
       }
-      setFormOpen(false)
-      setEditingItem(null)
+      itemsHook.setFormOpen(false)
+      itemsHook.setEditingItem(null)
       await reload()
       await refreshCounts()
       await refreshCategories()
       await refreshLocations()
     } catch (e) {
       showToast(t('toast_saveFail', { msg: e.message }), 'error')
-    }
-  }
-
-  const handleAdjust = async (id, delta) => {
-    setItems((prev) =>
-      prev.map((it) =>
-        it.id === id ? { ...it, quantity: Math.max(0, it.quantity + delta), updated_at: Date.now() } : it
-      )
-    )
-    try {
-      await adjustQuantity(id, delta)
-    } catch (e) {
-      showToast(t('toast_qtyFail'), 'error')
-      reload()
     }
   }
 
   const handleAskDelete = (item) => setConfirm({ open: true, id: item.id, name: item.name || '—' })
-  const handleConfirmDelete = async () => {
-    const { id, name } = confirm
-    setConfirm({ open: false, id: null, name: '' })
-    try {
-      await deleteItem(id)
-      showToast(t('toast_deleted', { name }))
-      await reload()
-      await refreshCounts()
-    } catch (e) {
-      showToast(t('toast_deleteFail', { msg: e.message }), 'error')
+
+  exitBulkRef.current = exitBulkMode
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        const searchInput = document.querySelector('#search-input')
+        searchInput?.focus()
+      } else if (e.ctrlKey && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault()
+        exitBulkRef.current?.()
+      } else if (e.key === '?') {
+        setShowShortcuts((v) => !v)
+      } else if (e.key === 'Escape') {
+        if (showShortcuts) setShowShortcuts(false)
+        else if (itemsHook.formOpen) itemsHook.setFormOpen(false)
+        else if (bulkMode) exitBulkRef.current?.()
+        else if (lightbox.src) setLightbox({ src: '', alt: '' })
+        else if (confirm.open) setConfirm({ open: false, id: null, name: '' })
+      }
     }
-  }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [showShortcuts])
 
-  // ---- 批量选择 ----
-  const toggleSelect = (id) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  handlersRef.current.imp = handleImportJSON
+  handlersRef.current.ej = handleExportJSON
+  handlersRef.current.ec = handleExportCSV
 
-  const handleSelectAll = () => {
-    if (selectedIds.size === filteredItems.length) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(filteredItems.map((it) => it.id)))
-    }
-  }
-
-  const handleClearSelection = () => setSelectedIds(new Set())
-
-  const exitBulkMode = () => {
-    setBulkMode(false)
-    setSelectedIds(new Set())
-  }
-
-  const handleBulkChangeCategory = async (category) => {
-    const ids = Array.from(selectedIds)
-    if (ids.length === 0) return
-    try {
-      const res = await bulkUpdateCategory(ids, category)
-      showToast(t('toast_bulkUpdated', { n: res.updated }))
-      setSelectedIds(new Set())
-      await reload()
-      await refreshCounts()
-    } catch (e) {
-      showToast(t('toast_saveFail', { msg: e.message }), 'error')
-    }
-  }
-
-  const handleBulkDelete = () => {
-    const ids = Array.from(selectedIds)
-    if (ids.length === 0) return
-    setConfirm({ open: true, bulk: true, ids, name: t('confirm_bulkDeleteMsg', { n: ids.length }) })
-  }
-
-  const handleConfirmBulkDelete = async () => {
-    const { ids } = confirm
-    setConfirm({ open: false, id: null, name: '' })
-    try {
-      const res = await bulkDeleteItems(ids)
-      showToast(t('toast_bulkDeleted', { n: res.deleted }))
-      setSelectedIds(new Set())
-      await reload()
-      await refreshCounts()
-    } catch (e) {
-      showToast(t('toast_deleteFail', { msg: e.message }), 'error')
-    }
-  }
-
-  const handleExportJSON = async () => {
-    try {
-      const json = await exportJSON()
-      const res = await saveFile({
-        content: json,
-        defaultName: `inventory-${new Date().toISOString().slice(0, 10)}.json`,
-        filters: [{ name: 'JSON', extensions: ['json'] }]
-      })
-      if (!res.canceled) showToast(t('toast_exported'))
-    } catch (e) {
-      showToast(t('toast_exportFail', { msg: e.message }), 'error')
-    }
-  }
-
-  const handleExportCSV = async () => {
-    try {
-      const csv = await exportCSV()
-      const res = await saveFile({
-        content: csv,
-        defaultName: `inventory-${new Date().toISOString().slice(0, 10)}.csv`,
-        filters: [{ name: 'CSV', extensions: ['csv'] }]
-      })
-      if (!res.canceled) showToast(t('toast_exported'))
-    } catch (e) {
-      showToast(t('toast_exportFail', { msg: e.message }), 'error')
-    }
-  }
-
-  const handleImportJSON = async () => {
-    try {
-      const res = await openFile({ filters: [{ name: 'JSON', extensions: ['json'] }] })
-      if (res.canceled) return
-      const { imported } = await importJSON(res.content)
-      showToast(t('toast_imported', { n: imported }))
-      await reload()
-      await refreshCounts()
-      await refreshCategories()
-      await refreshLocations()
-    } catch (e) {
-      showToast(t('toast_importFail', { msg: e.message }), 'error')
-    }
-  }
-
-  // 设置页：切换语言
-  const handleChangeLang = async (l) => {
-    await setSettings({ language: l })
-    setLang(l)
-    showToast(t('toast_langChanged'))
-  }
-
-  // 设置页：切换主题
-  const handleChangeTheme = async (nextTheme) => {
-    await setSettings({ theme: nextTheme })
-    setTheme(nextTheme)
-    applyThemeClass(nextTheme)
-  }
-
-  // 设置页：切换动效
-  const handleChangeAnimations = async (on) => {
-    await setSettings({ animations: on })
-    setAnimations(on)
-    document.documentElement.classList.toggle('no-anim', !on)
-  }
-
-  // 设置页：切换关闭行为
-  const handleChangeCloseAction = async (action) => {
-    await setSettings({ closeAction: action })
-    setCloseAction(action)
-    showToast(t('toast_settingsSaved'))
-  }
-
-  // 关闭行为弹窗：用户选择后通知主进程
   const handleResolveCloseAction = async (action, remember) => {
     setClosePromptOpen(false)
     if (remember) setCloseAction(action)
     await winControl.resolveCloseAction({ action, remember })
   }
 
-  // 软件更新：切换更新源 / 自动检查 / 手动检查 / 下载安装
   const handleChangeUpdateSource = async (sourceId) => {
     await setUpdateSource(sourceId)
     const info = await getUpdaterInfo()
@@ -521,7 +475,6 @@ export default function App() {
   }
 
   const handleDownloadUpdate = async () => {
-    // 下载目录选择由主进程在首次下载时弹出
     await downloadUpdate()
   }
 
@@ -552,7 +505,6 @@ export default function App() {
     await openUpdateExternal(url)
   }
 
-  // 设置页：切换数据目录
   const handleChangeDataDir = async () => {
     const res = await pickFolder()
     if (res.canceled) return
@@ -570,7 +522,6 @@ export default function App() {
     setTimeout(() => location.reload(), 800)
   }
 
-  // 分类/位置管理变更后刷新
   const handleCatsChanged = async () => {
     await refreshCategories()
     await refreshCounts()
@@ -579,7 +530,6 @@ export default function App() {
     await refreshLocations()
   }
 
-  // 设置页：根据已有物品重建缺失的分类与位置
   const handleRebuildMeta = async () => {
     try {
       const [catRes, locRes] = await Promise.all([rebuildCategories(), rebuildLocations()])
@@ -598,14 +548,8 @@ export default function App() {
     }
   }
 
-  // 同步菜单处理器引用（每渲染更新，避免陈旧闭包）
-  handlersRef.current.imp = handleImportJSON
-  handlersRef.current.ej = handleExportJSON
-  handlersRef.current.ec = handleExportCSV
-
-  // ---- 渲染 ----
   const statisticsView = (
-    <StatisticsView onBack={() => setView('items')} animations={animations} />
+    <StatisticsView onBack={() => setView('items')} animations={animations} warmItems={warmItems} warmStats={warmStats} />
   )
   const settingsView = (
     <SettingsView
@@ -666,7 +610,9 @@ export default function App() {
               transition={{ duration: 0.1, ease: EASE }}
               className="absolute inset-0 will-change-transform"
             >
-              {statisticsView}
+              <ErrorBoundary onBack={() => setView('items')} onRetry={() => setView('items')}>
+                {statisticsView}
+              </ErrorBoundary>
             </motion.div>
           )}
           {view === 'settings' && (
@@ -678,7 +624,9 @@ export default function App() {
               transition={{ duration: 0.1, ease: EASE }}
               className="absolute inset-0 will-change-transform"
             >
-              {settingsView}
+              <ErrorBoundary onBack={() => setView('items')} onRetry={() => setView('items')}>
+                {settingsView}
+              </ErrorBoundary>
             </motion.div>
           )}
           {view === 'categories' && (
@@ -690,7 +638,9 @@ export default function App() {
               transition={{ duration: 0.1, ease: EASE }}
               className="absolute inset-0 will-change-transform"
             >
-              {categoriesView}
+              <ErrorBoundary onBack={() => setView('items')} onRetry={() => setView('items')}>
+                {categoriesView}
+              </ErrorBoundary>
             </motion.div>
           )}
           {view === 'locations' && (
@@ -702,7 +652,9 @@ export default function App() {
               transition={{ duration: 0.1, ease: EASE }}
               className="absolute inset-0 will-change-transform"
             >
-              {locationsView}
+              <ErrorBoundary onBack={() => setView('items')} onRetry={() => setView('items')}>
+                {locationsView}
+              </ErrorBoundary>
             </motion.div>
           )}
           {view === 'help' && (
@@ -714,7 +666,9 @@ export default function App() {
               transition={{ duration: 0.1, ease: EASE }}
               className="absolute inset-0 will-change-transform"
             >
-              {helpView}
+              <ErrorBoundary onBack={() => setView('items')} onRetry={() => setView('items')}>
+                {helpView}
+              </ErrorBoundary>
             </motion.div>
           )}
           {view === 'materials' && (
@@ -726,7 +680,7 @@ export default function App() {
               transition={{ duration: 0.1, ease: EASE }}
               className="absolute inset-0 will-change-transform"
             >
-              <ErrorBoundary onBack={() => setView('items')}>
+              <ErrorBoundary onBack={() => setView('items')} onRetry={() => setView('items')}>
                 <MaterialLibrary onBack={() => setView('items')} />
               </ErrorBoundary>
             </motion.div>
@@ -740,7 +694,7 @@ export default function App() {
               transition={{ duration: 0.1, ease: EASE }}
               className="absolute inset-0 will-change-transform"
             >
-              <ErrorBoundary onBack={() => setView('items')}>
+              <ErrorBoundary onBack={() => setView('items')} onRetry={() => setView('items')}>
                 <LocationMap
                   items={allItems}
                   locations={locations}
@@ -773,6 +727,7 @@ export default function App() {
                   setFloorPlanLocation(null)
                   setView('locationMap')
                 }}
+                onRetry={() => setView('items')}
               >
                 <FloorPlanEditor
                   locationId={floorPlanLocation.id}
@@ -826,6 +781,9 @@ export default function App() {
                   locationCounts={locationCounts}
                   lang={lang}
                   activeView={view}
+                  showExpired={showExpired}
+                  onToggleExpired={handleToggleExpired}
+                  onClearLocation={handleClearLocation}
                   onOpenSettings={() => setView('settings')}
                   onOpenStatistics={() => setView('statistics')}
                   onOpenHelp={() => setView('help')}
@@ -840,6 +798,8 @@ export default function App() {
                     onImport={handleImportJSON}
                     onExportJSON={handleExportJSON}
                     onExportCSV={handleExportCSV}
+                    onExportSelected={handleExportSelected}
+                    onExportReport={handleExportExpiringReport}
                     activeCategory={activeCategory}
                     activeLocation={activeLocation}
                     categories={categories}
@@ -854,63 +814,104 @@ export default function App() {
                     total={total}
                     lowStock={lowStock}
                     expiringSoon={expiringSoon}
+                    onDensityChange={() => setCardDensity((d) => d === 'compact' ? 'medium' : d === 'medium' ? 'relaxed' : 'compact')}
+                    notifOn={notifyEnabled}
+                    onToggleNotif={() => setNotifyEnabled((v) => !v)}
                   />
-                  <main className="relative flex flex-1 flex-col overflow-y-auto p-6">
-                    <AnimatePresence>
-                      {bulkMode && (
-                        <div className="mb-4">
-                          <BulkEditBar
-                            selectedCount={selectedIds.size}
-                            total={filteredItems.length}
-                            categories={categories}
-                            lang={lang}
-                            onSelectAll={handleSelectAll}
-                            onClear={handleClearSelection}
-                            onChangeCategory={handleBulkChangeCategory}
-                            onDelete={handleBulkDelete}
-                            onClose={exitBulkMode}
-                          />
+                  <div className="flex flex-1 flex-col overflow-hidden">
+                    <div className="flex-1 overflow-y-auto px-6 pb-4" ref={itemsGridRef}>
+                      <AnimatePresence>
+                        {bulkMode && (
+                          <div className="mb-4">
+                            <BulkEditBar
+                              selectedCount={selectedIds.size}
+                              total={total}
+                              categories={categories}
+                              lang={lang}
+                              onSelectAll={handleSelectAll}
+                              onClear={handleClearSelection}
+                              onChangeCategory={handleBulkChangeCategory}
+                              onDelete={handleBulkDelete}
+                              onBulkUpdateQuantity={handleBulkUpdateQuantity}
+                              onClose={exitBulkMode}
+                            />
+                          </div>
+                        )}
+                      </AnimatePresence>
+                      {loading && items.length === 0 ? (
+                        <div className="flex h-full flex-col items-center justify-center gap-3 text-text-tertiary">
+                          <Loader2 size={28} className="animate-spin" />
+                          <span className="text-sm">{t('loading')}</span>
+                        </div>
+                      ) : filteredItems.length === 0 ? (
+                        <>
+                          <EmptyState onAdd={handleOpenNew} hasFilter={!!keyword || !!activeCategory || activeLocation.length > 0} t={t} />
+                          {keyword && (
+                            <div className="mb-4 flex justify-center">
+                              <span className="rounded-full bg-surface-hover px-3 py-1 text-xs text-text-tertiary">
+                                {t('search_noResults')}
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div>
+                          <div className={cn(
+                            'grid gap-4',
+                            cardDensity === 'compact' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8' :
+                            cardDensity === 'relaxed' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-2' :
+                            'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+                          )}>
+                            {filteredItems.map((it, i) => (
+                              <ItemCard
+                                key={it.id}
+                                item={it}
+                                categories={categories}
+                                lang={lang}
+                                onAdjust={handleAdjust}
+                                onEdit={handleOpenEdit}
+                                onDelete={handleAskDelete}
+                                onDoubleClick={(src, name) => setLightbox({ src, alt: name })}
+                                selected={selectedIds.has(it.id)}
+                                onToggleSelect={toggleSelect}
+                                bulkMode={bulkMode}
+                                keyword={keyword}
+                                index={i}
+                              />
+                            ))}
+                          </div>
+                          {paginationHasMore && !showExpired && (
+                            <div className="mt-6 flex items-center justify-center gap-2 pb-2">
+                              <button
+                                type="button"
+                                onClick={loadNextPage}
+                                disabled={paginationLoading}
+                                className="flex items-center gap-1.5 rounded-full bg-surface-hover px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-border/60 hover:text-text disabled:opacity-50"
+                                aria-label={t('items_loadMore')}
+                              >
+                                {paginationLoading ? (
+                                  <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                  <span className="opacity-60">+</span>
+                                )}
+                                {paginationLoading ? t('items_loadingMore') : t('items_loadMore')}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
-                    </AnimatePresence>
-                    {loading && items.length === 0 ? (
-                      <div className="flex h-full flex-col items-center justify-center gap-3 text-text-tertiary">
-                        <Loader2 size={28} className="animate-spin" />
-                        <span className="text-sm">{t('loading')}</span>
-                      </div>
-                    ) : filteredItems.length === 0 ? (
-                      <EmptyState onAdd={handleOpenNew} hasFilter={!!keyword || !!activeCategory || activeLocation.length > 0} />
-                    ) : (
-                      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                        {filteredItems.map((it, i) => (
-                          <ItemCard
-                            key={it.id}
-                            item={it}
-                            categories={categories}
-                            lang={lang}
-                            onAdjust={handleAdjust}
-                            onEdit={handleOpenEdit}
-                            onDelete={handleAskDelete}
-                            onDoubleClick={(src, name) => setLightbox({ src, alt: name })}
-                            selected={selectedIds.has(it.id)}
-                            onToggleSelect={toggleSelect}
-                            bulkMode={bulkMode}
-                            index={i}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </main>
+                    </div>
+                  </div>
                 </div>
 
-                {formOpen && (
+                {itemsHook.formOpen && (
                   <ItemForm
-                    initial={editingItem}
+                    initial={itemsHook.editingItem}
                     categories={categories}
                     locations={locations}
                     lang={lang}
                     onSave={handleSave}
-                    onClose={() => setFormOpen(false)}
+                    onClose={() => itemsHook.setFormOpen(false)}
                   />
                 )}
                 <ConfirmDialog
@@ -947,43 +948,22 @@ export default function App() {
         onClose={handleCloseUpdateDialog}
         onOpenExternal={handleOpenUpdateExternal}
       />
+      <AnimatePresence>
+        {showShortcuts && <ShortcutPanel open={showShortcuts} onClose={() => setShowShortcuts(false)} />}
+      </AnimatePresence>
     </>
   )
 
-  function EmptyState({ onAdd, hasFilter }) {
-    const Icon = hasFilter ? Search : PackageOpen
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: EASE }}
-        className="flex h-full flex-col items-center justify-center text-center"
-      >
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.45, ease: EASE, delay: 0.05 }}
-          className="mb-5 flex h-[5.5rem] w-[5.5rem] items-center justify-center rounded-[1.75rem] bg-surface text-text-tertiary/80 shadow-card ring-1 ring-border"
-        >
-          <Icon size={34} strokeWidth={1.4} />
-        </motion.div>
-        <p className="mb-1 text-base font-semibold text-text-secondary">
-          {hasFilter ? t('empty_noMatch') : t('empty_noItems')}
-        </p>
-        <p className="mb-6 text-sm text-text-tertiary">
-          {hasFilter ? t('empty_tryFilter') : t('empty_addFirst')}
-        </p>
-        {!hasFilter && (
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={onAdd}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover hover:shadow-card"
-          >
-            <Plus size={15} strokeWidth={2.5} />
-            {t('btn_add')}
-          </motion.button>
-        )}
-      </motion.div>
-    )
+  async function handleConfirmDelete() {
+    const { id, name } = confirm
+    setConfirm({ open: false, id: null, name: '' })
+    try {
+      await deleteItem(id)
+      showToast(t('toast_deleted', { name }))
+      await reload()
+      await refreshCounts()
+    } catch (e) {
+      showToast(t('toast_deleteFail', { msg: e.message }), 'error')
+    }
   }
 }

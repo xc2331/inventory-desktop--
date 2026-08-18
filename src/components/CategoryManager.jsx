@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Pencil, Trash2, Check, Package } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, Package, Tag, GripVertical, SortAsc } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
-import { createCategory, updateCategory, deleteCategory, categoryDisplayName, mergeCategories } from '../lib/api'
+import { createCategory, updateCategory, deleteCategory, categoryDisplayName, mergeCategories, reorderCategories } from '../lib/api'
 import { CATEGORY_ICON_POOL, getCategoryIcon } from '../lib/categoryIcons'
 import { EASE, EASE_SPRING } from '../lib/motion'
 import ConfirmDialog from './ConfirmDialog'
 import PageHeader from './PageHeader'
+import EmptyState from './EmptyState'
 
 const EMPTY_NEW = { icon: '', key: '', name: '', name_en: '' }
 
@@ -20,6 +21,40 @@ export default function CategoryManager({ categories, counts, lang, onBack, onCh
   const [dupConfirm, setDupConfirm] = useState({ open: false, fromKey: '', toKey: '', name: '' })
   const [editDupConfirm, setEditDupConfirm] = useState({ open: false, fromKey: '', toKey: '', name: '', editingId: null })
   const [iconPicker, setIconPicker] = useState({ open: false, target: null, current: '' })
+  const [dragId, setDragId] = useState(null)
+  const [dragOverId, setDragOverId] = useState(null)
+  const [savedOrder, setSavedOrder] = useState(null)
+
+  // HTML5 drag-and-drop reorder
+  const handleDragStart = (id) => setDragId(id)
+  const handleDragEnd = () => { setDragId(null); setDragOverId(null) }
+  const handleDragOver = (e, id) => { e.preventDefault(); setDragOverId(id) }
+  const handleDragLeave = () => setDragOverId(null)
+
+  const handleDrop = async (targetId) => {
+    if (!dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return }
+    const reordered = categories
+      .map((c) => c.id)
+      .filter((id) => id !== dragId)
+    const targetIdx = reordered.indexOf(targetId)
+    reordered.splice(targetIdx, 0, dragId)
+    setSavedOrder(reordered)
+    try {
+      await reorderCategories(reordered)
+      showToast(t('toast_renamed'))
+      await onChanged()
+    } catch (err) {
+      showToast(t('toast_saveFail', { msg: err.message }), 'error')
+      setSavedOrder(null)
+    }
+    setDragId(null)
+    setDragOverId(null)
+  }
+
+  // Determine display order: prefer saved order, else current prop order
+  const displayCategories = savedOrder
+    ? [...categories].sort((a, b) => savedOrder.indexOf(a.id) - savedOrder.indexOf(b.id))
+    : categories
 
   const handleAdd = async (e) => {
     e.preventDefault()
@@ -163,6 +198,69 @@ export default function CategoryManager({ categories, counts, lang, onBack, onCh
       <PageHeader title={t('cat_title')} onBack={onBack} action={addAction} />
 
       <main className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-5">
+        {/* 排序区 */}
+        <section className="mb-5 rounded-2xl border border-border bg-surface p-4 shadow-card">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft text-primary">
+              <SortAsc size={15} />
+            </span>
+            <h3 className="text-sm font-semibold text-text-primary">{t('cat_sortSection')}</h3>
+            {dragId && (
+              <span className="ml-auto rounded-full bg-primary-soft px-2.5 py-0.5 text-[11px] font-medium text-primary">
+                {t('cat_sortHint')}
+              </span>
+            )}
+          </div>
+          <div className="space-y-2">
+            <AnimatePresence>
+              {displayCategories.map((cat, idx) => {
+                const ListIcon = getCategoryIcon(cat)
+                const isDragging = dragId === cat.id
+                const isOver = dragOverId === cat.id
+                return (
+                  <motion.div
+                    key={cat.id}
+                    layout
+                    draggable
+                    onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; handleDragStart(cat.id) }}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => handleDragOver(e, cat.id)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => { e.preventDefault(); handleDrop(cat.id) }}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: isDragging ? 0.5 : 1, y: 0, scale: isOver ? 1.02 : 1 }}
+                    transition={{ duration: 0.2, ease: EASE, delay: Math.min(idx * 0.02, 0.15) }}
+                    className={`group flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-smooth ${
+                      isOver
+                        ? 'border-primary bg-primary-soft/50 shadow-card'
+                        : 'border-border bg-bg hover:bg-surface-hover'
+                    } ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                  >
+                    <button
+                      type="button"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-active hover:text-text-primary"
+                      title={t('cat_sortHint')}
+                    >
+                      <GripVertical size={14} />
+                    </button>
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface">
+                      <ListIcon size={18} className="text-text-secondary" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-text-primary">{categoryDisplayName(cat, lang)}</div>
+                      <div className="font-mono text-xs text-text-tertiary">{cat.key}</div>
+                    </div>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-text-tertiary">
+                      <Package size={11} />
+                      {counts[cat.key] || 0} {t('cat_count')}
+                    </span>
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
+          </div>
+        </section>
+
         <AnimatePresence>
           {adding && (
             <motion.form
@@ -359,13 +457,10 @@ export default function CategoryManager({ categories, counts, lang, onBack, onCh
           </AnimatePresence>
 
           {categories.length === 0 && !adding && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="rounded-2xl border border-dashed border-border bg-surface px-4 py-16 text-center text-sm text-text-tertiary"
-            >
-              {t('cat_addNew')}…
-            </motion.div>
+            <EmptyState
+              icon={<Tag size={28} />}
+              title={t('cat_addNew')}
+            />
           )}
         </div>
       </main>

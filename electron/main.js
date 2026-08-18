@@ -3,17 +3,18 @@ const { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, shell } = 
 const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
-const Database = require('better-sqlite3')
+const os = require('os')
+const { normalizeCategoryKey, ensureCategoriesFromItems, ensureLocationsFromItems } = require('./data-utils')
 const { ApiServer } = require('./api-server')
-const { generateItemNo } = require('./item-no')
-const { Updater } = require('./updater')
 const { QRUploadServer } = require('./qr-upload')
-const { recognizeImage, fetchModels, migrateAIConfig, sanitizeProvider, getActiveProvider } = require('./ai-service')
-const {
-  normalizeCategoryKey,
-  ensureCategoriesFromItems,
-  ensureLocationsFromItems
-} = require('./data-utils')
+const { Updater } = require('./updater')
+const { generateItemNo } = require('./item-no')
+
+process.on('uncaughtException', (e) => console.error('[main] UNCAUGHT:', e))
+process.on('unhandledRejection', (e) => console.error('[main] UNHANDLED_REJECT:', e && e.message || e))
+
+let Database;
+Database = require('better-sqlite3');
 
 // 确保 Windows 任务栏正确显示应用图标与分组
 app.setAppUserModelId(app.getName())
@@ -21,11 +22,9 @@ app.setAppUserModelId(app.getName())
 // 单实例：点击 exe/快捷方式时，如果已有实例在托盘运行，则直接唤回而不是再开一个
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
-  console.log('[single-instance] 已有实例在运行，退出当前进程')
   app.quit()
 } else {
   app.on('second-instance', () => {
-    console.log('[single-instance] 收到第二次启动请求，唤回主窗口')
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       if (!mainWindow.isVisible()) mainWindow.show()
@@ -36,6 +35,15 @@ if (!gotTheLock) {
     }
   })
 }
+
+// ===== 渲染进程错误转发：写入临时文件，便于排查白屏
+ipcMain.handle('diag:log', async (_event, msg) => {
+  try {
+    const logPath = path.join(os.tmpdir(), 'lingguang-render.log')
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`)
+  } catch (_) {}
+  return { ok: true }
+})
 
 const ICON_PATH = app.isPackaged
   ? path.join(process.resourcesPath, 'app.asar', 'build', 'icon.ico')
@@ -131,7 +139,6 @@ function backupDatabase() {
   try {
     if (fs.existsSync(dbPath)) {
       fs.copyFileSync(dbPath, backupPath)
-      console.log('[backup] 已备份数据库到', backupPath)
     }
   } catch (e) {
     console.error('[backup] 备份失败:', e)
@@ -172,6 +179,22 @@ function ensureItemColumns(database) {
         console.error(`[migrate] 添加列 items.${col.name} 失败:`, e.message)
       }
     }
+  }
+}
+
+// 兼容旧数据库：补齐缺失索引（幂等，CREATE INDEX IF NOT EXISTS 天然幂等）
+function migrateIndexes(database) {
+  try {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_items_room ON items(room);
+      CREATE INDEX IF NOT EXISTS idx_items_position ON items(position);
+      CREATE INDEX IF NOT EXISTS idx_items_expiry_date ON items(expiry_date);
+      CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at);
+      CREATE INDEX IF NOT EXISTS idx_categories_key ON categories(key);
+    `)
+    console.log('[migrate] 索引检查完成')
+  } catch (e) {
+    console.error('[migrate] 索引迁移失败:', e.message)
   }
 }
 
@@ -230,6 +253,7 @@ function initDatabase() {
       created_at INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL DEFAULT 0
     );
+    CREATE INDEX IF NOT EXISTS idx_categories_key ON categories(key);
 
     CREATE TABLE IF NOT EXISTS locations (
       id TEXT PRIMARY KEY,
@@ -240,10 +264,17 @@ function initDatabase() {
       updated_at INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_items_room ON items(room);
+    CREATE INDEX IF NOT EXISTS idx_items_position ON items(position);
+    CREATE INDEX IF NOT EXISTS idx_items_expiry_date ON items(expiry_date);
+    CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at);
   `)
 
   // 兼容旧数据库：确保 items 表包含 v1.2.0 新增字段
   ensureItemColumns(db)
+
+  // 兼容旧数据库：补齐缺失索引（幂等）
+  migrateIndexes(db)
 
   // 种子默认分类（仅在表为空时）
   const catCount = db.prepare('SELECT COUNT(*) c FROM categories').get().c
@@ -532,18 +563,36 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
 
+  mainWindow.show()
+  mainWindow.focus()
+
   // 调试：开发模式下打开 DevTools 并把渲染进程 console 转发到主进程日志
   if (isDev) {
     mainWindow.webContents.openDevTools()
     mainWindow.webContents.on('console-message', (_event, level, message, _line, _sourceId) => {
       const label = ['log', 'warning', 'error', 'debug'][level] || level
-      console.log(`[renderer:${label}]`, message)
+      console.warn(`[renderer:${label}]`, message)
     })
+  }
+}
+
+// ===== SQL 白名单：仅允许对已知表的参数化查询 =====
+// 使用 better-sqlite3 参数化查询已天然防注入；此白名单只校验表名，避免任意表访问
+const ALLOWED_TABLES = new Set(['items', 'categories', 'locations', 'materials', 'settings', 'sync_state', 'item_photos'])
+const SQL_SANITIZER = {
+  check(sql) {
+    if (!sql || typeof sql !== 'string') return false
+    const lower = sql.toLowerCase()
+    return Array.from(ALLOWED_TABLES).some(t => lower.includes(t))
   }
 }
 
 // ===== IPC：通用数据库查询/执行（参数化，防注入）=====
 ipcMain.handle('db:query', (_event, { sql, binds }) => {
+  if (!SQL_SANITIZER.check(sql)) {
+    console.warn('[db] query rejected (whitelist):', sql?.slice(0, 80))
+    return null
+  }
   const stmt = db.prepare(sql)
   if (binds == null) return stmt.all()
   if (Array.isArray(binds)) return stmt.all(...binds)
@@ -551,6 +600,10 @@ ipcMain.handle('db:query', (_event, { sql, binds }) => {
 })
 
 ipcMain.handle('db:execute', (_event, { sql, binds }) => {
+  if (!SQL_SANITIZER.check(sql)) {
+    console.warn('[db] execute rejected (whitelist):', sql?.slice(0, 80))
+    throw new Error('db:execute rejected by whitelist')
+  }
   const stmt = db.prepare(sql)
   let info
   if (binds == null) info = stmt.run()
@@ -574,6 +627,19 @@ ipcMain.handle('settings:set', (_event, patch) => {
   writeAppSettings(next)
   if (patch.language) buildMenu(patch.language)
   return next
+})
+
+// 电子材料库类型管理（独立于材料条目数据）
+ipcMain.handle('settings:getMaterialTypes', () => {
+  const s = readAppSettings()
+  return s.materialTypes || []
+})
+
+ipcMain.handle('settings:setMaterialTypes', (_event, types) => {
+  const s = readAppSettings()
+  s.materialTypes = Array.isArray(types) ? types : []
+  writeAppSettings(s)
+  return s.materialTypes
 })
 
 // 切换数据目录：复制现有数据库到新目录并重开
@@ -726,6 +792,16 @@ ipcMain.handle('ai:recognize', async (_event, { image }) => {
   return recognizeImage({ image, db, settings })
 })
 
+ipcMain.handle('ai:testConnection', async (_event, { providerId } = {}) => {
+  const settings = readAppSettings()
+  migrateAIConfig(settings)
+  const provider = providerId
+    ? settings.aiProviders.find((p) => p.id === providerId)
+    : getActiveProvider(settings)
+  if (!provider) return { ok: false, error: '未配置 AI 服务' }
+  return testConnection({ settings, provider })
+})
+
 ipcMain.handle('ai:fetchModels', async (_event, { providerId } = {}) => {
   const settings = readAppSettings()
   migrateAIConfig(settings)
@@ -775,7 +851,13 @@ ipcMain.handle('dialog:pickImage', async () => {
     filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'] }]
   })
   if (res.canceled || res.filePaths.length === 0) return { canceled: true }
-  return { canceled: false, path: res.filePaths[0] }
+  const path = res.filePaths[0]
+  let size = 0
+  try {
+    const stat = fs.statSync(path)
+    size = stat.size
+  } catch { /* ignore */ }
+  return { canceled: false, path, size }
 })
 
 // 选择任意文件对话框（用于电子材料库附加文档/链接等）
@@ -792,6 +874,56 @@ ipcMain.handle('dialog:pickFile', async () => {
 // 自动生成物品编号
 ipcMain.handle('items:generateItemNo', () => {
   return generateItemNo(db)
+})
+
+const ALLOWED_BULK_FIELDS = [
+  'category', 'name', 'quantity', 'min_quantity', 'unit', 'location',
+  'supplier', 'purchase_date', 'expiry_date', 'purchase_price', 'purchase_amount',
+  'barcode', 'notes', 'photo'
+]
+
+ipcMain.handle('items:batchDelete', (_event, { ids }) => {
+  if (!ids || ids.length === 0) return { deleted: 0 }
+  const ph = ids.map((_, i) => `?${i + 1}`).join(',')
+  const del = db.prepare(`DELETE FROM items WHERE id IN (${ph})`)
+  const tx = db.transaction((arr) => {
+    del.run(...arr)
+    return arr.length
+  })
+  return { deleted: tx(ids) }
+})
+
+ipcMain.handle('items:batchUpdate', (_event, { ids, field, value }) => {
+  if (!ids || ids.length === 0 || !field) return { updated: 0 }
+  const safe = ALLOWED_BULK_FIELDS.includes(field) ? field : 'notes'
+  const now = Date.now()
+  const ph = ids.map((_, i) => `?${i + 1}`).join(',')
+  const upd = db.prepare(
+    `UPDATE items SET "${safe}" = ?${ids.length + 1}, updated_at = ?${ids.length + 2} WHERE id IN (${ph})`
+  )
+  const tx = db.transaction((arr) => {
+    upd.run(...arr)
+    return arr.length
+  })
+  return { updated: tx([...ids, value ?? '', now]) }
+})
+
+ipcMain.handle('items:batchChangeQty', (_event, { ids, type, value }) => {
+  if (!ids || ids.length === 0) return { updated: 0 }
+  const now = Date.now()
+  if (type === 'set') {
+    const upd = db.prepare('UPDATE items SET quantity = ?1, updated_at = ?2 WHERE id = ?3')
+    return { updated: upd.run(value, now, ids[0]).changes ?? 0 }
+  }
+  const upd = db.prepare('UPDATE items SET quantity = MAX(0, CAST(quantity AS INTEGER) + ?1), updated_at = ?2 WHERE id = ?3')
+  const tx = db.transaction((arr) => {
+    let total = 0
+    for (const id of arr) {
+      total += upd.run(value, now, id).changes ?? 0
+    }
+    return total
+  })
+  return { updated: tx(ids) }
 })
 
 // ===== IPC：电子材料库 CRUD =====
@@ -1065,6 +1197,68 @@ ipcMain.handle('floorPlans:createSubLocation', (_event, { parentId, name }) => {
   return db.prepare('SELECT * FROM locations WHERE id = ?').get(id)
 })
 
+// ===== 文件路径白名单：所有 IPC 文件操作限制在 dataDir 内 =====
+function safePath(reqPath, baseDir) {
+  if (!reqPath || typeof reqPath !== 'string') {
+    throw new Error('invalid path')
+  }
+  const target = path.resolve(baseDir, reqPath)
+  if (!target.startsWith(baseDir + path.sep) && target !== baseDir) {
+    throw new Error('path traversal rejected')
+  }
+  return target
+}
+
+// ===== IPC：照片文件读写 =====
+ipcMain.handle('photo:read', async (_event, relPath) => {
+  if (!relPath || typeof relPath !== 'string') return { ok: false, error: 'invalid path' }
+  let filePath
+  try { filePath = safePath(relPath, resolveDataDir()) }
+  catch (e) { return { ok: false, error: e.message } }
+  try {
+    const data = fs.readFileSync(filePath)
+    return { ok: true, data: 'data:image/png;base64,' + data.toString('base64') }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('photo:save', async (_event, { base64, filename }) => {
+  if (!base64 || typeof base64 !== 'string') return { ok: false, error: 'invalid data' }
+  try {
+    const dir = path.join(resolveDataDir(), 'photos')
+    fs.mkdirSync(dir, { recursive: true })
+    const sanitized = filename ? String(filename).replace(/[^a-zA-Z0-9._-]/g, '_') : (crypto.randomUUID() + '.webp')
+    const filePath = safePath(sanitized, dir)
+    const data = Buffer.from(base64.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+    fs.writeFileSync(filePath, data)
+    return { ok: true, relPath: 'photos/' + sanitized }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('photo:delete', async (_event, relPath) => {
+  if (!relPath || typeof relPath !== 'string') return { ok: false, error: 'invalid path' }
+  let filePath
+  try { filePath = safePath(relPath, resolveDataDir()) }
+  catch (e) { return { ok: false, error: e.message } }
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+})
+
+ipcMain.handle('photo:url', (_event, relPath) => {
+  if (!relPath || typeof relPath !== 'string') return ''
+  let filePath
+  try { filePath = safePath(relPath, resolveDataDir()) }
+  catch (e) { return '' }
+  return 'file://' + filePath.replace(/\\/g, '/')
+})
+
 // ===== IPC：JSON 导出/导入，CSV 导出 =====
 ipcMain.handle('sync:exportData', () => {
   const items = db.prepare('SELECT * FROM items').all()
@@ -1111,6 +1305,119 @@ ipcMain.handle('sync:rebuildLocations', () => {
   return { ok: true, created }
 })
 
+// ===== IPC：统计聚合（P-03：聚合逻辑移入后端，仅返回 stats 对象）=====
+ipcMain.handle('sync:stats', () => {
+  const items = db.prepare('SELECT * FROM items').all()
+  const categories = db.prepare('SELECT * FROM categories').all()
+  const now = Date.now()
+  const oneDay = 86400000
+
+  // 分类统计
+  const categoryMap = {}
+  items.forEach((it) => {
+    const key = it.category || 'other'
+    categoryMap[key] = (categoryMap[key] || 0) + 1
+  })
+  const categoryStats = Object.entries(categoryMap)
+    .map(([key, count]) => {
+      const cat = categories.find((c) => c.key === key)
+      return {
+        key,
+        name: cat ? cat.name : key,
+        name_en: cat ? cat.name_en : key,
+        count
+      }
+    })
+    .sort((a, b) => b.count - a.count)
+
+  // 位置统计
+  const locationMap = {}
+  items.forEach((it) => {
+    const loc = (it.location && it.location.trim()) || (it.room && it.room.trim()) || '未指定位置'
+    locationMap[loc] = (locationMap[loc] || 0) + 1
+  })
+  const locationStats = Object.entries(locationMap)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12)
+
+  // 过期状态
+  let expired = 0
+  let expiring7 = 0
+  let expiring30 = 0
+  let normal = 0
+  let noExpiry = 0
+  items.forEach((it) => {
+    if (!it.expiry_date) {
+      noExpiry++
+      return
+    }
+    const days = Math.ceil((it.expiry_date - now) / oneDay)
+    if (days < 0) expired++
+    else if (days <= 7) expiring7++
+    else if (days <= 30) expiring30++
+    else normal++
+  })
+  const expiryStats = [
+    { name: '已过期', name_en: 'Expired', key: 'expired', count: expired, color: '#ef4444' },
+    { name: '7天内过期', name_en: '≤7 days', key: 'expiring7', count: expiring7, color: '#f97316' },
+    { name: '30天内过期', name_en: '≤30 days', key: 'expiring30', count: expiring30, color: '#fbbf24' },
+    { name: '正常', name_en: 'Normal', key: 'normal', count: normal, color: '#22c55e' },
+    { name: '无过期日', name_en: 'No date', key: 'noExpiry', count: noExpiry, color: '#94a3b8' }
+  ]
+
+  // 库存状态
+  const lowStock = items.filter((it) => it.min_quantity > 0 && it.quantity <= it.min_quantity).length
+  const stockStats = [
+    { name: '库存不足', name_en: 'Low stock', key: 'low', count: lowStock, color: '#ef4444' },
+    { name: '库存充足', name_en: 'Sufficient', key: 'ok', count: items.length - lowStock, color: '#22c55e' }
+  ]
+
+  // 时间维度：按创建/更新月份
+  const createdMonthMap = {}
+  const updatedMonthMap = {}
+  const monthFormatter = (ts) => {
+    const d = new Date(ts)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
+  items.forEach((it) => {
+    if (it.created_at) {
+      const m = monthFormatter(it.created_at)
+      createdMonthMap[m] = (createdMonthMap[m] || 0) + 1
+    }
+    if (it.updated_at) {
+      const m = monthFormatter(it.updated_at)
+      updatedMonthMap[m] = (updatedMonthMap[m] || 0) + 1
+    }
+  })
+  const months = Array.from(new Set([...Object.keys(createdMonthMap), ...Object.keys(updatedMonthMap)])).sort()
+  const timeStats = months.map((m) => ({
+    month: m,
+    created: createdMonthMap[m] || 0,
+    updated: updatedMonthMap[m] || 0
+  }))
+
+  // 数量分布（top 15）
+  const quantityStats = items.map((it) => ({
+    name: it.name,
+    quantity: it.quantity,
+    min: it.min_quantity
+  })).sort((a, b) => b.quantity - a.quantity).slice(0, 15)
+
+  const totalQuantity = items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
+
+  return {
+    total: items.length,
+    totalQuantity,
+    categoryStats,
+    locationStats,
+    expiryStats,
+    stockStats,
+    timeStats,
+    quantityStats
+  }
+})
+
 function csvEscape(val) {
   const s = String(val ?? '')
   if (/[",\n\r]/.test(s)) {
@@ -1130,6 +1437,44 @@ ipcMain.handle('sync:exportCSV', () => {
     lines.push(headers.map((h) => csvEscape(it[h])).join(','))
   }
   return '\uFEFF' + lines.join('\r\n')
+})
+
+ipcMain.handle('sync:exportByIds', (_event, ids) => {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    const data = { version: 1, export_time: Date.now(), items: [] }
+    return JSON.stringify(data, null, 2)
+  }
+  const stmt = db.prepare('SELECT * FROM items WHERE id IN (' + ids.map(() => '?').join(',') + ')')
+  const items = stmt.all(...ids)
+  const data = {
+    version: 1,
+    export_time: Date.now(),
+    items: items.map(toPhoneItem)
+  }
+  return JSON.stringify(data, null, 2)
+})
+
+ipcMain.handle('sync:exportExpiringReport', () => {
+  const now = Date.now()
+  const ONE_WEEK = 7 * 86400000
+  const items = db.prepare('SELECT * FROM items').all()
+  const expired = []
+  const expiring = []
+  const lowStock = []
+  for (const it of items) {
+    if (it.expiry_date) {
+      const days = Math.ceil((it.expiry_date - now) / 86400000)
+      if (days < 0) expired.push({ ...it, daysLeft: days })
+      else if (days <= 7) expiring.push({ ...it, daysLeft: days })
+    }
+    if (it.min_quantity > 0 && it.quantity <= it.min_quantity) {
+      lowStock.push({ ...it })
+    }
+  }
+  expired.sort((a, b) => a.expiry_date - b.expiry_date)
+  expiring.sort((a, b) => a.daysLeft - b.daysLeft)
+  lowStock.sort((a, b) => a.quantity - b.quantity)
+  return { expired, expiring, lowStock, total: expired.length + expiring.length + lowStock.length }
 })
 
 // ===== IPC：文件保存/打开对话框 =====

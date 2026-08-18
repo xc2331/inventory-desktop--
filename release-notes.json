@@ -1,14 +1,58 @@
 [
   {
-    "version": "1.2.19-a",
+    "version": "v1.3.0.b",
+    "date": "2026-08-16",
+    "type": "bugfix",
+    "summary": "修复 API 状态接口返回过时版本号",
+    "features": [
+      "getStatus 接口 version 字段从硬编码 1.2.18 改为动态读取 package.json，与构建版本一致"
+    ]
+  },
+  {
+    "version": "v1.3.0.a",
+    "date": "2026-08-16",
+    "type": "bugfix",
+    "summary": "修复布局持久化 + 电子材料库接口重命名 + 类型管理接口",
+    "features": [
+      "修复材料库卡片大小/视图模式/卡片风格重启后丢失：saveLayout 改为先读全量 settings 再合并写回，防御并发写盘丢字段",
+      "电子材料库 HTTP 路由从 /api/materials 重命名为 /api/e-materials，与 /api/items（实物库存）明确区分",
+      "电子材料库所有响应体 title 增加【电子材料】前缀，Agent 可明确区分电子材料与实物库存",
+      "新增 GET/PATCH /api/e-materials/types 接口，Agent 可通过 API 独立管理材料类型列表",
+      "新增 settings:getMaterialTypes / settings:setMaterialTypes IPC 通道，前端 TypeManager 与外部 Agent 共享类型数据"
+    ]
+  },
+  {
+    "version": "v1.3.0",
+    "date": "2026-08-15",
+    "type": "feature",
+    "summary": "电子材料库增强：布局持久化 + 非本地链接智能提示 + 接口审计",
+    "features": [
+      "卡片大小（缩放滑块）、视图模式（分类/文件列表）、卡片风格（紧凑/丰富）持久化到 settings.json，重启后自动恢复",
+      "双击「打开文件夹」时，若材料关联的是网址/URL，弹出确认框让用户选择：直接打开链接 / 仅打开材料目录 / 取消",
+      "电子材料库对外接口审计完成：MaterialLibrary 仅暴露 onBack 回调，内部状态自包含，无外部 API 需变更",
+      "MaterialLibrary 初始化增加 settings.json 读取兜底，防止设置数据异常时布局重置"
+    ]
+  },
+  {
+    "version": "1.2.19-d",
     "date": "2026-08-15",
     "type": "bugfix",
-    "summary": "修复电子材料库紧凑卡片右键报错、双击打开文件夹行为、设置页白屏",
+    "summary": "深度修复设置页白屏（IPC 错误兜底 + ErrorBoundary + 值域统一）",
     "features": [
-      "修复设置页白屏：清理旧构建产物，确保运行时不引用已删除的 MATERIAL_TYPES 常量",
-      "修复紧凑模式下右键文件报错：onContextMenu 回调改用可选链保护",
-      "双击「打开文件夹」改为调用 shell.showItemInFolder，资源管理器定位到对应文件夹而非直接打开文件",
-      "路径解析增加 file:// 前缀与正/反斜杠兼容"
+      "SettingsView 三个 IPC 调用（getSettings / getApiToken / getAIConfig）增加 .catch() 兜底，IPC 异常时页面仍能渲染",
+      "getSettings 返回值使用更宽松的默认值，防止 settings.json 损坏时白屏",
+      "App.jsx 中 getUpdaterInfo 增加 .catch() 兜底，更新器初始化失败不影响设置页",
+      "设置页渲染分支外层包裹 ErrorBoundary，捕获任何渲染错误并显示友好提示",
+      "materialDoubleClickAction 值域统一为 openFile / openFolder / ask，消除新旧版本不兼容"
+    ]
+  },
+  {
+    "version": "1.2.19-c",
+    "date": "2026-08-15",
+    "type": "bugfix",
+    "summary": "修复设置页白屏（更新日志首条展开时 undefined.map 崩溃）",
+    "features": [
+      "ReleaseNotes 组件兼容 features / items 双字段，避免首条展开崩溃导致设置页白屏"
     ]
   },
   {

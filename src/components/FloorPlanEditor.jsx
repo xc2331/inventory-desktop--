@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+﻿import { useState, useEffect, useRef, useCallback, useMemo, Component } from 'react'
 import { motion } from 'framer-motion'
 import {
   ArrowLeft,
@@ -18,6 +18,7 @@ import {
   Layers,
   ChevronUp,
   ChevronDown,
+  XCircle,
   ArrowUpToLine,
   ArrowDownToLine,
   Image as ImageIcon,
@@ -187,13 +188,43 @@ function LayerBtn({ icon: Icon, onClick, title }) {
   )
 }
 
-export default function FloorPlanEditor({ locationId, locationName, locations, items, onBack, onSelectSubLocation }) {
+class FloorPlanErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-bg p-6 text-center">
+          <XCircle size={36} className="text-red-500" />
+          <h2 className="text-lg font-bold text-text-primary">FloorPlanEditor 渲染崩溃</h2>
+          <div className="max-w-lg rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-left text-xs font-mono text-red-700 dark:bg-red-950 dark:text-red-300">
+            <p className="font-semibold mb-2">错误信息（请复制到聊天记录）：</p>
+            <p>{this.state.error.message}</p>
+            <p className="mt-3 pt-2 border-t border-red-200 dark:border-red-800 max-h-48 overflow-auto break-all">{this.state.error.stack}</p>
+          </div>
+          <button onClick={this.props.onBack} className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">
+            返回上一页
+          </button>
+        </div>
+      )
+    }
+    return <FloorPlanEditorInner {...this.props} />
+  }
+}
+
+function FloorPlanEditorInner({ locationId, locationName, locations, items, onBack, onSelectSubLocation }) {
   const { t } = useI18n()
   const canvasRef = useRef(null)
   const [plan, setPlan] = useState(null)
   const [original, setOriginal] = useState(null)
   const [selectedId, setSelectedId] = useState('room')
   const [loading, setLoading] = useState(true)
+  const [loadingError, setLoadingError] = useState(null)
   const [saving, setSaving] = useState(false)
   const [drawMode, setDrawMode] = useState(false)
   const [toast, setToast] = useState(null)
@@ -1445,3 +1476,5 @@ function PlanElement({ element, id, selected, style, label, drawMode, onResizeSt
     </div>
   )
 }
+
+export default FloorPlanErrorBoundary

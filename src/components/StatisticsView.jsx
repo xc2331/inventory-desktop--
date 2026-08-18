@@ -16,6 +16,7 @@ import { useI18n } from '../lib/i18n'
 import { fetchStatistics } from '../lib/api'
 import { cn } from '../lib/cn'
 import { EASE } from '../lib/motion'
+import { formatDate } from '../lib/format'
 import PageHeader from './PageHeader'
 
 const COLORS = ['#10b981', '#14b8a6', '#0ea5e9', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#6366f1', '#84cc16', '#06b6d4', '#f97316', '#a855f7']
@@ -30,16 +31,32 @@ const TABS = [
   { key: 'time', icon: TrendingUp, labelKey: 'stats_byTime', color: '#14b8a6' }
 ]
 
-export default function StatisticsView({ onBack, animations = true }) {
+export default function StatisticsView({ onBack, animations = true, warmItems, warmStats }) {
   const { t, lang } = useI18n()
+  const localeKey = lang === 'en' || lang === 'en_US' ? 'en_US' : 'zh_CN'
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
   const [subView, setSubView] = useState({ category: 'pie', location: 'bar', expiry: 'donut', stock: 'gauge', time: 'line' })
 
+  const lastUpdatedAt = useMemo(() => {
+    const items = (warmStats?.__rawItems || [])
+    if (!items.length) return ''
+    let max = 0
+    for (let i = 0; i < items.length; i++) {
+      const ts = items[i].updated_at
+      if (ts && ts > max) max = ts
+    }
+    return max ? formatDate(max, localeKey) : ''
+  }, [warmStats, localeKey])
+
   useEffect(() => {
-    // 轻微延迟加载，让页面进入动效先完成，减少切换时的卡顿感
+    if (warmStats) {
+      setData(warmStats)
+      setLoading(false)
+      return
+    }
     const tm = setTimeout(() => {
       setLoading(true)
       fetchStatistics()
@@ -57,15 +74,7 @@ export default function StatisticsView({ onBack, animations = true }) {
   const expiring7 = useMemo(() => (data?.expiryStats || []).find((d) => d.key === 'expiring7')?.count || 0, [data])
 
   if (loading) {
-    return (
-      <div className="flex h-screen w-screen flex-col bg-bg">
-        <PageHeader title={t('stats_title')} onBack={onBack} />
-        <div className="flex flex-1 items-center justify-center text-text-tertiary">
-          <Activity size={28} className="mr-2 animate-spin" />
-          {t('loading')}
-        </div>
-      </div>
-    )
+    return <StatisticsSkeleton onBack={onBack} />
   }
 
   if (error) {
@@ -80,6 +89,12 @@ export default function StatisticsView({ onBack, animations = true }) {
   return (
     <div className="flex h-screen w-screen flex-col bg-bg">
       <PageHeader title={t('stats_title')} onBack={onBack} />
+
+      {lastUpdatedAt && (
+        <p className="mx-5 mt-1 text-[11px] text-text-tertiary" aria-hidden="true">
+          {t('stats_updated')} · {lastUpdatedAt}
+        </p>
+      )}
 
       <main className="flex-1 overflow-y-auto p-5">
         <div className="mx-auto max-w-7xl space-y-5">
@@ -702,6 +717,81 @@ function CustomTooltip({ active, payload, label, showPercent, total }) {
           <span className="font-semibold text-text-primary">{p.value}{showPercent && total ? ` (${((p.value / total) * 100).toFixed(1)}%)` : ''}</span>
         </div>
       ))}
+    </div>
+  )
+}
+
+/* ================= Skeleton placeholder ================= */
+
+function StatisticsSkeleton({ onBack }) {
+  return (
+    <div className="flex h-screen w-screen flex-col bg-bg">
+      <div className="flex items-center justify-between border-b border-border px-5 py-3">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-medium text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+        >
+          <ChevronRight size={16} className="rotate-180" />
+        </button>
+        <span className="h-5 w-28 animate-pulse rounded-lg bg-surface" />
+      </div>
+      <main className="flex-1 overflow-y-auto p-5">
+        <div className="mx-auto max-w-7xl space-y-5">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="rounded-2xl border border-border bg-surface p-4 shadow-card">
+                <div className="flex items-center gap-3">
+                  <span className="h-10 w-10 animate-pulse rounded-xl bg-surface" />
+                  <div className="min-w-0 flex-1">
+                    <span className="mb-1.5 block h-3 w-20 animate-pulse rounded bg-surface" />
+                    <span className="block h-7 w-14 animate-pulse rounded bg-surface" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-2xl border border-border bg-surface p-1.5 shadow-card">
+            <div className="flex gap-2">
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <span key={i} className="h-9 w-20 animate-pulse rounded-xl bg-surface" />
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-surface p-4 shadow-card">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="h-7 w-7 animate-pulse rounded-lg bg-surface" />
+                <span className="h-4 w-24 animate-pulse rounded bg-surface" />
+              </div>
+              <div className="h-64 animate-pulse rounded-xl bg-surface" />
+            </div>
+            <div className="rounded-2xl border border-border bg-surface p-4 shadow-card">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="h-7 w-7 animate-pulse rounded-lg bg-surface" />
+                <span className="h-4 w-24 animate-pulse rounded bg-surface" />
+              </div>
+              <div className="h-64 animate-pulse rounded-xl bg-surface" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            <div className="rounded-2xl border border-border bg-surface p-4 shadow-card lg:col-span-1">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="h-7 w-7 animate-pulse rounded-lg bg-surface" />
+                <span className="h-4 w-24 animate-pulse rounded bg-surface" />
+              </div>
+              <div className="h-52 animate-pulse rounded-xl bg-surface" />
+            </div>
+            <div className="rounded-2xl border border-border bg-surface p-4 shadow-card lg:col-span-2">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="h-7 w-7 animate-pulse rounded-lg bg-surface" />
+                <span className="h-4 w-24 animate-pulse rounded bg-surface" />
+              </div>
+              <div className="h-52 animate-pulse rounded-xl bg-surface" />
+            </div>
+          </div>
+          <div className="h-6" />
+        </div>
+      </main>
     </div>
   )
 }

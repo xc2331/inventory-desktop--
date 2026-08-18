@@ -4,10 +4,12 @@ import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName, buildLocationTree, locationParts, pickImage, startQRUpload, stopQRUpload, onQRUploadImage, recognizeImageWithAI, getAIConfig } from '../lib/api'
 import { compressImageToBase64 } from '../lib/imageCompress'
+import { savePhoto } from '../lib/imageStore'
 import { getCategoryIcon } from '../lib/categoryIcons'
 import { tsToDateInput, dateInputToTs } from '../lib/utils'
 import { EASE, EASE_SPRING } from '../lib/motion'
 import { cn } from '../lib/cn'
+import { AIRecognitionPanel } from './AIRecognitionPanel'
 
 // 把存储的图片值（路径 / URL / data URL）转为可显示的 src
 function toPhotoSrc(photo) {
@@ -84,6 +86,9 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const [treeOpen, setTreeOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [photoHint, setPhotoHint] = useState('')
+  const [photoPreview, setPhotoPreview] = useState('')
+  const [photoMeta, setPhotoMeta] = useState(null)
+  const [origFileSizeKB, setOrigFileSizeKB] = useState(null)
   const [qrState, setQrState] = useState({ url: '', status: 'idle' })
   const qrUnsubscribe = useRef(null)
 
@@ -113,6 +118,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       const result = await compressImageToBase64(file)
       if (result.ok) {
         setForm((f) => ({ ...f, photo: result.data }))
+        setPhotoMeta({ size: result.sizeKB * 1024, type: 'image/webp' })
         setPhotoHint(`已压缩至 ${result.sizeKB}KB`)
       } else {
         setPhotoHint(result.error)
@@ -123,6 +129,15 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   }, [])
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
+
+  const LARGE_IMAGE_KB = 500
+
+  const setOrigSize = (sizeBytes) => {
+    if (!sizeBytes) return
+    const kb = Math.round(sizeBytes / 1024)
+    if (kb > LARGE_IMAGE_KB) setOrigFileSizeKB(kb)
+    else setOrigFileSizeKB(null)
+  }
 
   // 清理二维码上传服务
   const cleanupQR = async () => {
@@ -138,12 +153,15 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const handleBrowse = async () => {
     try {
       setPhotoHint('')
+      setOrigFileSizeKB(null)
       const res = await pickImage()
       if (res.canceled || !res.path) return
+      setOrigSize(res.size)
       setPhotoHint('图片压缩中…')
       const result = await compressImageToBase64(res.path)
       if (result.ok) {
         set('photo', result.data)
+        setPhotoMeta({ size: result.sizeKB * 1024, type: 'image/webp' })
         setPhotoHint(`已压缩至 ${result.sizeKB}KB`)
       } else {
         setPhotoHint(result.error)
@@ -153,22 +171,45 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     }
   }
 
-  // 拖拽图片：自动压缩为 Base64 存入 photo
+  // 压缩并保存图片：form.photo 存相对路径（P-01），photoPreview 保留 base64 供表单内预览
+  const saveCompressedPhoto = async (source, label) => {
+    try {
+      setPhotoHint('图片压缩中…')
+      if (source && typeof source.size === 'number') setOrigSize(source.size)
+      const result = await compressImageToBase64(source)
+      if (!result.ok) {
+        setPhotoHint(result.error || t('ai_recognize_failed'))
+        return false
+      }
+      setPhotoPreview(result.data)
+      setPhotoMeta({ size: result.sizeKB * 1024, type: 'image/webp' })
+      // 尝试保存到 dataDir/photos/，仅把相对路径写入 form.photo
+      try {
+        const relPath = await savePhoto(result.data, label || 'photo')
+        setForm((f) => ({ ...f, photo: relPath }))
+        setPhotoHint(`${t('photo_saved')} ${result.sizeKB}KB`)
+      } catch {
+        // 存储失败回退：仍写 base64，保证表单可用
+        setForm((f) => ({ ...f, photo: result.data }))
+        setPhotoHint(`${t('photo_saved')} ${result.sizeKB}KB（本地模式）`)
+      }
+      return true
+    } catch {
+      setPhotoHint(t('ai_recognize_failed'))
+      return false
+    }
+  }
+
+  // 拖拽图片
   const handleDrop = async (e) => {
     e.preventDefault()
     setDragOver(false)
     setPhotoHint('')
+    setOrigFileSizeKB(null)
     const file = e.dataTransfer?.files?.[0]
     if (!file) return
     if (!file.type || !file.type.startsWith('image/')) return
-    setPhotoHint('图片压缩中…')
-    const result = await compressImageToBase64(file)
-    if (result.ok) {
-      set('photo', result.data)
-      setPhotoHint(`已压缩至 ${result.sizeKB}KB`)
-    } else {
-      setPhotoHint(result.error)
-    }
+    await saveCompressedPhoto(file, file.name)
   }
 
   // 手机扫码传图
@@ -186,7 +227,14 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
         setPhotoHint('图片压缩中…')
         const result = await compressImageToBase64(image)
         if (result.ok) {
-          setForm((f) => ({ ...f, photo: result.data }))
+          setPhotoPreview(result.data)
+          setPhotoMeta({ size: result.sizeKB * 1024, type: 'image/webp' })
+          try {
+            const relPath = await savePhoto(result.data, 'qr-photo')
+            setForm((f) => ({ ...f, photo: relPath }))
+          } catch {
+            setForm((f) => ({ ...f, photo: result.data }))
+          }
           setQrState((s) => ({ ...s, status: 'success' }))
           setPhotoHint(`${t('qrUpload_success')}（已压缩至 ${result.sizeKB}KB）`)
         } else {
@@ -287,8 +335,21 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    if (!form.name.trim()) {
-      setErrors({ name: t('err_nameRequired') })
+    const errs = {}
+    if (!form.name.trim()) errs.name = t('err_nameRequired')
+    if (!form.category) errs.category = t('err_categoryRequired')
+    // 可库存类目强制位置字段
+    if (form.category === 'household' || form.category === 'kitchen' || form.category === 'tools' || form.category === 'cleaning' || form.category === 'supplies' || form.category === 'food' || form.category === 'medicine') {
+      if (!form.room.trim()) errs.room = t('err_roomRequired')
+      if (!form.position.trim()) errs.position = t('err_positionRequired')
+    }
+    if (Number(form.quantity) < 1) errs.quantity = t('err_quantityMin')
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs)
+      // 聚焦到首个错误字段（通过 scrollIntoView）
+      const first = errs.name ? 'name' : errs.category ? 'category' : errs.room ? 'room' : errs.position ? 'position' : 'quantity'
+      const el = document.querySelector(`[data-field="${first}"]`)
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       return
     }
     onSave({
@@ -302,6 +363,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       min_quantity: Number(form.min_quantity) || 0,
       expiry_date: form.expiry_date ? dateInputToTs(form.expiry_date) : 0,
       photo: form.photo.trim(),
+      photo_meta: photoMeta ? JSON.stringify(photoMeta) : '',
       notes: form.notes,
       consume_rate: Number(form.consume_rate) || 0,
       consume_unit: form.consume_unit,
@@ -347,11 +409,11 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
         <div className="p-5">
           <div className="grid grid-cols-2 gap-3.5">
               <Field label={t('f_name')} required error={errors.name} className="col-span-2">
-                <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} className="input" autoFocus />
+                <input type="text" data-field="name" value={form.name} onChange={(e) => set('name', e.target.value)} className="input" autoFocus />
               </Field>
 
-              <Field label={t('f_category')}>
-                <select value={form.category} onChange={(e) => set('category', e.target.value)} className="input">
+              <Field label={t('f_category')} required error={errors.category}>
+                <select data-field="category" value={form.category} onChange={(e) => set('category', e.target.value)} className="input">
                   <option value="">{t('f_selectCategory')}</option>
                   {categories.map((c) => (
                     <option key={c.id} value={c.key}>
@@ -410,11 +472,11 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                   </AnimatePresence>
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2">
-                  <MiniField label={t('f_room')}>
-                    <input type="text" value={form.room} onChange={(e) => set('room', e.target.value)} className="input" />
+                  <MiniField label={t('f_room')} error={errors.room}>
+                    <input type="text" data-field="room" value={form.room} onChange={(e) => set('room', e.target.value)} className="input" />
                   </MiniField>
-                  <MiniField label={t('f_position')}>
-                    <input type="text" value={form.position} onChange={(e) => set('position', e.target.value)} className="input" />
+                  <MiniField label={t('f_position')} error={errors.position}>
+                    <input type="text" data-field="position" value={form.position} onChange={(e) => set('position', e.target.value)} className="input" />
                   </MiniField>
                   <MiniField label={t('f_location')}>
                     <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className="input" />
@@ -423,8 +485,8 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                 <p className="mt-1.5 text-[11px] text-text-tertiary">{t('f_orManual')}</p>
               </Field>
 
-              <Field label={t('f_quantity')}>
-                <input type="number" min="0" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} className="input" />
+              <Field label={t('f_quantity')} error={errors.quantity}>
+                <input type="number" data-field="quantity" min="0" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} className="input" />
               </Field>
 
               <Field label={t('f_minQuantity')}>
@@ -448,9 +510,9 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                   )}
                 >
                   <div className="flex items-center gap-3">
-                    {form.photo ? (
+                    {(photoPreview || form.photo) ? (
                       <img
-                        src={toPhotoSrc(form.photo)}
+                        src={toPhotoSrc(photoPreview || form.photo)}
                         alt="preview"
                         className="h-14 w-14 shrink-0 rounded-lg object-cover ring-1 ring-border"
                         onError={(e) => { e.target.style.display = 'none' }}
@@ -474,6 +536,12 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                       {photoHint && (
                         <p className={cn('text-[11px]', photoHint.includes('失败') || photoHint.includes('超过') ? 'text-danger' : 'text-text-tertiary')}>
                           {photoHint}
+                        </p>
+                      )}
+                      {origFileSizeKB !== null && (
+                        <p className="flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+                          <AlertTriangle size={12} />
+                          {t('form_largeFile', { size: origFileSizeKB })}
                         </p>
                       )}
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -600,76 +668,14 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
           {/* AI 识别建议弹窗 */}
           <AnimatePresence>
             {(aiState.status === 'done' || aiState.status === 'error') && (
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                transition={{ duration: 0.22, ease: EASE }}
-                className="border-t border-border bg-surface p-5"
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-text-primary">{t('ai_recognize_suggestions')}</h3>
-                  <button
-                    type="button"
-                    onClick={() => setAiState({ status: 'idle', suggestions: [], error: '' })}
-                    className="text-[11px] text-text-tertiary hover:text-text-primary"
-                  >
-                    {t('ai_recognize_close')}
-                  </button>
-                </div>
-
-                {aiState.error && (
-                  <div className="mb-3 flex items-start gap-2 rounded-xl bg-danger-soft p-3 text-xs text-danger">
-                    <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                    <span>{aiState.error}</span>
-                  </div>
-                )}
-
-                {aiState.suggestions.length === 0 && !aiState.error && (
-                  <p className="text-xs text-text-tertiary">{t('ai_recognize_noResult')}</p>
-                )}
-
-                <div className="space-y-2">
-                  {aiState.suggestions.map((s, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-start gap-3 rounded-xl border border-border bg-bg p-3"
-                    >
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
-                        <Boxes size={14} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium text-text-primary">{s.name}</span>
-                          {s.confidence > 0 && (
-                            <span className="rounded-full bg-surface px-1.5 py-0.5 text-[10px] text-text-tertiary">
-                              {t('ai_recognize_confidence')} {(s.confidence * 100).toFixed(0)}%
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-text-secondary">
-                          {s.category && (
-                            <span>
-                              {t('f_category')}: {categoryDisplayName(categories.find((c) => c.key === s.category), lang) || s.category}
-                            </span>
-                          )}
-                          {s.location && <span>{t('f_location')}: {s.location}</span>}
-                          {s.quantity > 0 && <span>{t('f_quantity')}: {s.quantity}</span>}
-                        </div>
-                        {s.note && <p className="mt-1 text-[11px] text-text-tertiary">{t('ai_recognize_note')}: {s.note}</p>}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => applySuggestion(s)}
-                        className="flex shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-medium text-white transition-smooth hover:bg-primary-hover"
-                      >
-                        <Check size={12} />
-                        {t('ai_recognize_apply')}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
+              <AIRecognitionPanel
+                aiState={aiState}
+                categories={categories}
+                lang={lang}
+                onRetry={handleRecognize}
+                onApply={applySuggestion}
+                onCancel={() => setAiState({ status: 'idle', suggestions: [], error: '' })}
+              />
             )}
           </AnimatePresence>
 
@@ -749,16 +755,26 @@ function Field({ label, required, error, className = '', children }) {
         {required && <span className="text-danger"> *</span>}
       </span>
       {children}
-      {error && <span className="mt-1 block text-xs text-danger">{error}</span>}
+      {error && (
+        <motion.span
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-1 block flex items-center gap-1 text-xs text-danger"
+        >
+          <AlertTriangle size={11} />
+          {error}
+        </motion.span>
+      )}
     </label>
   )
 }
 
-function MiniField({ label, children }) {
+function MiniField({ label, error, children }) {
   return (
     <label className="block">
       <span className="mb-1 block text-[11px] font-medium text-text-tertiary">{label}</span>
       {children}
+      {error && <span className="mt-0.5 block text-[10px] text-danger">{error}</span>}
     </label>
   )
 }

@@ -1,10 +1,12 @@
 import { Component } from 'react'
+import { I18nContext } from '../lib/i18n'
 
 /**
  * React 错误边界：捕获子组件渲染错误，避免整个应用白屏。
  * 生产环境下显示友好提示与重试按钮，开发环境下保留控制台错误。
  */
 export default class ErrorBoundary extends Component {
+  static contextType = I18nContext
   constructor(props) {
     super(props)
     this.state = { hasError: false, error: null, errorInfo: null, showStack: false, showJsStack: false }
@@ -19,13 +21,19 @@ export default class ErrorBoundary extends Component {
     this.setState({ errorInfo })
   }
 
+  t(key) {
+    const ctx = this.context
+    return ctx ? ctx.t(key) : key
+  }
+
   render() {
+    const { t } = this
     if (this.state.hasError) {
       const stack = this.state.errorInfo?.componentStack || ''
       return (
         <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-bg p-6 text-center">
           <div className="rounded-2xl bg-surface p-6 shadow-card ring-1 ring-border max-w-2xl w-full">
-            <h2 className="mb-2 text-base font-semibold text-text-primary">页面加载出错</h2>
+            <h2 className="mb-2 text-base font-semibold text-text-primary">{t('error_pageCrashed')}</h2>
             <p className="mb-4 text-xs leading-relaxed text-text-secondary">
               当前页面发生渲染错误，请尝试返回或刷新。如果问题持续存在，请把下方错误信息反馈给开发者。
             </p>
@@ -76,10 +84,13 @@ export default class ErrorBoundary extends Component {
                 </button>
               )}
               <button
-                onClick={() => this.setState({ hasError: false, error: null, errorInfo: null, showStack: false, showJsStack: false })}
+                onClick={() => {
+                  if (this.props.onRetry) this.props.onRetry()
+                  this.setState({ hasError: false, error: null, errorInfo: null, showStack: false, showJsStack: false })
+                }}
                 className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
               >
-                重试
+                {t('btn_retry')}
               </button>
             </div>
           </div>

@@ -1,10 +1,12 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, Component } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, MapPin, Boxes, ChevronRight, X, Search, Info, LayoutGrid } from 'lucide-react'
+import { ArrowLeft, MapPin, Boxes, ChevronRight, X, Search, Info, LayoutGrid, XCircle } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { EASE } from '../lib/motion'
 import { cn } from '../lib/cn'
 import { itemLocationPath } from '../lib/api'
+import PageHeader from './PageHeader'
+import EmptyState from './EmptyState'
 
 // 为常见房间名分配暖色色块
 const ROOM_PALETTE = [
@@ -34,7 +36,36 @@ function normalizePhotoUrl(photo) {
   return 'file:///' + trimmed.replace(/\\/g, '/')
 }
 
-export default function LocationMap({ items, locations, onBack, onSelectLocation, onEditFloorPlan }) {
+class LocationMapErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-bg p-6 text-center">
+          <XCircle size={36} className="text-red-500" />
+          <h2 className="text-lg font-bold text-text-primary">LocationMap 渲染崩溃</h2>
+          <div className="max-w-lg rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-left text-xs font-mono text-red-700 dark:bg-red-950 dark:text-red-300">
+            <p className="font-semibold mb-2">错误信息（请复制到聊天记录）：</p>
+            <p>{this.state.error.message}</p>
+            <p className="mt-3 pt-2 border-t border-red-200 dark:border-red-800">{this.state.error.stack}</p>
+          </div>
+          <button onClick={this.props.onBack} className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover">
+            返回上一页
+          </button>
+        </div>
+      )
+    }
+    return <LocationMapInner {...this.props} />
+  }
+}
+
+function LocationMapInner({ items, locations, onBack, onSelectLocation, onEditFloorPlan }) {
   const { t } = useI18n()
   const [selectedRoom, setSelectedRoom] = useState(null)
   const [keyword, setKeyword] = useState('')
@@ -83,7 +114,7 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
     )
   }, [selectedRoom, keyword])
 
-  const total = items.length
+  const total = safeItems.length
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg">
@@ -116,11 +147,11 @@ export default function LocationMap({ items, locations, onBack, onSelectLocation
           </div>
           <div className="flex-1 overflow-y-auto p-5">
             {rooms.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center px-6 text-center text-sm text-text-tertiary">
-                <MapPin size={40} className="mb-4 opacity-40" />
-                <p className="mb-2 font-medium text-text-secondary">{t('loc_empty')}</p>
-                <p className="max-w-xs text-xs leading-relaxed">{t('locationMap_emptyHint')}</p>
-              </div>
+              <EmptyState
+                icon={<MapPin size={28} />}
+                title={t('loc_empty')}
+                subtitle={t('locationMap_emptyHint')}
+              />
             ) : (
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4">
                 {rooms.map((room, i) => {
@@ -287,3 +318,5 @@ function ItemThumb({ photo, name }) {
     </div>
   )
 }
+
+export default LocationMapErrorBoundary
