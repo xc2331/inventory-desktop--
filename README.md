@@ -314,8 +314,17 @@ inventory-desktop/
 
 ## 最近更新
 
-- **v1.3.0c**：电子材料库白屏修复（补全 `SearchBar` 组件导入）；为 App 增加全局异步错误监听（`window.onerror` + `unhandledrejection`），位置图、平面图编辑器、材料库新增 ErrorBoundary 错误捕获层，白屏时显示完整错误信息供复制排查
-- **v1.3.0.b**：修复 Agent API 状态接口版本号返回过时的问题（`getStatus` 版本字段从硬编码改为动态读取 package.json）
+- **v1.3.1**：
+  - 修复电子材料库白屏（`SearchBar` 组件导入缺失）
+  - 新增全局异步错误监听（`window.onerror` + `unhandledrejection`），白屏时显示完整错误信息供复制排查
+  - 为材料库、位置图、平面图编辑器增加 ErrorBoundary 渲染错误兜底层
+  - 标签分类计数改为药丸样式（胶囊背景 + 数字计数，`count-bg` 类）
+  - Toast 新增底部进度条显示剩余关闭时间（`motion.div` 动画）
+  - TagModal 增加实时搜索过滤功能
+  - 过期日期输入改为日历选择器（`<input type="date">`）
+  - 详情面板改为 `motion.div` 动画（0.05s spring + fade），减少突兀切换
+  - 新增 Ctrl+N（新建）、Ctrl+S（保存）、Ctrl+B（批量）、Ctrl+F（搜索）键盘快捷键
+  - 修复 API 版本号返回过时问题（动态读取 package.json）
 - **v1.3.0.a**：修复材料库卡片大小/视图模式/卡片风格重启后丢失；电子材料库接口从 `/api/materials` 改为 `/api/e-materials`，响应体标题加【电子材料】前缀；新增 `/api/e-materials/types` 接口供 Agent 管理类型列表
 - **v1.3.0**：家庭食材消耗日志（按日期/食材追踪消耗量）、Agent AI 识别自动入库（含 AI 建议来源字段）、批量导入（物品 + 耗材 + 材料）
 - **v1.2.16**：设置页重新排序：「数据管理」置顶，「更新日志 / 新功能」置底，其余顺序保持不变

@@ -1,5 +1,23 @@
 [
   {
+    "version": "1.3.1",
+    "date": "2026-08-18",
+    "type": "feature",
+    "summary": "稳定优化与交互细节提升：材料库白屏修复、全局错误捕获、标签分类计数药丸样式、Toast 进度条、标签实时搜索、详情面板动画",
+    "features": [
+      "修复电子材料库白屏（SearchBar 导入缺失）",
+      "新增全局异步错误监听（window.onerror / unhandledrejection），白屏时显示完整错误信息供复制排查",
+      "为材料库、位置图、平面图编辑器增加 ErrorBoundary 渲染错误兜底",
+      "标签分类计数改为药丸样式（胶囊背景 + 数字）",
+      "Toast 增加底部进度条显示剩余关闭时间",
+      "TagModal 增加实时搜索过滤",
+      "过期日期改为日历输入器（type=date）",
+      "详情面板改用 motion 动画（0.05s spring + fade），减少突兀切换",
+      "新增 Ctrl+N / Ctrl+S / Ctrl+B / Ctrl+F 快捷键",
+      "Agent 集成 30s 心跳检测、配置热加载、日志自动轮转、错误码分类处理"
+    ]
+  },
+  {
     "version": "v1.3.0.b",
     "date": "2026-08-16",
     "type": "bugfix",
