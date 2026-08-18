@@ -878,8 +878,7 @@ ipcMain.handle('items:generateItemNo', () => {
 
 const ALLOWED_BULK_FIELDS = [
   'category', 'name', 'quantity', 'min_quantity', 'unit', 'location',
-  'supplier', 'purchase_date', 'expiry_date', 'purchase_price', 'purchase_amount',
-  'barcode', 'notes', 'photo'
+  'supplier', 'purchase_date', 'expiry_date', 'purchase_price', 'notes'
 ]
 
 ipcMain.handle('items:batchDelete', (_event, { ids }) => {
@@ -913,7 +912,14 @@ ipcMain.handle('items:batchChangeQty', (_event, { ids, type, value }) => {
   const now = Date.now()
   if (type === 'set') {
     const upd = db.prepare('UPDATE items SET quantity = ?1, updated_at = ?2 WHERE id = ?3')
-    return { updated: upd.run(value, now, ids[0]).changes ?? 0 }
+    const tx = db.transaction((arr) => {
+      let total = 0
+      for (const id of arr) {
+        total += upd.run(value, now, id).changes ?? 0
+      }
+      return total
+    })
+    return { updated: tx(ids) }
   }
   const upd = db.prepare('UPDATE items SET quantity = MAX(0, CAST(quantity AS INTEGER) + ?1), updated_at = ?2 WHERE id = ?3')
   const tx = db.transaction((arr) => {

@@ -33,14 +33,43 @@ import {
 // ---------------------------------------------------------------------------
 // useToasts
 // ---------------------------------------------------------------------------
+// 队列化 Toast：批量操作时不再前一条被顶掉，最多堆叠 3 条
+const TOAST_DURATION = 2800
+const MAX_STACK = 3
+
 export function useToasts() {
   const [toast, setToast] = useState(null)
+  const [queue, setQueue] = useState([])
 
   const showToast = useCallback((message, type = 'success') => {
-    setToast({ message, type, id: Date.now() })
+    const item = { message, type, id: Date.now() + Math.random() }
+    if (toast) {
+      setQueue((q) => {
+        if (q.length >= MAX_STACK) return q
+        return [...q, item]
+      })
+    } else {
+      setToast(item)
+    }
+  }, [toast])
+
+  const setToastInternal = useCallback((value) => {
+    setToast(value)
   }, [])
 
-  return { toast, setToast, showToast }
+  const done = useCallback(() => {
+    setQueue((q) => {
+      const next = q[0]
+      if (next) {
+        setToast(next)
+        return q.slice(1)
+      }
+      setToast(null)
+      return q
+    })
+  }, [])
+
+  return { toast, setToast: setToastInternal, showToast, done }
 }
 
 // ---------------------------------------------------------------------------

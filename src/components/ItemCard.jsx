@@ -10,13 +10,9 @@ import { cn } from '../lib/cn'
 import SearchHighlight from './SearchHighlight'
 import { EASE, EASE_SPRING, cardHover } from '../lib/motion'
 
-// 过期卡片脉冲动画（内联 keyframes 不可用于 framer-motion，改用 CSS variable + animate 替代）
-const expiredKeyframes = [
-  { boxShadow: '0 0 0 0 rgba(239,68,68,0.45)' },
-  { boxShadow: '0 0 0 8px rgba(239,68,68,0)' }
-]
+// 过期卡片抖动动画（只播 2 次后静止，避免 repeat:Infinity 持续占用 GPU）
 const expiredShake = [
-  { rotate: 0 }, { rotate: -5 }, { rotate: 5 }, { rotate: 0 }
+  { rotate: 0 }, { rotate: -4 }, { rotate: 4 }, { rotate: 0 }
 ]
 
 function normalizePhotoUrl(photo) {
@@ -156,22 +152,22 @@ export default function ItemCard({
         </AnimatePresence>
       )}
 
-      {/* U-02 过期遮罩层（强视觉警示：红色脉冲 + 大图标） */}
+      {/* 过期警示：顶部红色渐变带 + 边框 + 徽章（不遮挡卡片内容，避免信息丢失和 GPU 持续抖动） */}
       {isExpired && (
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 0.92, boxShadow: '0 0 0 0 rgba(239,68,68,0.4)' }}
-          transition={{ duration: 0.3 }}
-          className="pointer-events-none absolute inset-0 z-[12] rounded-2xl bg-gradient-to-br from-danger/90 to-danger-soft/80 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: EASE_SPRING }}
+          className="absolute inset-x-0 top-0 z-[12] flex items-center justify-center gap-1.5 rounded-t-2xl bg-gradient-to-r from-danger to-red-500 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm"
         >
-          <motion.div
+          <motion.span
             animate={expiredShake}
-            transition={{ duration: 0.5, repeat: Infinity, repeatType: 'reverse' }}
-            className="flex h-14 w-14 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm"
+            transition={{ duration: 0.4, times: [0, 0.3, 0.7, 1], repeat: 1 }}
+            className="inline-flex"
           >
-            <ShieldAlert size={32} className="text-white" />
-          </motion.div>
-          <span className="text-sm font-bold uppercase tracking-wider text-white">{t('card_expired')}</span>
+            <ShieldAlert size={12} />
+          </motion.span>
+          <span>{t('card_expired')}</span>
         </motion.div>
       )}
 
@@ -184,7 +180,7 @@ export default function ItemCard({
           className="absolute inset-x-0 top-0 z-[12] flex items-center justify-center gap-1.5 rounded-t-2xl bg-gradient-to-r from-warn to-amber-400 px-3 py-1.5 text-[11px] font-bold text-amber-950 shadow-sm"
         >
           <CalendarClock size={12} />
-          <span>{expiry.days} 天后过期</span>
+          <span>{t('card_expireIn', { n: expiry.days })}</span>
         </motion.div>
       )}
 

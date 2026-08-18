@@ -256,6 +256,12 @@ select {
   }
 }
 
+/* HTML 默认背景 = app 底色，避免加载白闪；跟随系统颜色模式 */
+html, body { background-color: var(--color-bg, #fbfaf8); }
+@media (prefers-color-scheme: dark) {
+  html:not(.light), body:not(.light) { background-color: #0f172a; }
+}
+
 /* 设置页关闭动效：禁用 Recharts SVG 动画 + framer-motion 过渡 */
 .no-anim .recharts-wrapper *,
 .no-anim .recharts-surface *,

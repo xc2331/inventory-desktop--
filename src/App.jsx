@@ -132,7 +132,7 @@ export default function App() {
   }
 
   // ---- Extracted hooks ----
-  const { toast, setToast, showToast } = useToasts()
+  const { toast, setToast, showToast, done: toastDone } = useToasts()
   const {
     keyword, setKeyword,
     keywordInput, setKeywordInput,
@@ -434,7 +434,7 @@ export default function App() {
       } else if (e.ctrlKey && (e.key === 'b' || e.key === 'B')) {
         e.preventDefault()
         exitBulkRef.current?.()
-      } else if (e.key === '?') {
+      } else if (e.key === '?' && !e.ctrlKey && !e.altKey && !(document.activeElement?.matches?.('input, textarea, [contenteditable]'))) {
         setShowShortcuts((v) => !v)
       } else if (e.key === 'Escape') {
         if (showShortcuts) setShowShortcuts(false)
@@ -847,10 +847,18 @@ export default function App() {
                         <>
                           <EmptyState onAdd={handleOpenNew} hasFilter={!!keyword || !!activeCategory || activeLocation.length > 0} t={t} />
                           {keyword && (
-                            <div className="mb-4 flex justify-center">
+                            <div className="mb-4 flex flex-col items-center gap-2">
                               <span className="rounded-full bg-surface-hover px-3 py-1 text-xs text-text-tertiary">
                                 {t('search_noResults')}
                               </span>
+                              <button
+                                type="button"
+                                onClick={() => { setKeyword(''); setKeywordInput('') }}
+                                className="flex items-center gap-1.5 rounded-lg bg-surface border border-border px-3 py-1.5 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+                              >
+                                <XCircle size={13} />
+                                {t('empty_clearFilter')}
+                              </button>
                             </div>
                           )}
                         </>
