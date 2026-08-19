@@ -5,7 +5,7 @@ import {
   ShieldCheck, MapPin, Search
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
-import { useApp } from '../hooks'
+import { fetchAllItems, fetchCategories, fetchItemsTotal } from '../lib/api'
 import { expiryStatus } from '../lib/utils'
 import { formatDate } from '../lib/format'
 import { categoryDisplayName } from '../lib/api'
@@ -40,7 +40,6 @@ function UrgencyBadge({ level }) {
   )
 }
 
-// 紧迫度排序
 function sortKey(item) {
   if (!item.expiry_date) return { t: 2, d: 1e18 }
   const now = Date.now()
@@ -52,14 +51,19 @@ function sortKey(item) {
 
 export default function ExpiryAlerts({ dark, onNavigate }) {
   const { t } = useI18n()
-  const { items, categories, setKeyword: setGlobalKeyword } = useApp()
-
+  const [items, setItems] = useState([])
+  const [categories, setCategories] = useState([])
+  const [loading, setLoading] = useState(true)
   const [filterTier, setFilterTier] = useState('all')
   const [sortMode, setSortMode] = useState('urgency')
   const [showExpired, setShowExpired] = useState(false)
   const [keyword, setKeyword] = useState('')
 
-  useEffect(() => { setGlobalKeyword(keyword) }, [keyword, setGlobalKeyword])
+  useEffect(() => {
+    Promise.all([fetchAllItems(), fetchCategories()])
+      .then(([its, cats]) => { setItems(its); setCategories(cats) })
+      .finally(() => setLoading(false))
+  }, [])
 
   const filteredItems = useMemo(() => {
     let list = items.filter((it) => {

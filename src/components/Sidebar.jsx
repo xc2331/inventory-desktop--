@@ -182,13 +182,13 @@ export default function Sidebar({
           )
         })}
         <button
-          onClick={onToggleExpired}
+          onClick={onOpenExpiryAlerts}
           className={cn(
             'relative mb-0.5 flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-sm transition-smooth',
-            showExpired ? 'font-medium text-danger' : 'text-text-secondary hover:bg-surface-hover'
+            activeView === 'expiryAlerts' ? 'font-medium text-danger' : 'text-text-secondary hover:bg-surface-hover'
           )}
         >
-          {showExpired && (
+          {activeView === 'expiryAlerts' && (
             <motion.span
               layoutId="sidebar-active-pill"
               transition={{ type: 'spring', stiffness: 400, damping: 32 }}
