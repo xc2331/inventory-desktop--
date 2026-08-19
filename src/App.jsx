@@ -7,6 +7,7 @@ import { cn } from './lib/cn'
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import ItemCard from './components/ItemCard'
+import SkeletonCard from './components/SkeletonCard'
 import ItemForm from './components/ItemForm'
 import Lightbox from './components/Lightbox'
 import EmptyState from './components/EmptyState'
@@ -839,9 +840,15 @@ export default function App() {
                         )}
                       </AnimatePresence>
                       {loading && items.length === 0 ? (
-                        <div className="flex h-full flex-col items-center justify-center gap-3 text-text-tertiary">
-                          <Loader2 size={28} className="animate-spin" />
-                          <span className="text-sm">{t('loading')}</span>
+                        <div className={cn(
+                          'grid gap-4',
+                          cardDensity === 'compact' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8' :
+                          cardDensity === 'relaxed' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-2' :
+                          'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+                        )}>
+                          {Array.from({ length: 6 }).map((_, i) => (
+                            <SkeletonCard key={i} index={i} />
+                          ))}
                         </div>
                       ) : filteredItems.length === 0 ? (
                         <>
