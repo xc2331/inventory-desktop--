@@ -160,24 +160,25 @@ export default function Lightbox({ src, alt, onClose }) {
           </AnimatePresence>
 
           {/* 图片 */}
-          <motion.img
-            key={src}
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale, x: pan.x, y: pan.y }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.3, ease: EASE }}
-            src={src}
-            alt={alt || ''}
-            draggable={false}
-            onDoubleClick={handleDoubleClick}
-            onWheel={handleWheel}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            onClick={(e) => e.stopPropagation()}
-            className="max-h-[88vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
-            style={{ cursor: isZoomed ? 'grab' : 'default' }}
-          />
+          <AnimatePresence>
+            <motion.img
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale, x: pan.x, y: pan.y }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.3, ease: EASE }}
+              src={src}
+              alt={alt || ''}
+              draggable={false}
+              onDoubleClick={handleDoubleClick}
+              onWheel={handleWheel}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              onClick={(e) => e.stopPropagation()}
+              className="max-h-[88vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+              style={{ cursor: isZoomed ? 'grab' : 'default' }}
+            />
+          </AnimatePresence>
 
           {/* 底部操作提示 */}
           <motion.div
