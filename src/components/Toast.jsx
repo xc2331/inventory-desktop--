@@ -37,6 +37,17 @@ export default function Toast({ toast, onDone, progress }) {
   const progressValue = progress != null ? progress : (toast ? localProgress : 0)
   const isError = toast?.type === 'error'
   const showProgress = !!toast
+  const hasTarget = !!toast?.targetId
+  const cursor = hasTarget ? 'cursor-pointer' : ''
+
+  const handleClick = (e) => {
+    // 如果点击的是关闭按钮，不处理
+    if (e.target.closest('[data-close-btn]')) return
+    if (hasTarget) {
+      window.dispatchEvent(new CustomEvent('locateItem', { detail: { id: toast.targetId } }))
+      onDone()
+    }
+  }
 
   return (
     <div className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 w-[92vw] max-w-md">
@@ -49,13 +60,18 @@ export default function Toast({ toast, onDone, progress }) {
             exit={{ opacity: 0, y: 12, scale: 0.96 }}
             transition={{ duration: 0.34, ease: EASE_SPRING }}
             className="pointer-events-auto relative"
+            onClick={handleClick}
+            role={hasTarget ? 'button' : undefined}
+            aria-label={hasTarget ? '点击定位到对应条目' : undefined}
           >
             <div
               className={`glass flex items-center gap-2.5 rounded-2xl border px-4 py-3 text-sm font-medium shadow-float ${
                 isError
                   ? 'border-danger/30 text-danger'
+                  : hasTarget
+                  ? 'border-border text-text-primary hover:border-primary/50 transition-smooth'
                   : 'border-border text-text-primary'
-              }`}
+              } ${cursor}`}
             >
               <motion.span
                 initial={{ scale: 0 }}
@@ -67,8 +83,9 @@ export default function Toast({ toast, onDone, progress }) {
               <span className="flex-1">{toast.message}</span>
               {/* U-19 关闭按钮 */}
               <motion.button
+                data-close-btn
                 whileTap={{ scale: 0.85 }}
-                onClick={onDone}
+                onClick={(e) => { e.stopPropagation(); onDone() }}
                 className="flex h-6 w-6 items-center justify-center rounded-full bg-bg/60 text-text-tertiary transition-smooth hover:bg-bg hover:text-text-primary"
                 aria-label="关闭"
               >

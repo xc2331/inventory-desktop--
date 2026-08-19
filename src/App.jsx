@@ -405,6 +405,7 @@ export default function App() {
   const handleSave = async (data) => {
     try {
       const payload = { ...data }
+      let savedId = itemsHook.editingItem?.id || null
       if (!itemsHook.editingItem && !payload.item_no?.trim()) {
         try {
           payload.item_no = await generateItemNo()
@@ -412,10 +413,10 @@ export default function App() {
       }
       if (itemsHook.editingItem) {
         await updateItem(itemsHook.editingItem.id, payload)
-        showToast(t('toast_updated', { name: data.name || '—' }))
+        showToast(t('toast_updated', { name: data.name || '—' }), 'success', { targetId: savedId })
       } else {
-        await createItem(payload)
-        showToast(t('toast_added', { name: data.name || '—' }))
+        savedId = (await createItem(payload)).id
+        showToast(t('toast_added', { name: data.name || '—' }), 'success', { targetId: savedId })
       }
       itemsHook.setFormOpen(false)
       itemsHook.setEditingItem(null)
@@ -454,6 +455,25 @@ export default function App() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [showShortcuts])
+
+  // UX-09：点击 Toast 定位到对应物品卡片
+  useEffect(() => {
+    function onLocate(e) {
+      const id = e.detail?.id
+      if (!id) return
+      const el = document.querySelector(`[data-item-id="${id}"]`)
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.focus({ preventScroll: true })
+      // 高亮一下（1s 后清除）
+      el.classList.add('ring-2', 'ring-primary', 'ring-offset-1', 'ring-offset-bg')
+      setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-primary', 'ring-offset-1', 'ring-offset-bg')
+      }, 1400)
+    }
+    window.addEventListener('locateItem', onLocate)
+    return () => window.removeEventListener('locateItem', onLocate)
+  }, [])
 
   handlersRef.current.imp = handleImportJSON
   handlersRef.current.ej = handleExportJSON

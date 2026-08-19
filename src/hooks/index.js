@@ -41,8 +41,8 @@ export function useToasts() {
   const [toast, setToast] = useState(null)
   const [queue, setQueue] = useState([])
 
-  const showToast = useCallback((message, type = 'success') => {
-    const item = { message, type, id: Date.now() + Math.random() }
+  const showToast = useCallback((message, type = 'success', opts) => {
+    const item = { message, type, id: Date.now() + Math.random(), targetId: opts?.targetId || null }
     if (toast) {
       setQueue((q) => {
         if (q.length >= MAX_STACK) return q

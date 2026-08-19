@@ -162,6 +162,7 @@ export default function ItemCard({
         hasPhoto && 'cursor-zoom-in',
         !bulkMode && !hasPhoto && 'cursor-grab active:cursor-grabbing'
       )}
+      data-item-id={item.id}
     >
       {/* UX-01 选中指示环（强化：外发光 + 顶部角标 + 呼吸脉冲） */}
       {selected && (
