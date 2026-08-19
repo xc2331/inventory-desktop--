@@ -325,6 +325,7 @@ inventory-desktop/
   - Toast 新增底部进度条显示剩余关闭时间（`motion.div` 动画）
   - TagModal 增加实时搜索过滤功能
   - 过期日期输入改为日历选择器（`<input type="date">`）
+- **v1.3.10**：空状态插画升级（UX-04）：`EmptyState` 加入 framer-motion 入场动画 + 装饰光晕背景 + 弹性图标框 + CTA 按钮弹簧交互
 - **v1.3.9**：加载骨架屏（UX-03）：新增 `SkeletonCard` 组件替换 "Loading..." 文字，模拟卡片轮廓 + shimmer 流光呼吸动画
 - **v1.3.8**：物品卡片拖拽预览（UX-02）：非照片卡片支持 framer-motion 拖拽，抬起缩放 + 旋转 + 深阴影，松手弹簧回弹；悬停显示 grab 光标
 - **v1.3.7**：物品卡片交互反馈升级（UX-01）：悬停抬起阴影加深 + `whileTap` 按压回弹 + `focus-visible` 键盘焦点环 + 选中脉冲呼吸环
