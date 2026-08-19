@@ -56,6 +56,11 @@ export default function ItemCard({
   const [imgErr, setImgErr] = useState(false)
   const updatedAtStr = item.updated_at ? formatDate(item.updated_at, localeKey) : ''
 
+  // UX-02 拖拽排序预览：Grip handle + framer-motion drag + spring snap-back
+  const [isDragging, setIsDragging] = useState(false)
+  const handleDragStart = () => setIsDragging(true)
+  const handleDragEnd = () => setIsDragging(false)
+
   // U-09 右键菜单关闭：点击别处 / 按 Esc
   useEffect(() => {
     if (!menuOpen) return
@@ -131,6 +136,14 @@ export default function ItemCard({
       }}
       whileHover={menuOpen ? undefined : baseHover}
       whileTap={baseTap}
+      whileDrag={{ scale: 1.04, rotate: 1, boxShadow: '0 20px 40px -12px rgba(15,23,42,0.28), 0 8px 16px -6px rgba(15,23,42,0.18)', cursor: 'grabbing' }}
+      drag={!bulkMode && !hasPhoto}
+      dragConstraints={null}
+      dragElastic={0.08}
+      dragMomentum={false}
+      dragTransition={{ bounceStiffness: 400, bounceDamping: 28 }}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       focusable
       tabIndex={0}
       transition={{ duration: 0.28, ease: EASE, delay: Math.min(index * 0.025, 0.12) }}
@@ -141,11 +154,13 @@ export default function ItemCard({
         'card-hover group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card',
         'transition-shadow duration-200 ease-[0.22,1,0.36,1]',
         'outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-bg',
+        isDragging && 'z-[50] opacity-80',
         selected ? 'border-primary shadow-[0_0_0_3px_rgba(16,185,129,0.22),0_8px_24px_-6px_rgba(16,185,129,0.25)] z-[5]' : 'border-border hover:shadow-lg',
         isExpired ? 'border-danger' : undefined,
         isExpiringSoon ? 'border-warn' : undefined,
         bulkMode && 'cursor-pointer',
-        hasPhoto && 'cursor-zoom-in'
+        hasPhoto && 'cursor-zoom-in',
+        !bulkMode && !hasPhoto && 'cursor-grab active:cursor-grabbing'
       )}
     >
       {/* UX-01 选中指示环（强化：外发光 + 顶部角标 + 呼吸脉冲） */}
