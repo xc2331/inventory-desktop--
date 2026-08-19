@@ -111,6 +111,17 @@ export default function ItemCard({
     if (hasPhoto && onDoubleClick) onDoubleClick(photoUrl, item.name)
   }
 
+  // UX-01 卡片交互参数
+  const baseHover = isExpired ? cardHover : {
+    ...cardHover,
+    scale: 1.018,
+    y: -6,
+    boxShadow: '0 12px 28px -8px rgba(15,23,42,0.18), 0 4px 10px -4px rgba(15,23,42,0.10)'
+  }
+  const baseTap = isExpired
+    ? { scale: 1 }
+    : { scale: 0.985, y: -2, boxShadow: '0 4px 12px -4px rgba(15,23,42,0.12)' }
+
   return (
     <motion.div
       layout
@@ -118,33 +129,42 @@ export default function ItemCard({
       animate={{ opacity: 1, y: 0,
         boxShadow: isExpired ? '0 0 0 2px rgba(239,68,68,0.4), 0 4px 16px rgba(239,68,68,0.12)' : undefined
       }}
-      whileHover={menuOpen ? undefined : (isExpired ? cardHover : { ...cardHover, scale: 1.015 })}
-      transition={{ duration: 0.3, ease: EASE, delay: Math.min(index * 0.025, 0.12) }}
+      whileHover={menuOpen ? undefined : baseHover}
+      whileTap={baseTap}
+      focusable
+      tabIndex={0}
+      transition={{ duration: 0.28, ease: EASE, delay: Math.min(index * 0.025, 0.12) }}
       onClick={handleCardClick}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
       className={cn(
         'card-hover group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card',
-        selected ? 'border-primary shadow-[0_0_0_3px_rgba(16,185,129,0.15)]' : 'border-border',
+        'transition-shadow duration-200 ease-[0.22,1,0.36,1]',
+        'outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-bg',
+        selected ? 'border-primary shadow-[0_0_0_3px_rgba(16,185,129,0.22),0_8px_24px_-6px_rgba(16,185,129,0.25)] z-[5]' : 'border-border hover:shadow-lg',
         isExpired ? 'border-danger' : undefined,
         isExpiringSoon ? 'border-warn' : undefined,
         bulkMode && 'cursor-pointer',
         hasPhoto && 'cursor-zoom-in'
       )}
     >
-      {/* U-01 选中指示环（强化：外发光 + 顶部角标） */}
+      {/* UX-01 选中指示环（强化：外发光 + 顶部角标 + 呼吸脉冲） */}
       {selected && (
         <AnimatePresence>
           <motion.span
             initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
+            animate={{ opacity: 1, scale: 1,
+              boxShadow: '0 0 0 0 rgba(16,185,129,0.4)'
+            }}
             exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ duration: 0.2, ease: EASE_SPRING }}
-            className="pointer-events-none absolute inset-0 z-[15] rounded-2xl ring-2 ring-primary"
+            transition={{ duration: 0.25, ease: EASE_SPRING }}
+            className="pointer-events-none absolute inset-0 z-[15] rounded-2xl ring-2 ring-primary animate-pulse"
           />
           <motion.div
             initial={{ opacity: 0, scale: 0 }}
             animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0 }}
+            transition={{ duration: 0.22, ease: EASE_SPRING }}
             className="pointer-events-none absolute right-2.5 top-2.5 z-[16] flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white shadow-lg"
           >
             <Check size={12} strokeWidth={3} />
