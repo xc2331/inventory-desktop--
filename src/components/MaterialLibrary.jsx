@@ -48,6 +48,7 @@ import Toast from './Toast'
 import Lightbox from './Lightbox'
 import TypeManager from './TypeManager'
 import DoubleClickPrefDialog from './DoubleClickPrefDialog'
+import SearchHighlight from './SearchHighlight'
 import SearchBar from './MaterialLibrary/SearchBar'
 
 const SIZE_STEPS = [130, 166, 202, 238, 274, 310]
@@ -1245,7 +1246,7 @@ function FileGridView({ items, materialTypes, cardWidth, cardMode, selectedIds, 
   )
 }
 
-function MaterialCard({ item, materialTypes, selected, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox, onClick, onDoubleClick, index, lang }) {
+function MaterialCard({ item, materialTypes, keyword, selected, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox, onClick, onDoubleClick, index, lang }) {
   const { t } = useI18n()
   const [menuOpen, setMenuOpen] = useState(false)
   const [imgErr, setImgErr] = useState(false)
@@ -1481,7 +1482,7 @@ function CompactFileCard({ item, materialTypes, selected, bulkMode, onToggleSele
         <Icon size={32} className={group.color} />
       </div>
       <div className="w-full text-center">
-        <h4 className="truncate text-xs font-medium text-text-primary" title={item.title}>{item.title || t('materials_title')}</h4>
+        <h4 className="truncate text-xs font-medium text-text-primary" title={item.title}><SearchHighlight text={item.title || t('materials_title')} keyword={keyword} /></h4>
         {tags.length > 0 && (
           <p className="mt-1 truncate text-[10px] text-text-tertiary">{tags.slice(0, 2).join(', ')}</p>
         )}
