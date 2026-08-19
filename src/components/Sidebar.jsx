@@ -56,6 +56,7 @@ export default function Sidebar({
   activeView,
   showExpired = false,
   onToggleExpired,
+  onOpenExpiryAlerts,
   onClearLocation
 }) {
   const { t } = useI18n()
