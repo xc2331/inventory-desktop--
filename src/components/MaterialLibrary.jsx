@@ -1247,8 +1247,6 @@ function FileGridView({ items, materialTypes, cardWidth, cardMode, selectedIds, 
 }
 
 function MaterialCard({ item, materialTypes, keyword, selected, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox, onClick, onDoubleClick, index, lang }) {
-  const { t } = useI18n()
-  const [menuOpen, setMenuOpen] = useState(false)
   const [imgErr, setImgErr] = useState(false)
   const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
   const resource = item.photo || item.url || ''
@@ -1440,7 +1438,7 @@ function MaterialCard({ item, materialTypes, keyword, selected, bulkMode, onTogg
   )
 }
 
-function CompactFileCard({ item, materialTypes, selected, bulkMode, onToggleSelect, onClick, onEdit, onDoubleClick, index, lang }) {
+function CompactFileCard({ item, materialTypes, keyword, selected, bulkMode, onToggleSelect, onClick, onEdit, onDoubleClick, index, lang }) {
   const { t } = useI18n()
   const group = fileTypeIcon(getFileType(item))
   const Icon = group.icon

@@ -103,13 +103,13 @@ export default function ItemCard({
 
   const handleMenuAction = (action) => {
     setMenuOpen(false)
-    if (action === 'edit') onEdit(item)
-    else if (action === 'delete') onDelete(item.id, item.name)
-    else if (action === 'add') onAdjust(item.id, 1)
-    else if (action === 'sub') onAdjust(item.id, -1)
-    else if (action === 'cart') onAddToCart?.(item.id)
-    else if (action === 'copy') onCopyItemNo?.(item.item_no)
-    else if (action === 'map') onOpenInMap?.(item)
+    switch (action) {
+      case 'edit':   if (onEdit) onEdit()   ; break
+      case 'add':    if (onAdjust) onAdjust(1, item.id) ; break
+      case 'sub':    if (onAdjust) onAdjust(-1, item.id); break
+      case 'copy':   onCopyItemNo(item.item_no); break
+      case 'delete': if (onDelete) onDelete() ; break
+    }
   }
 
   const handleDoubleClick = () => {

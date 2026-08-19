@@ -220,6 +220,8 @@ export function useSettings(getSettings, setSettingsFn, applyThemeClass) {
   const handleChangeLang = useCallback(async (l) => {
     if (setSettingsFn) await setSettingsFn({ language: l })
     setLang(l)
+    // 通知 I18nProvider 同步
+    window.dispatchEvent(new CustomEvent('language:change', { detail: { lang: l } }))
   }, [setSettingsFn])
 
   const handleChangeTheme = useCallback(async (nextTheme) => {

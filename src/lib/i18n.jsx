@@ -1083,6 +1083,15 @@ export function I18nProvider({ initialLang = 'zh', children }) {
     setLangState(l)
   }, [])
 
+  // 同步 useSettings 触发的语言切换
+  useEffect(() => {
+    const handler = (e) => {
+      setLangState(e.detail?.lang || 'zh')
+    }
+    window.addEventListener('language:change', handler)
+    return () => window.removeEventListener('language:change', handler)
+  }, [])
+
   const t = useCallback(
     (key, params) => {
       const dict = DICT[lang] || DICT.zh
