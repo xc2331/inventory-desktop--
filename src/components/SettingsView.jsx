@@ -54,6 +54,7 @@ export default function SettingsView({
   const [aiFetchError, setAiFetchError] = useState({})
   const [aiTestLoading, setAiTestLoading] = useState(false)
   const [aiTestResult, setAiTestResult] = useState(null)
+  const [aiError, setAiError] = useState(null)
   const [rebuilding, setRebuilding] = useState(false)
   const [materialDoubleClick, setMaterialDoubleClick] = useState('ask')
   const [materialSaved, setMaterialSaved] = useState(false)
@@ -153,19 +154,25 @@ export default function SettingsView({
   }
 
   const handleSaveAIConfig = async () => {
-    const providers = aiProviders.map((p) => ({
-      id: p.id,
-      name: p.name?.trim() || '未命名',
-      baseUrl: p.baseUrl?.trim() || '',
-      key: p.key?.trim() || '',
-      model: p.model?.trim() || 'gpt-4o-mini'
-    }))
-    const selectedId = aiSelectedId
-    const next = await setAIConfig({ providers, selectedId })
-    setAiProviders(next.providers || [])
-    setAiSelectedId(next.selectedId || '')
-    setAiSaved(true)
-    setTimeout(() => setAiSaved(false), 1500)
+    setAiError(null)
+    try {
+      const providers = aiProviders.map((p) => ({
+        id: p.id,
+        name: p.name?.trim() || '未命名',
+        baseUrl: p.baseUrl?.trim() || '',
+        key: p.key?.trim() || '',
+        model: p.model?.trim() || 'gpt-4o-mini'
+      }))
+      const selectedId = aiSelectedId
+      const next = await setAIConfig({ providers, selectedId })
+      setAiProviders(next.providers || [])
+      setAiSelectedId(next.selectedId || '')
+      setAiSaved(true)
+      setTimeout(() => setAiSaved(false), 1500)
+    } catch (e) {
+      setAiError(e.message || 'unknown')
+      setTimeout(() => setAiError(null), 8000)
+    }
   }
 
   const toggleShowKey = (id) => {
@@ -768,6 +775,13 @@ export default function SettingsView({
                 <Plus size={15} />
                 {t('settings_aiVision_add')}
               </motion.button>
+
+              {aiError && (
+                <div className="flex items-start gap-1.5 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                  <span>{aiError}</span>
+                </div>
+              )}
 
               <motion.button
                 whileTap={{ scale: 0.97 }}

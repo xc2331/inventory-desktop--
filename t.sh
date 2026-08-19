@@ -1,0 +1,2 @@
+Write-Host "hello world"
+Add-Content -Path "C:\Users\4070\AppData\Roaming\TRAE SOLO CN\ModularData\ai-agent\work-mode-projects\6a69bff1700b850e63b3d704\inventory-desktop\smoke.log" -Value "smoke ok" -Encoding UTF8
