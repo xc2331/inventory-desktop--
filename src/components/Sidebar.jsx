@@ -406,20 +406,37 @@ function LocationNode({ node, depth, parentPath, activeLocation, onSelectLocatio
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: EASE }}
+            transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
             className="overflow-hidden"
           >
-            {node.children.map((c) => (
-              <LocationNode
-                key={c.id}
-                node={c}
-                depth={depth + 1}
-                parentPath={path}
-                activeLocation={activeLocation}
-                onSelectLocation={onSelectLocation}
-                locationCounts={locationCounts}
-              />
-            ))}
+            <motion.div
+              initial="hidden"
+              animate="visible"
+              variants={{
+                hidden: { opacity: 0 },
+                visible: { opacity: 1, transition: { staggerChildren: 0.04, delayChildren: 0.05 } }
+              }}
+            >
+              {node.children.map((c) => (
+                <motion.div
+                  initial={{ height: 0, opacity: 0, x: -6 }}
+                  animate={{ height: 'auto', opacity: 1, x: 0 }}
+                  exit={{ height: 0, opacity: 0, x: -6 }}
+                  transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+                  key={c.id}
+                >
+                  <LocationNode
+                    key={c.id}
+                    node={c}
+                    depth={depth + 1}
+                    parentPath={path}
+                    activeLocation={activeLocation}
+                    onSelectLocation={onSelectLocation}
+                    locationCounts={locationCounts}
+                  />
+                </motion.div>
+              ))}
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
