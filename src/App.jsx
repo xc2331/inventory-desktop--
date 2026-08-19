@@ -26,6 +26,7 @@ import MaterialLibrary from './components/MaterialLibrary'
 import LocationMap from './components/LocationMap'
 import FloorPlanEditor from './components/FloorPlanEditor'
 import ErrorBoundary from './components/ErrorBoundary'
+import ExpiryAlerts from './components/ExpiryAlerts'
 import {
   fetchAllItems,
   searchItems,
@@ -740,6 +741,23 @@ export default function App() {
               </ErrorBoundary>
             </motion.div>
           )}
+          {view === 'expiryAlerts' && (
+            <motion.div
+              key="expiryAlerts"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              transition={{ duration: 0.1, ease: EASE }}
+              className="absolute inset-0 will-change-transform"
+            >
+              <ErrorBoundary onBack={() => setView('items')} onRetry={() => setView('items')}>
+                <ExpiryAlerts
+                  dark={dark}
+                  onNavigate={(v) => setView(v)}
+                />
+              </ErrorBoundary>
+            </motion.div>
+          )}
           {view === 'floorPlan' && floorPlanLocation && (
             <motion.div
               key="floorPlan"
@@ -815,6 +833,7 @@ export default function App() {
                   onOpenStatistics={() => setView('statistics')}
                   onOpenHelp={() => setView('help')}
                   onOpenMaterials={() => setView('materials')}
+                  onOpenExpiryAlerts={() => setView('expiryAlerts')}
                   onOpenLocationMap={() => setView('locationMap')}
                 />
                 <div className="flex flex-1 flex-col overflow-hidden">
