@@ -325,6 +325,12 @@ inventory-desktop/
   - Toast 新增底部进度条显示剩余关闭时间（`motion.div` 动画）
   - TagModal 增加实时搜索过滤功能
   - 过期日期输入改为日历选择器（`<input type="date">`）
+- **v1.3.6**：修复 AI 视觉 API 配置保存白屏：`electron/main.js` 缺失 `ai-service` 模块导入（`migrateAIConfig` 等函数未定义），现已补全 import
+- **v1.3.5**：AI 配置保存异常防护（try-catch 捕获后端错误，UI 显示 `aiError` 提示而非白屏）
+- **v1.3.4**：过期徽章英文 i18n 修复；快捷键守卫（模态弹窗时禁用全局快捷键）；搜索无结果空状态优化
+- **v1.3.3**：过期遮罩重设计（柔和渐变 + 半透明）；Toast 通知队列化（避免多条通知重叠）
+- **v1.3.2**：批量设置数量 Bug 修复；幽灵列白名单；暗色模式切换白闪修复；MotionConfig 全局配置
+- **v1.3.1**：
   - 详情面板改为 `motion.div` 动画（0.05s spring + fade），减少突兀切换
   - 新增 Ctrl+N（新建）、Ctrl+S（保存）、Ctrl+B（批量）、Ctrl+F（搜索）键盘快捷键
   - 修复 API 版本号返回过时问题（动态读取 package.json）

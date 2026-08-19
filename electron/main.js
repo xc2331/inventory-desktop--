@@ -8,6 +8,14 @@ const { normalizeCategoryKey, ensureCategoriesFromItems, ensureLocationsFromItem
 const { ApiServer } = require('./api-server')
 const { QRUploadServer } = require('./qr-upload')
 const { Updater } = require('./updater')
+const {
+  testConnection,
+  fetchModels,
+  recognizeImage,
+  migrateAIConfig,
+  getActiveProvider,
+  sanitizeProvider
+} = require('./ai-service')
 const { generateItemNo } = require('./item-no')
 
 process.on('uncaughtException', (e) => console.error('[main] UNCAUGHT:', e))
