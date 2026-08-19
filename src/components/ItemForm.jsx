@@ -227,16 +227,44 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     }
   }
 
-  // 拖拽图片
+  // 拖拽图片 — 支持多张（UX-08）
   const handleDrop = async (e) => {
     e.preventDefault()
     setDragOver(false)
     setPhotoHint('')
     setOrigFileSizeKB(null)
-    const file = e.dataTransfer?.files?.[0]
-    if (!file) return
-    if (!file.type || !file.type.startsWith('image/')) return
-    await saveCompressedPhoto(file, file.name)
+    const files = Array.from(e.dataTransfer?.files || []).filter(
+      (f) => f.type && f.type.startsWith('image/')
+    )
+    if (files.length === 0) return
+
+    setPhotoHint(`压缩中… 1/${files.length}`)
+    const paths = []
+    let previewPath = ''
+    for (let i = 0; i < files.length; i++) {
+      const result = await compressImageToBase64(files[i])
+      if (!result.ok) continue
+      if (!previewPath) previewPath = result.data
+      try {
+        const relPath = await savePhoto(result.data, files[i].name)
+        paths.push(relPath)
+      } catch {
+        paths.push(result.data)
+      }
+      setPhotoHint(`压缩中… ${i + 1}/${files.length}`)
+    }
+
+    if (paths.length === 0) return
+    if (previewPath) {
+      setPhotoPreview(previewPath)
+      setPhotoMeta({ size: 0, type: 'image/webp' })
+    }
+    const combined = (form.photo.trim() ? form.photo.trim() + '\n' : '') + paths.join('\n')
+    set('photo', combined)
+    setPhotoHint(paths.length === 1
+      ? `${t('photo_saved')} 1 张`
+      : `${t('photo_saved')} ${paths.length} 张`
+    )
   }
 
   // 手机扫码传图
