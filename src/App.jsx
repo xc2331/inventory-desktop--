@@ -249,6 +249,12 @@ export default function App() {
 
   const exitBulkRef = useRef(null)
   const lastNotifyCount = useRef(0)
+  const [bulkReorderIds, setBulkReorderIds] = useState([])
+
+  const selectedItemsArray = useMemo(
+    () => filteredItems.filter((it) => selectedIds.has(it.id)),
+    [filteredItems, selectedIds]
+  )
 
   useEffect(() => {
     setToast(null)
@@ -826,6 +832,7 @@ export default function App() {
                           <div className="mb-4">
                             <BulkEditBar
                               selectedCount={selectedIds.size}
+                              selectedItems={selectedItemsArray}
                               total={total}
                               categories={categories}
                               lang={lang}
@@ -834,6 +841,7 @@ export default function App() {
                               onChangeCategory={handleBulkChangeCategory}
                               onDelete={handleBulkDelete}
                               onBulkUpdateQuantity={handleBulkUpdateQuantity}
+                              onReorder={setBulkReorderIds}
                               onClose={exitBulkMode}
                             />
                           </div>

@@ -53,7 +53,7 @@
       "**/node_modules/better-sqlite3/**"
     ],
     "directories": {
-      "output": "release-v19-v141",
+      "output": "release-v19-v142",
       "buildResources": "build"
     },
     "icon": "build/icon.ico",

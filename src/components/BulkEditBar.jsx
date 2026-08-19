@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { X, CheckSquare, Square, Trash2, FolderInput, ChevronDown, AlertTriangle, Calculator, Minus, Plus } from 'lucide-react'
+import { motion, AnimatePresence, Reorder } from 'framer-motion'
+import { X, CheckSquare, Square, Trash2, FolderInput, ChevronDown, AlertTriangle, Calculator, Minus, Plus, GripVertical, LayoutGrid } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName } from '../lib/api'
 import { getCategoryIcon } from '../lib/categoryIcons'
@@ -9,6 +9,7 @@ import { EASE } from '../lib/motion'
 export default function BulkEditBar({
   selectedCount,
   total,
+  selectedItems = [],
   categories,
   lang,
   onSelectAll,
@@ -17,7 +18,8 @@ export default function BulkEditBar({
   onDelete,
   onClose,
   onBulkUpdateQuantity,
-  onBulkPreview
+  onBulkPreview,
+  onReorder
 }) {
   const { t } = useI18n()
   const [showCat, setShowCat] = useState(false)
@@ -33,141 +35,227 @@ export default function BulkEditBar({
     setShowQty(false)
   }
 
+  // UX-06 拖拽排序预览：选中项目按视觉顺序排列
+  const [previewItems, setPreviewItems] = useState(
+    (selectedItems || []).map((it) => ({ id: it.id, name: it.name, category: it.category, position: it.position }))
+  )
+
   return (
     <motion.div
       initial={{ opacity: 0, y: -12, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -8, scale: 0.98 }}
       transition={{ duration: 0.3, ease: EASE }}
-      className="glass flex items-center justify-between gap-3 rounded-2xl border border-primary/30 px-4 py-3 shadow-card"
+      className="glass flex flex-col gap-2 rounded-2xl border border-primary/30 px-4 py-3 shadow-card"
     >
-      <div className="flex items-center gap-3">
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={onClose}
-          title={t('close')}
-          className="flex h-7 w-7 items-center justify-center rounded-lg text-primary transition-smooth hover:bg-primary-soft"
-        >
-          <X size={16} />
-        </motion.button>
-        <span className="text-sm font-semibold text-primary">
-          {t('bulk_selected', { n: selectedCount })}
-        </span>
-        <button
-          onClick={onSelectAll}
-          className="flex cursor-pointer items-center gap-1.5 text-sm text-primary transition-smooth hover:opacity-80"
-        >
-          {allSelected ? <CheckSquare size={15} /> : <Square size={15} />}
-          {t('bulk_selectAll')}
-        </button>
-        <button
-          onClick={onClear}
-          className="text-sm text-primary underline-offset-2 transition-smooth hover:underline"
-        >
-          {t('bulk_clear')}
-        </button>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <div className="relative">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
           <motion.button
-            whileTap={{ scale: 0.96 }}
-            onClick={() => setShowCat((v) => !v)}
-            className="flex items-center gap-1.5 rounded-xl bg-surface px-3 py-2 text-sm font-medium text-primary shadow-sm transition-smooth hover:bg-primary-soft"
+            whileTap={{ scale: 0.9 }}
+            onClick={onClose}
+            title={t('close')}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-primary transition-smooth hover:bg-primary-soft"
           >
-            <FolderInput size={15} />
-            {t('bulk_changeCategory')}
-            <ChevronDown size={13} className={`transition-transform ${showCat ? 'rotate-180' : ''}`} />
+            <X size={16} />
           </motion.button>
-          <AnimatePresence>
-            {showCat && (
-              <motion.div
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.18, ease: EASE }}
-                className="absolute bottom-full right-0 z-30 mb-1.5 w-48 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-float"
-              >
-                {categories.map((c) => {
-                  const CatIcon = getCategoryIcon(c)
-                  return (
-                    <button
-                      key={c.id}
-                      onClick={() => {
-                        onChangeCategory(c.key)
-                        setShowCat(false)
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-secondary transition-smooth hover:bg-surface-hover"
-                    >
-                      <CatIcon size={15} className="text-text-tertiary" />
-                      {categoryDisplayName(c, lang)}
-                    </button>
-                  )
-                })}
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <span className="text-sm font-semibold text-primary">
+            {t('bulk_selected', { n: selectedCount })}
+          </span>
+          <button
+            onClick={onSelectAll}
+            className="flex cursor-pointer items-center gap-1.5 text-sm text-primary transition-smooth hover:opacity-80"
+          >
+            {allSelected ? <CheckSquare size={15} /> : <Square size={15} />}
+            {t('bulk_selectAll')}
+          </button>
+          <button
+            onClick={onClear}
+            className="text-sm text-primary underline-offset-2 transition-smooth hover:underline"
+          >
+            {t('bulk_clear')}
+          </button>
+          {/* UX-06 拖拽排序提示 */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="flex items-center gap-1.5 rounded-lg bg-primary-soft/60 px-2.5 py-1 text-xs font-medium text-primary"
+          >
+            <GripVertical size={13} />
+            <span>{t('bulk_dragReorder')}</span>
+          </motion.div>
         </div>
 
-        {/* U-08 批量修改数量面板 */}
-        <div className="relative">
-          <motion.button
-            whileTap={{ scale: 0.96 }}
-            onClick={() => setShowQty((v) => !v)}
-            className="flex items-center gap-1.5 rounded-xl bg-surface px-3 py-2 text-sm font-medium text-primary shadow-sm transition-smooth hover:bg-primary-soft"
-            title={t('bulk_changeQty')}
-          >
-            <Calculator size={15} />
-            {t('bulk_changeQty')}
-            <ChevronDown size={13} className={`transition-transform ${showQty ? 'rotate-180' : ''}`} />
-          </motion.button>
-          <AnimatePresence>
-            {showQty && (
-              <motion.div
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.18, ease: EASE }}
-                className="absolute bottom-full right-0 z-30 mb-1.5 flex w-72 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-float"
-              >
-                <select
-                  value={qtyOp}
-                  onChange={(e) => setQtyOp(e.target.value)}
-                  className="w-16 rounded-lg border border-border bg-surface px-1.5 text-xs font-bold text-text-primary outline-none"
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <motion.button
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setShowCat((v) => !v)}
+              className="flex items-center gap-1.5 rounded-xl bg-surface px-3 py-2 text-sm font-medium text-primary shadow-sm transition-smooth hover:bg-primary-soft"
+            >
+              <FolderInput size={15} />
+              {t('bulk_changeCategory')}
+              <ChevronDown size={13} className={`transition-transform ${showCat ? 'rotate-180' : ''}`} />
+            </motion.button>
+            <AnimatePresence>
+              {showCat && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.18, ease: EASE }}
+                  className="absolute bottom-full right-0 z-30 mb-1.5 w-48 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-float"
                 >
-                  <option value="+">{t('bulk_qtyAdd')}</option>
-                  <option value="-">{t('bulk_qtySub')}</option>
-                  <option value="=">{t('bulk_qtySet')}</option>
-                </select>
-                <input
-                  type="number"
-                  min="0"
-                  value={qtyVal}
-                  onChange={(e) => setQtyVal(e.target.value)}
-                  className="w-20 rounded-lg border border-border bg-surface px-2 text-xs font-medium text-text-primary outline-none"
-                />
-                <button
-                  onClick={handleQtySubmit}
-                  className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-smooth hover:bg-primary-hover"
-                >
-                  {t('bulk_apply')}
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+                  {categories.map((c) => {
+                    const CatIcon = getCategoryIcon(c)
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => {
+                          onChangeCategory(c.key)
+                          setShowCat(false)
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-secondary transition-smooth hover:bg-surface-hover"
+                      >
+                        <CatIcon size={15} className="text-text-tertiary" />
+                        {categoryDisplayName(c, lang)}
+                      </button>
+                    )
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
-        <motion.button
-          whileTap={{ scale: 0.96 }}
-          onClick={onDelete}
-          className="flex items-center gap-1.5 rounded-xl bg-danger px-3 py-2 text-sm font-medium text-white shadow-sm transition-smooth hover:brightness-110"
-          title={t('bulk_deleteConfirm')}
-        >
-          <Trash2 size={15} />
-          {t('bulk_delete')}
-          <AlertTriangle size={12} />
-        </motion.button>
+          <div className="relative">
+            <motion.button
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setShowQty((v) => !v)}
+              className="flex items-center gap-1.5 rounded-xl bg-surface px-3 py-2 text-sm font-medium text-primary shadow-sm transition-smooth hover:bg-primary-soft"
+              title={t('bulk_changeQty')}
+            >
+              <Calculator size={15} />
+              {t('bulk_changeQty')}
+              <ChevronDown size={13} className={`transition-transform ${showQty ? 'rotate-180' : ''}`} />
+            </motion.button>
+            <AnimatePresence>
+              {showQty && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.18, ease: EASE }}
+                  className="absolute bottom-full right-0 z-30 mb-1.5 flex w-72 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-float"
+                >
+                  <select
+                    value={qtyOp}
+                    onChange={(e) => setQtyOp(e.target.value)}
+                    className="w-16 rounded-lg border border-border bg-surface px-1.5 text-xs font-bold text-text-primary outline-none"
+                  >
+                    <option value="+">{t('bulk_qtyAdd')}</option>
+                    <option value="-">{t('bulk_qtySub')}</option>
+                    <option value="=">{t('bulk_qtySet')}</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    max="999"
+                    value={qtyVal}
+                    onChange={(e) => setQtyVal(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleQtySubmit()}
+                    className="flex-1 rounded-lg border border-border bg-surface px-2 text-sm font-medium text-text-primary outline-none"
+                  />
+                  <motion.button
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
+                    onClick={handleQtySubmit}
+                    className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-primary-hover"
+                  >
+                    <CheckSquare size={12} />
+                    {t('save')}
+                  </motion.button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {onBulkPreview && (
+            <motion.button
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={onBulkPreview}
+              className="flex items-center gap-1.5 rounded-xl border border-warn px-3 py-2 text-sm font-medium text-warn shadow-sm hover:bg-warn-soft"
+            >
+              <AlertTriangle size={15} />
+              {t('bulk_preview')}
+            </motion.button>
+          )}
+
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.96 }}
+            onClick={onDelete}
+            className="flex items-center gap-1.5 rounded-xl border border-danger px-3 py-2 text-sm font-medium text-danger shadow-sm hover:bg-danger-soft"
+          >
+            <Trash2 size={15} />
+            {t('bulk_delete')}
+          </motion.button>
+        </div>
       </div>
+
+      {/* UX-06 拖拽排序预览行 */}
+      <AnimatePresence>
+        {selectedItems && selectedItems.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2, delay: 0.15, ease: EASE }}
+            className="overflow-hidden"
+          >
+            <div className="flex items-center gap-2 border-t border-border/40 pt-2">
+              <span className="text-xs font-medium text-text-tertiary whitespace-nowrap">
+                <LayoutGrid size={12} className="inline-block mr-1" />
+                {t('bulk_order')}
+              </span>
+              <div className="flex-1 overflow-x-auto overflow-y-hidden pb-1">
+                <Reorder.Group
+                  axis="x"
+                  values={previewItems}
+                  onReorder={(newOrder) => {
+                    setPreviewItems(newOrder)
+                    onReorder?.(newOrder.map((o) => o.id))
+                  }}
+                  className="flex gap-2 min-w-max"
+                >
+                  {previewItems.map((item, i) => {
+                    const CatIcon = getCategoryIcon(item.category)
+                    return (
+                      <Reorder.Item
+                        key={item.id}
+                        value={item}
+                        whileDrag={{ scale: 1.05, rotate: 1, boxShadow: '0 8px 20px -4px rgba(15,23,42,0.25)', cursor: 'grabbing' }}
+                        className="flex flex-col items-center gap-1 rounded-xl border border-border bg-surface px-3 py-2 min-w-[64px] max-w-[96px] shadow-sm cursor-grab active:cursor-grabbing"
+                      >
+                        <span className="flex items-center justify-center text-[10px] font-bold text-text-tertiary">
+                          #{i + 1}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <CatIcon size={14} className="text-text-tertiary shrink-0" />
+                          <span className="text-xs font-medium text-text-primary truncate max-w-[60px]">
+                            {item.name}
+                          </span>
+                        </div>
+                        <GripVertical size={10} className="text-text-tertiary/50" />
+                      </Reorder.Item>
+                    )
+                  })}
+                </Reorder.Group>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }

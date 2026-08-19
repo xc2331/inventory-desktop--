@@ -761,6 +761,8 @@ const DICT = {
     bulk_clear: 'Clear',
     bulk_changeCategory: 'Set category',
     bulk_delete: 'Delete selected',
+    bulk_dragReorder: 'Drag to reorder',
+    bulk_order: 'Order',
     confirm_bulkDeleteTitle: 'Delete selected',
     confirm_bulkDeleteMsg: 'Delete {n} selected items? This cannot be undone.',
     toast_bulkDeleted: 'Deleted {n} items',
