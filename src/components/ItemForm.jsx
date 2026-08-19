@@ -11,6 +11,15 @@ import { EASE, EASE_SPRING } from '../lib/motion'
 import { cn } from '../lib/cn'
 import { AIRecognitionPanel } from './AIRecognitionPanel'
 
+const shakeKeyframes = `
+@keyframes field-shake {
+  0%, 100% { transform: translateX(0) }
+  20% { transform: translateX(-4px) }
+  40% { transform: translateX(4px) }
+  60% { transform: translateX(-3px) }
+  80% { transform: translateX(3px) }
+}`
+
 // 把存储的图片值（路径 / URL / data URL）转为可显示的 src
 function toPhotoSrc(photo) {
   if (!photo) return ''
@@ -83,6 +92,24 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     }
   })
   const [errors, setErrors] = useState({})
+  // UX-05 表单即时校验：touched 追踪 + blur 校验 + 抖动 + 红色边框
+  const [touched, setTouched] = useState({})
+  const [shakeField, setShakeField] = useState('')
+  const validateField = (key) => {
+    setTouched((t) => ({ ...t, [key]: true }))
+    const e = {}
+    const f = form
+    if (key === 'name' && !f.name.trim()) e.name = t('err_nameRequired')
+    if (key === 'category' && !f.category) e.category = t('err_categoryRequired')
+    if (key === 'room' && (form.category === 'household' || form.category === 'kitchen' || form.category === 'tools' || form.category === 'cleaning' || form.category === 'supplies' || form.category === 'food' || form.category === 'medicine') && !f.room.trim()) e.room = t('err_roomRequired')
+    if (key === 'position' && (form.category === 'household' || form.category === 'kitchen' || form.category === 'tools' || form.category === 'cleaning' || form.category === 'supplies' || form.category === 'food' || form.category === 'medicine') && !f.position.trim()) e.position = t('err_positionRequired')
+    if (key === 'quantity' && Number(f.quantity) < 1) e.quantity = t('err_quantityMin')
+    setErrors((prev) => ({ ...prev, ...e }))
+    if (e[key]) {
+      setShakeField(key)
+      setTimeout(() => setShakeField(''), 500)
+    }
+  }
   const [treeOpen, setTreeOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [photoHint, setPhotoHint] = useState('')
@@ -408,12 +435,12 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
 
         <div className="p-5">
           <div className="grid grid-cols-2 gap-3.5">
-              <Field label={t('f_name')} required error={errors.name} className="col-span-2">
-                <input type="text" data-field="name" value={form.name} onChange={(e) => set('name', e.target.value)} className="input" autoFocus />
+              <Field label={t('f_name')} required error={errors.name} className="col-span-2" dataField="name">
+                <input type="text" data-field="name" value={form.name} onChange={(e) => { set('name', e.target.value); if (errors.name) setErrors((p) => ({...p, name: ''})) }} onBlur={() => validateField('name')} className="input" autoFocus />
               </Field>
 
-              <Field label={t('f_category')} required error={errors.category}>
-                <select data-field="category" value={form.category} onChange={(e) => set('category', e.target.value)} className="input">
+              <Field label={t('f_category')} required error={errors.category} dataField="category">
+                <select data-field="category" value={form.category} onChange={(e) => { set('category', e.target.value); if (errors.category) setErrors((p) => ({...p, category: ''})) }} onBlur={() => validateField('category')} className="input">
                   <option value="">{t('f_selectCategory')}</option>
                   {categories.map((c) => (
                     <option key={c.id} value={c.key}>
@@ -472,11 +499,11 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                   </AnimatePresence>
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2">
-                  <MiniField label={t('f_room')} error={errors.room}>
-                    <input type="text" data-field="room" value={form.room} onChange={(e) => set('room', e.target.value)} className="input" />
+                  <MiniField label={t('f_room')} error={errors.room} dataField="room">
+                    <input type="text" data-field="room" value={form.room} onChange={(e) => { set('room', e.target.value); if (errors.room) setErrors((p) => ({...p, room: ''})) }} onBlur={() => validateField('room')} className="input" />
                   </MiniField>
-                  <MiniField label={t('f_position')} error={errors.position}>
-                    <input type="text" data-field="position" value={form.position} onChange={(e) => set('position', e.target.value)} className="input" />
+                  <MiniField label={t('f_position')} error={errors.position} dataField="position">
+                    <input type="text" data-field="position" value={form.position} onChange={(e) => { set('position', e.target.value); if (errors.position) setErrors((p) => ({...p, position: ''})) }} onBlur={() => validateField('position')} className="input" />
                   </MiniField>
                   <MiniField label={t('f_location')}>
                     <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className="input" />
@@ -485,8 +512,8 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                 <p className="mt-1.5 text-[11px] text-text-tertiary">{t('f_orManual')}</p>
               </Field>
 
-              <Field label={t('f_quantity')} error={errors.quantity}>
-                <input type="number" data-field="quantity" min="0" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} className="input" />
+              <Field label={t('f_quantity')} error={errors.quantity} dataField="quantity">
+                <input type="number" data-field="quantity" min="0" value={form.quantity} onChange={(e) => { set('quantity', e.target.value); if (errors.quantity) setErrors((p) => ({...p, quantity: ''})) }} onBlur={() => validateField('quantity')} className="input" />
               </Field>
 
               <Field label={t('f_minQuantity')}>
@@ -747,9 +774,11 @@ function LocationTreeNode({ node, depth, selectedId, onSelect }) {
   )
 }
 
-function Field({ label, required, error, className = '', children }) {
+function Field({ label, required, error, className = '', children, dataField }) {
+  const hasError = !!error
   return (
-    <label className={`block ${className}`}>
+    <label className={`block ${className} ${hasError ? 'z-10' : ''}`}>
+      {hasError && <style>{shakeKeyframes}</style>}
       <span className="mb-1.5 block text-xs font-medium text-text-tertiary">
         {label}
         {required && <span className="text-danger"> *</span>}
