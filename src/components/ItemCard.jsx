@@ -104,11 +104,11 @@ export default function ItemCard({
   const handleMenuAction = (action) => {
     setMenuOpen(false)
     switch (action) {
-      case 'edit':   if (onEdit) onEdit()   ; break
-      case 'add':    if (onAdjust) onAdjust(1, item.id) ; break
-      case 'sub':    if (onAdjust) onAdjust(-1, item.id); break
-      case 'copy':   onCopyItemNo(item.item_no); break
-      case 'delete': if (onDelete) onDelete() ; break
+      case 'edit':   if (onEdit)   onEdit(item)                    ; break
+      case 'add':    if (onAdjust) onAdjust(1, item.id)            ; break
+      case 'sub':    if (onAdjust) onAdjust(-1, item.id)           ; break
+      case 'copy':   onCopyItemNo?.(item.item_no)                  ; break
+      case 'delete': if (onDelete) onDelete(item.id, item.name)    ; break
     }
   }
 
