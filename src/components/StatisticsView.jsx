@@ -644,24 +644,41 @@ function ChartCard({ title, children, icon, delay, className }) {
 function SubTabs({ tabs, active, onChange }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {tabs.map((tab) => {
-        const Icon = tab.icon
-        const isActive = active === tab.key
-        return (
-          <motion.button
-            key={tab.key}
-            whileTap={{ scale: 0.96 }}
-            onClick={() => onChange(tab.key)}
-            className={cn(
-              'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-smooth',
-              isActive ? 'border-primary bg-primary-soft text-primary' : 'border-border bg-surface text-text-secondary hover:bg-surface-hover'
-            )}
-          >
-            <Icon size={13} />
-            {tab.label}
-          </motion.button>
-        )
-      })}
+      <AnimatePresence>
+        {tabs.map((tab) => {
+          const Icon = tab.icon
+          const isActive = active === tab.key
+          return (
+            <motion.button
+              key={tab.key}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => onChange(tab.key)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium',
+                isActive ? 'border-primary bg-primary-soft text-primary' : 'border-border bg-surface text-text-secondary hover:bg-surface-hover'
+              )}
+            >
+              <motion.span
+                animate={isActive ? { scale: [1, 1.2, 1] } : { scale: 1 }}
+                transition={isActive ? { duration: 0.4 } : { duration: 0.2 }}
+              >
+                <Icon size={13} />
+              </motion.span>
+              <motion.span
+                initial={false}
+                animate={isActive ? { x: [0, 4, 0] } : { x: 0 }}
+                transition={isActive ? { duration: 0.3 } : { duration: 0.2 }}
+              >
+                {tab.label}
+              </motion.span>
+            </motion.button>
+          )
+        })}
+      </AnimatePresence>
     </div>
   )
 }

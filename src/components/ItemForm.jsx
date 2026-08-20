@@ -588,7 +588,35 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                         placeholder={t('f_photo_dragHint')}
                         className="input h-8 py-1 text-xs"
                       />
-                      {photoHint && (
+                      {photoHint && photoHint.match(/压缩中…) (\d+)\/(\d+)/) && (() => {
+                        const m = photoHint.match(/(\d+)\/(\d+)/)
+                        if (m) {
+                          const pct = Math.round(parseInt(m[1]) / parseInt(m[2]) * 100)
+                          return (
+                            <motion.div
+                              key={`prog-${pct}`}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className="mt-1 space-y-0.5"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] text-text-tertiary">压缩中…</span>
+                                <span className="text-[11px] font-medium text-primary tabular-nums">{pct}%</span>
+                              </div>
+                              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                                <motion.div
+                                  className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70"
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${pct}%` }}
+                                  transition={{ duration: 0.3, ease: EASE }}
+                                />
+                              </div>
+                            </motion.div>
+                          )
+                        }
+                        return null
+                      })()}
+                      {photoHint && !photoHint.includes('压缩中') && (
                         <p className={cn('text-[11px]', photoHint.includes('失败') || photoHint.includes('超过') ? 'text-danger' : 'text-text-tertiary')}>
                           {photoHint}
                         </p>
