@@ -47,7 +47,7 @@ const sha512 = hash.digest('hex')
 let releaseNotes = `Family Inventory v${version}`
 try {
   const notes = require('../release-notes.json')
-  const current = Array.isArray(notes) ? notes.find((n) => n.version === `v${version}`) || notes[0] : null
+  const current = Array.isArray(notes) ? notes.find((n) => n.version === `${version}` || n.version === `v${version}`) || notes[0] : null
   if (current) {
     releaseNotes = `${current.version} 更新内容：${(current.features || current.items || []).join('；')}`
   }

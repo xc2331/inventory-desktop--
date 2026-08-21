@@ -471,6 +471,16 @@ export async function saveFile({ content, defaultName, filters }) {
   return api.file.save({ content, defaultName, filters })
 }
 
+/** 导出文件名清洗（防 `: / \ | ? * " < >` 及 `..` 路径穿越） */
+export function sanitizeFilename(name) {
+  return String(name || 'file')
+    .replace(/[\x00-\x1f\x7f]/g, '')   // 控制字符
+    .replace(/[<>:"|?*]/g, '_')        // 文件系统非法字符
+    .replace(/\.\./g, '')              // 路径穿越
+    .replace(/\s+/g, ' ')              // 连续空格归一
+    .trim() || 'file'
+}
+
 export async function openFile({ filters }) {
   return api.file.open({ filters })
 }

@@ -20,6 +20,30 @@ import { getCategoryIcon } from '../lib/categoryIcons'
 import { cn } from '../lib/cn'
 import { EASE } from '../lib/motion'
 
+// UX-13 侧栏内容项 staggered 入场：展开时逐条淡入滑入，收回时反向淡出
+const SIDEBAR_ITEM_VARIANTS = {
+  hidden: { opacity: 0, x: -8 },
+  visible: {
+    opacity: 1, x: 0,
+    transition: { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
+  },
+  exit: { opacity: 0, x: -8, transition: { duration: 0.15 } }
+}
+const SIDEBAR_CONTAINER_VARIANTS = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.035,
+      delayChildren: 0.08
+    }
+  },
+  exit: {
+    opacity: 0,
+    transition: { staggerChildren: 0.02, staggerDirection: -1 }
+  }
+}
+
 function Logo({ size = 24 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -126,7 +150,7 @@ export default function Sidebar({
     <motion.aside
       initial={false}
       animate={{ width: 256 }}
-      transition={{ duration: 0.3, ease: EASE }}
+      transition={{ type: 'spring', stiffness: 320, damping: 28, duration: 0.42 }}
       className="flex w-64 shrink-0 flex-col border-r border-border bg-surface"
     >
       <div className="drag-region flex h-14 items-center gap-2.5 border-b border-border px-4">
@@ -139,9 +163,16 @@ export default function Sidebar({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 pb-4 pt-2">
+      <motion.div
+        variants={SIDEBAR_CONTAINER_VARIANTS}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        className="flex-1 overflow-y-auto px-3 pb-4 pt-2"
+      >
         {/* 常见问题 & 新手指南 */}
-        <button
+        <motion.button
+          variants={SIDEBAR_ITEM_VARIANTS}
           onClick={onOpenHelp}
           className={cn(
             'group mb-3 flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm font-medium transition-smooth',
@@ -155,19 +186,31 @@ export default function Sidebar({
           </span>
           <span className="flex-1 text-left">{t('nav_help')}</span>
           <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white">?</span>
-        </button>
+        </motion.button>
 
         {/* 分类 */}
-        <div className="px-2 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/80">
+        <motion.div
+          variants={SIDEBAR_ITEM_VARIANTS}
+          className="px-2 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/80"
+        >
           {t('nav_categories')}
-        </div>
-        <NavRow
-          active={activeCategory === '' && activeLocation.length === 0}
+        </motion.div>
+        <motion.button
+          variants={SIDEBAR_ITEM_VARIANTS}
           onClick={() => onSelectCategory('')}
-          icon={<LayoutGrid size={16} />}
-          label={t('nav_all')}
-          badge={totalCount}
-        />
+          className={cn(
+            'relative mb-0.5 flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-sm transition-smooth',
+            activeCategory === '' && activeLocation.length === 0 ? 'font-medium text-primary' : 'text-text-secondary hover:bg-surface-hover'
+          )}
+        >
+          <span className="relative flex min-w-0 items-center gap-2">
+            <span className="flex h-5 w-5 items-center justify-center"><LayoutGrid size={16} /></span>
+            <span className="truncate">{t('nav_all')}</span>
+          </span>
+          <span className="shrink-0 text-text-tertiary">
+            <span className="inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums bg-surface-hover text-text-secondary">{totalCount}</span>
+          </span>
+        </motion.button>
         {categories.map((c) => {
           const active = activeCategory === c.key
           const count = counts[c.key] || 0
@@ -234,22 +277,23 @@ export default function Sidebar({
             />
           ))
         )}
-      </div>
+      </motion.div>
 
-      <button
-        onClick={onOpenMaterials}
-        className={cn(
-          'group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
-          activeView === 'materials' ? 'bg-primary-soft font-medium text-primary' : 'text-text-secondary'
-        )}
-      >
-        <Image size={16} className="transition-transform group-hover:scale-110" />
-        {t('nav_materials')}
-      </button>
+      <motion.div className="border-b border-border py-2 pr-3" transition={{ duration: 0.15 }}>
+        <button
+          onClick={onOpenMaterials}
+          className={cn(
+            'w-full group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
+            activeView === 'materials' ? 'bg-primary-soft font-medium text-primary' : 'text-text-secondary'
+          )}
+        >
+          <Image size={16} className="transition-transform group-hover:scale-110" />
+          {t('nav_materials')}
+        </button>
       <button
         onClick={onOpenLocationMap}
         className={cn(
-          'group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
+          'w-full group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
           activeView === 'locationMap' ? 'bg-primary-soft font-medium text-primary' : 'text-text-secondary'
         )}
       >
@@ -259,7 +303,7 @@ export default function Sidebar({
       <button
         onClick={onOpenStatistics}
         className={cn(
-          'group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
+          'w-full group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
           activeView === 'statistics' ? 'bg-primary-soft font-medium text-primary' : 'text-text-secondary'
         )}
       >
@@ -269,13 +313,14 @@ export default function Sidebar({
       <button
         onClick={onOpenSettings}
         className={cn(
-          'group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
+          'w-full group flex items-center gap-2.5 border-t border-border px-4 py-2.5 text-sm transition-smooth hover:bg-surface-hover hover:text-text-primary',
           activeView === 'settings' ? 'bg-primary-soft font-medium text-primary' : 'text-text-secondary'
         )}
       >
         <Settings size={16} className="transition-transform group-hover:rotate-45" />
-        {t('nav_settings')}
-      </button>
+          {t('nav_settings')}
+        </button>
+      </motion.div>
       <div className="flex items-center gap-1.5 px-4 pb-2.5 text-[10px] leading-relaxed text-text-tertiary/70">
         <Boxes size={11} className="shrink-0" />
         {t('sidebar_localBackup')}

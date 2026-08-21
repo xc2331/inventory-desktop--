@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  XCircle, AlertOctagon, AlertTriangle, Clock, ChevronRight,
+  XCircle, AlertOctagon, AlertTriangle, Clock, ChevronRight, ArrowLeft,
   ShieldCheck, MapPin, Search
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
@@ -104,17 +104,23 @@ export default function ExpiryAlerts({ dark, onNavigate }) {
     <div className="flex h-full flex-col gap-3 p-4">
       {/* 标题 */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold tracking-tight">{t('nav_expired')}</h1>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums">{filteredItems.length}</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => onNavigate('items')}
+            type="button"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-text-tertiary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+            title={t('nav_back_all')}
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-semibold text-text-primary">{t('nav_expired')}</h1>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums">{filteredItems.length}</span>
+            </div>
+            <p className="text-[11px] text-text-tertiary">{t('nav_back_all')}</p>
+          </div>
         </div>
-        <button
-          onClick={() => onNavigate('items')}
-          className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-smooth hover:bg-muted"
-        >
-          <ChevronRight size={14} />
-          {t('nav_back_all')}
-        </button>
       </div>
 
       {/* 预警摘要 */}

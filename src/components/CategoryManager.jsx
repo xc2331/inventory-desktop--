@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Pencil, Trash2, Check, Package, Tag, GripVertical, SortAsc } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
@@ -182,6 +182,37 @@ export default function CategoryManager({ categories, counts, lang, onBack, onCh
     setIconPicker({ open: false, target: null, current: '' })
   }
 
+  const CATEGORY_FORM_VARIANTS = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: { staggerChildren: 0.06, delayChildren: 0.08 }
+    },
+    exit: { opacity: 0, transition: { duration: 0.15 } }
+  }
+  const FORM_ITEM_VARIANTS = {
+    hidden: { opacity: 0, y: 8 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.24, ease: [0.22, 1, 0.36, 1] } },
+    exit: { opacity: 0, y: -6, transition: { duration: 0.12 } }
+  }
+
+  function FormGroup({ title, icon: GroupIcon, children }) {
+    return (
+      <motion.div
+        variants={FORM_ITEM_VARIANTS}
+        className="rounded-xl border border-border/60 bg-surface-soft p-3"
+      >
+        <div className="mb-2 flex items-center gap-2">
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary-soft text-primary">
+            {GroupIcon && <GroupIcon size={13} />}
+          </span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{title}</span>
+        </div>
+        {children}
+      </motion.div>
+    )
+  }
+
   const addAction = (
     <motion.button
       whileTap={{ scale: 0.97 }}
@@ -232,8 +263,12 @@ export default function CategoryManager({ categories, counts, lang, onBack, onCh
                     transition={{ duration: 0.2, ease: EASE, delay: Math.min(idx * 0.02, 0.15) }}
                     className={`group flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-smooth ${
                       isOver
-                        ? 'border-primary bg-primary-soft/50 shadow-card'
-                        : 'border-border bg-bg hover:bg-surface-hover'
+                        ? 'border-primary bg-primary-soft/60 shadow-card scale-[1.015]'
+                        : `border-border transition-all duration-200 ease-out ${
+                            idx % 2 === 0
+                              ? 'bg-surface hover:bg-primary-soft/30 hover:border-primary/30 hover:shadow-sm'
+                              : 'bg-surface-hover/40 hover:bg-primary-soft/30 hover:border-primary/30 hover:shadow-sm'
+                          }`
                     } ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
                   >
                     <button
@@ -264,55 +299,63 @@ export default function CategoryManager({ categories, counts, lang, onBack, onCh
         <AnimatePresence>
           {adding && (
             <motion.form
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.28, ease: EASE }}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              variants={CATEGORY_FORM_VARIANTS}
               onSubmit={handleAdd}
               className="mb-4 overflow-hidden rounded-2xl border border-primary/40 bg-surface p-5 shadow-card"
             >
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-                <FieldGrid label={t('cat_icon')}>
-                  <button
-                    type="button"
-                    onClick={() => openIconPicker('new')}
-                    className="input flex cursor-pointer items-center justify-center transition-smooth hover:border-primary"
-                  >
-                    {(() => {
-                      const Icon = getCategoryIcon(newCat)
-                      return <Icon size={20} className="text-text-secondary" />
-                    })()}
-                  </button>
-                </FieldGrid>
-                <FieldGrid label={t('cat_key')}>
-                  <input
-                    type="text"
-                    value={newCat.key}
-                    onChange={(e) => setNewCat((f) => ({ ...f, key: e.target.value }))}
-                    className="input"
-                    placeholder={t('cat_key_placeholder')}
-                  />
-                </FieldGrid>
-                <FieldGrid label={t('cat_name')}>
-                  <input
-                    type="text"
-                    value={newCat.name}
-                    onChange={(e) => setNewCat((f) => ({ ...f, name: e.target.value }))}
-                    className="input"
-                    placeholder={t('cat_name_placeholder')}
-                    autoFocus
-                    required
-                  />
-                </FieldGrid>
-                <FieldGrid label={t('cat_name_en')}>
-                  <input
-                    type="text"
-                    value={newCat.name_en}
-                    onChange={(e) => setNewCat((f) => ({ ...f, name_en: e.target.value }))}
-                    className="input"
-                    placeholder={t('cat_name_en_placeholder')}
-                  />
-                </FieldGrid>
+              <FormGroup title={t('form_basicInfo') || 'Basic Info'}>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <FieldGrid label={t('cat_name')}>
+                    <input
+                      type="text"
+                      value={newCat.name}
+                      onChange={(e) => setNewCat((f) => ({ ...f, name: e.target.value }))}
+                      className="input"
+                      placeholder={t('cat_name_placeholder')}
+                      autoFocus
+                      required
+                    />
+                  </FieldGrid>
+                  <FieldGrid label={t('cat_name_en')}>
+                    <input
+                      type="text"
+                      value={newCat.name_en}
+                      onChange={(e) => setNewCat((f) => ({ ...f, name_en: e.target.value }))}
+                      className="input"
+                      placeholder={t('cat_name_en_placeholder')}
+                    />
+                  </FieldGrid>
+                </div>
+              </FormGroup>
+              <div className="mt-3">
+                <FormGroup title={t('form_idConfig') || 'ID Config'} icon={Tag}>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <FieldGrid label={t('cat_key')}>
+                      <input
+                        type="text"
+                        value={newCat.key}
+                        onChange={(e) => setNewCat((f) => ({ ...f, key: e.target.value }))}
+                        className="input"
+                        placeholder={t('cat_key_placeholder')}
+                      />
+                    </FieldGrid>
+                    <FieldGrid label={t('cat_icon')}>
+                      <button
+                        type="button"
+                        onClick={() => openIconPicker('new')}
+                        className="input flex cursor-pointer items-center justify-center transition-smooth hover:border-primary"
+                      >
+                        {(() => {
+                          const Icon = getCategoryIcon(newCat)
+                          return <Icon size={20} className="text-text-secondary" />
+                        })()}
+                      </button>
+                    </FieldGrid>
+                  </div>
+                </FormGroup>
               </div>
               <div className="mt-4 flex justify-end gap-2">
                 <button
@@ -347,48 +390,57 @@ export default function CategoryManager({ categories, counts, lang, onBack, onCh
                   <motion.div
                     key={cat.id}
                     layout
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
+                    initial="hidden"
+                    animate="visible"
+                    variants={CATEGORY_FORM_VARIANTS}
                     className="rounded-2xl border border-primary/40 bg-surface p-4 shadow-card"
                   >
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-                      <FieldGrid label={t('cat_icon')}>
-                        <button
-                          type="button"
-                          onClick={() => openIconPicker('edit')}
-                          className="input flex cursor-pointer items-center justify-center transition-smooth hover:border-primary"
-                        >
-                          {(() => {
-                            const Icon = getCategoryIcon(editForm)
-                            return <Icon size={20} className="text-text-secondary" />
-                          })()}
-                        </button>
-                      </FieldGrid>
-                      <FieldGrid label={t('cat_key')}>
-                        <input
-                          type="text"
-                          value={editForm.key}
-                          onChange={(e) => setEditForm((f) => ({ ...f, key: e.target.value }))}
-                          className="input"
-                        />
-                      </FieldGrid>
-                      <FieldGrid label={t('cat_name')}>
-                        <input
-                          type="text"
-                          value={editForm.name}
-                          onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
-                          className="input"
-                          autoFocus
-                        />
-                      </FieldGrid>
-                      <FieldGrid label={t('cat_name_en')}>
-                        <input
-                          type="text"
-                          value={editForm.name_en}
-                          onChange={(e) => setEditForm((f) => ({ ...f, name_en: e.target.value }))}
-                          className="input"
-                        />
-                      </FieldGrid>
+                    <FormGroup title={t('form_basicInfo') || 'Basic Info'}>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <FieldGrid label={t('cat_name')}>
+                          <input
+                            type="text"
+                            value={editForm.name}
+                            onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                            className="input"
+                            autoFocus
+                          />
+                        </FieldGrid>
+                        <FieldGrid label={t('cat_name_en')}>
+                          <input
+                            type="text"
+                            value={editForm.name_en}
+                            onChange={(e) => setEditForm((f) => ({ ...f, name_en: e.target.value }))}
+                            className="input"
+                          />
+                        </FieldGrid>
+                      </div>
+                    </FormGroup>
+                    <div className="mt-2">
+                      <FormGroup title={t('form_idConfig') || 'ID Config'} icon={Tag}>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <FieldGrid label={t('cat_key')}>
+                            <input
+                              type="text"
+                              value={editForm.key}
+                              onChange={(e) => setEditForm((f) => ({ ...f, key: e.target.value }))}
+                              className="input"
+                            />
+                          </FieldGrid>
+                          <FieldGrid label={t('cat_icon')}>
+                            <button
+                              type="button"
+                              onClick={() => openIconPicker('edit')}
+                              className="input flex cursor-pointer items-center justify-center transition-smooth hover:border-primary"
+                            >
+                              {(() => {
+                                const Icon = getCategoryIcon(editForm)
+                                return <Icon size={20} className="text-text-secondary" />
+                              })()}
+                            </button>
+                          </FieldGrid>
+                        </div>
+                      </FormGroup>
                     </div>
                     <div className="mt-3 flex justify-end gap-2">
                       <button

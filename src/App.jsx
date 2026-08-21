@@ -160,6 +160,12 @@ export default function App() {
     handleChangeCloseAction
   } = useSettings(getSettings, setSettings, applyThemeClass)
 
+  // 派生 dark 标记（供 ExpiryAlerts 等子组件使用）
+  const isDark = useMemo(
+    () => theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches),
+    [theme]
+  )
+
   const itemsHook = useItems({
     keyword,
     activeCategory,
@@ -208,8 +214,48 @@ export default function App() {
     return items.filter((it) => locationMatchesPath(it, activeLocation))
   }, [items, activeLocation])
 
+  // 客户端拖拽排序：以 JSON string 形式缓存 items 顺序到 localStorage
+  const [itemOrder, setItemOrder] = useState(() => {
+    try {
+      const stored = localStorage.getItem('itemsSortOrder')
+      return stored ? JSON.parse(stored) : {}
+    } catch { return {} }
+  })
+
+  const sortedItems = useMemo(() => {
+    const idToIdx = {}
+    filteredItems.forEach((it, i) => { idToIdx[it.id] = i })
+    return [...filteredItems].sort((a, b) => {
+      const aIdx = itemOrder[a.id] ?? idToIdx[a.id]
+      const bIdx = itemOrder[b.id] ?? idToIdx[b.id]
+      return aIdx - bIdx
+    })
+  }, [filteredItems, itemOrder])
+
+  // 方案 A（修正版）：真正的两两交换。
+  // 拖拽结束时拿到被拖卡片的 id 和目标 index（按视觉网格计算），
+  // 只交换这两个 index 上的卡片顺序，其它卡片保持原位。
+  const handleSortItem = useCallback((targetId, targetIdx) => {
+    const currentList = sortedItems
+    const dragIdx = currentList.findIndex((it) => it.id === targetId)
+    if (dragIdx < 0 || typeof targetIdx !== 'number') return
+    if (targetIdx < 0 || targetIdx >= currentList.length || targetIdx === dragIdx) return
+
+    const orderedIds = currentList.map((it) => it.id)
+    // 真正的交换：只互换 drag 和 target 两个位置
+    const temp = orderedIds[dragIdx]
+    orderedIds[dragIdx] = orderedIds[targetIdx]
+    orderedIds[targetIdx] = temp
+
+    const newOrder = {}
+    orderedIds.forEach((id, i) => { newOrder[id] = i })
+    setItemOrder(newOrder)
+    try { localStorage.setItem('itemsSortOrder', JSON.stringify(newOrder)) } catch { /* ignore */ }
+  }, [sortedItems])
+
   // Infinite scroll: auto-load next page when user scrolls near bottom of items grid
   const itemsGridRef = useRef(null)
+  const gridInnerRef = useRef(null)
   useEffect(() => {
     if (showExpired || paginationLoading || !paginationHasMore || !itemsGridRef.current) return
     const el = itemsGridRef.current
@@ -368,6 +414,21 @@ export default function App() {
     api.menu.onImport(() => handlersRef.current.imp())
     api.menu.onExportJson(() => handlersRef.current.ej())
     api.menu.onExportCsv(() => handlersRef.current.ec())
+
+    // 数据库损坏恢复通知
+    api.agent.onRecovered((payload) => {
+      if (payload.emptyRecovery) {
+        showToast(
+          '数据库已损坏，已自动重建空库。如需找回历史数据，请联系支持团队。',
+          'error'
+        )
+      } else if (payload.recoveredFrom) {
+        showToast(
+          `数据库已损坏，已从备份自动恢复（备份路径：${payload.recoveredFrom}）。损坏文件已保留。`,
+          'warning'
+        )
+      }
+    })
   }, [])
 
   const total = useMemo(() => {
@@ -752,7 +813,7 @@ export default function App() {
             >
               <ErrorBoundary onBack={() => setView('items')} onRetry={() => setView('items')}>
                 <ExpiryAlerts
-                  dark={dark}
+                  dark={isDark}
                   onNavigate={(v) => setView(v)}
                 />
               </ErrorBoundary>
@@ -918,13 +979,15 @@ export default function App() {
                         </>
                       ) : (
                         <div>
-                          <div className={cn(
-                            'grid gap-4',
+                          <div
+                            ref={gridInnerRef}
+                            className={cn(
+                            'grid auto-rows-fr items-stretch gap-4',
                             cardDensity === 'compact' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8' :
                             cardDensity === 'relaxed' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-2' :
                             'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
                           )}>
-                            {filteredItems.map((it, i) => (
+                            {sortedItems.map((it, i) => (
                               <ItemCard
                                 key={it.id}
                                 item={it}
@@ -939,6 +1002,8 @@ export default function App() {
                                 bulkMode={bulkMode}
                                 keyword={keyword}
                                 index={i}
+                                onSort={handleSortItem}
+                                gridRef={gridInnerRef}
                               />
                             ))}
                           </div>

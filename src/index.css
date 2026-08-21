@@ -53,31 +53,31 @@
 .dark {
   color-scheme: dark;
 
-  /* V4 设计令牌 - 深石板深色 */
-  --color-bg: #16130f;
-  --color-bg-elevated: #1c1917;
-  --color-surface: #1c1917;
-  --color-surface-hover: #292524;
-  --color-surface-active: #3a3530;
-  --color-border: #2f2b27;
-  --color-border-strong: #46413c;
+  /* V4 设计令牌 - 深石板深色（UX-20 对比度增强） */
+  --color-bg: #141110;
+  --color-bg-elevated: #1a1714;
+  --color-surface: #1a1714;
+  --color-surface-hover: #24201c;
+  --color-surface-active: #322d28;
+  --color-border: #322d28;
+  --color-border-strong: #524b44;
   --color-text-primary: #fafaf9;
   --color-text-secondary: #e7e5e4;
-  --color-text-tertiary: #cdc5b8;
-  --color-primary: #34d399;
-  --color-primary-hover: #6ee7b7;
-  --color-primary-soft: #064e3b;
-  --color-primary-glow: rgba(52, 211, 153, 0.22);
+  --color-text-tertiary: #d4ccc0;
+  --color-primary: #4ade80;
+  --color-primary-hover: #86efac;
+  --color-primary-soft: #1e6f53;
+  --color-primary-glow: rgba(74, 222, 128, 0.32);
   --color-accent: #fbbf24;
   --color-danger: #fb7185;
-  --color-danger-soft: #4c0519;
+  --color-danger-soft: #7a1d2d;
   --color-warn: #fbbf24;
-  --color-warn-soft: #451a03;
+  --color-warn-soft: #7a3510;
 
-  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.35), 0 1px 2px -1px rgb(0 0 0 / 0.25);
-  --shadow-card: 0 2px 8px -2px rgb(0 0 0 / 0.35), 0 4px 16px -4px rgb(0 0 0 / 0.28);
-  --shadow-float: 0 12px 32px -8px rgb(0 0 0 / 0.55), 0 4px 12px -4px rgb(0 0 0 / 0.35);
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.35);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+  --shadow-card: 0 2px 8px -2px rgb(0 0 0 / 0.4), 0 4px 16px -4px rgb(0 0 0 / 0.32);
+  --shadow-float: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 4px 12px -4px rgb(0 0 0 / 0.4);
   --shadow-glow: 0 0 0 3px var(--color-primary-glow);
 }
 

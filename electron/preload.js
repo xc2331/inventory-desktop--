@@ -1,5 +1,20 @@
 // preload：通过 contextBridge 安全暴露 window.lingguang API
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, app } = require('electron')
+const fs = require('fs')
+const path = require('path')
+
+// 与 main.js 中 resolveDataDir 保持同步逻辑（用于同步生成 file:// URL）
+function resolveDataDir() {
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+    if (fs.existsSync(settingsPath)) {
+      const raw = fs.readFileSync(settingsPath, 'utf-8')
+      const s = JSON.parse(raw)
+      if (s.dataDir && fs.existsSync(s.dataDir)) return s.dataDir
+    }
+  } catch (e) { /* ignore */ }
+  return app.getPath('userData')
+}
 
 contextBridge.exposeInMainWorld('lingguang', {
   invoke: async (channel, data) => ipcRenderer.invoke(channel, data),
@@ -55,8 +70,36 @@ contextBridge.exposeInMainWorld('lingguang', {
   },
   photo: {
     save: async (base64, filename) => ipcRenderer.invoke('photo:save', { base64, filename }),
+    saveFile: async (filePath, extension) => ipcRenderer.invoke('photo:saveFile', { filePath, extension }),
     read: async (relPath) => ipcRenderer.invoke('photo:read', relPath),
-    delete: async (relPath) => ipcRenderer.invoke('photo:delete', relPath)
+    delete: async (relPath) => ipcRenderer.invoke('photo:delete', relPath),
+    // 同步：将相对路径转为 file:// URL（供 <img src> 直接引用）
+    // 策略：能拼出绝对路径就返回 file:// URL；失败时返回相对路径（触发 <img onError> → IPC 兜底）
+    url: (relPath) => {
+      if (!relPath || typeof relPath !== 'string') return ''
+      const trimmed = relPath.trim()
+      if (!trimmed) return ''
+      // data: / https: / file: 直接透传
+      if (/^(data:|https?:|file:)/i.test(trimmed)) return trimmed
+      try {
+        const dataDir = resolveDataDir()
+        const normalized = path.normalize(path.join(dataDir, trimmed))
+        if (!normalized.startsWith(dataDir)) {
+          console.warn('[photo.url] path escape rejected:', trimmed, 'dataDir:', dataDir)
+          return ''
+        }
+        if (!fs.existsSync(normalized)) {
+          console.warn('[photo.url] file not found:', normalized, '| dataDir:', dataDir, '| will fallback via IPC')
+          // 关键修复：返回原相对路径，让 <img onError> 触发，走 readPhoto IPC 兜底
+          return trimmed
+        }
+        return 'file://' + normalized.replace(/\\/g, '/')
+      } catch (e) {
+        console.warn('[photo.url] error:', e.message, '| relPath:', trimmed)
+        // 同上，返回相对路径触发兜底
+        return trimmed
+      }
+    }
   },
   materials: {
     list: (opts) => ipcRenderer.invoke('materials:list', opts),
@@ -130,6 +173,11 @@ contextBridge.exposeInMainWorld('lingguang', {
       const handler = (_e, payload) => cb(payload)
       ipcRenderer.on('api:dataChanged', handler)
       return () => ipcRenderer.removeListener('api:dataChanged', handler)
+    },
+    onRecovered: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on('main:dbRecovered', handler)
+      return () => ipcRenderer.removeListener('main:dbRecovered', handler)
     }
   },
   updater: {

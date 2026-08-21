@@ -5,6 +5,7 @@ import {
   ImageOff, FileImage, Wifi, Camera
 } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
+import { categoryDisplayName } from '../lib/api'
 
 /**
  * AI 视觉识别面板：根据外部传入的 aiState 渲染识别结果与错误引导。
@@ -23,6 +24,11 @@ export function AIRecognitionPanel({
   if (aiState.status !== 'done' && aiState.status !== 'error') {
     return null
   }
+
+  // 按 key 查找分类对象，用于 categoryDisplayName
+  const catMap = Array.isArray(categories)
+    ? Object.fromEntries(categories.map((c) => [c.key || c.id, c]))
+    : {}
 
   return (
     <motion.div
@@ -117,51 +123,132 @@ export function AIRecognitionPanel({
           <p className="text-xs text-text-tertiary">{t('ai_recognize_noResult')}</p>
         )}
 
-      {/* 识别结果 */}
+      {/* 识别结果：按字段分组（名称 / 分类 / 位置 / 数量 / 备注）*/}
       {aiState.status === 'done' &&
         Array.isArray(aiState.suggestions) &&
         aiState.suggestions.length > 0 && (
-          <div className="space-y-2">
-            {aiState.suggestions.map((s, idx) => (
-              <motion.div
-                key={idx}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: idx * 0.08 }}
-                className="flex items-start gap-3 rounded-xl border border-border bg-bg p-3"
-              >
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
-                  <Sparkles size={14} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-text-primary">{s.name}</span>
-                    {s.confidence > 0 && (
-                      <span className="rounded-full bg-surface px-1.5 py-0.5 text-[10px] text-text-tertiary">
-                        {t('ai_recognize_confidence')} {(s.confidence * 100).toFixed(0)}%
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-text-secondary">
-                    {s.category && <span>{t('f_category')}: {s.category}</span>}
-                    {s.location && <span>{t('f_location')}: {s.location}</span>}
-                    {s.quantity > 0 && <span>{t('f_quantity')}: {s.quantity}</span>}
-                  </div>
-                  {s.note && <p className="mt-1 text-[11px] text-text-tertiary">{s.note}</p>}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onApply && onApply(s)}
-                  className="flex shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90"
-                >
-                  <Check size={12} />
-                  {t('ai_recognize_apply')}
-                </button>
-              </motion.div>
-            ))}
+          <div className="space-y-3">
+            {/* 名称组 */}
+            <FieldGroup title={t('f_name') || '名称'} icon="Name">
+              {aiState.suggestions.map((s, idx) => (
+                <FieldOption
+                  key={`name-${idx}`}
+                  value={s.name}
+                  confidence={s.confidence}
+                  applyLabel={t('ai_recognize_apply')}
+                  onApply={() => onApply && onApply({ ...s, _field: 'name' })}
+                />
+              ))}
+            </FieldGroup>
+
+            {/* 分类组 */}
+            {(aiState.suggestions.some((s) => s.category) || aiState.suggestions.some((s) => s.category_id)) && (
+              <FieldGroup title={t('f_category') || '分类'} icon="Category">
+                {[...new Set(aiState.suggestions.map((s) => s.category || s.category_id).filter(Boolean))].map(
+                  (v, idx) => (
+                    <FieldOption
+                      key={`cat-${idx}`}
+                      value={categoryDisplayName(v, categories)}
+                      onApply={() => onApply && onApply({ _field: 'category', category: v })}
+                    />
+                  )
+                )}
+              </FieldGroup>
+            )}
+
+            {/* 位置组 */}
+            {(aiState.suggestions.some((s) => s.location) || aiState.suggestions.some((s) => s.room) || aiState.suggestions.some((s) => s.position)) && (
+              <FieldGroup title={t('f_location') || '位置'} icon="Location">
+                {[...new Set(aiState.suggestions.map((s) => s.location || s.room || s.position).filter(Boolean))].map(
+                  (v, idx) => (
+                    <FieldOption
+                      key={`loc-${idx}`}
+                      value={v}
+                      onApply={() => onApply && onApply({ _field: 'location', location: v })}
+                    />
+                  )
+                )}
+              </FieldGroup>
+            )}
+
+            {/* 数量组 */}
+            {aiState.suggestions.some((s) => s.quantity > 0) && (
+              <FieldGroup title={t('f_quantity') || '数量'} icon="Quantity">
+                {[...new Set(aiState.suggestions.map((s) => s.quantity).filter((v) => v > 0))].map(
+                  (v, idx) => (
+                    <FieldOption
+                      key={`qty-${idx}`}
+                      value={String(v)}
+                      onApply={() => onApply && onApply({ _field: 'quantity', quantity: v })}
+                    />
+                  )
+                )}
+              </FieldGroup>
+            )}
+
+            {/* 备注组 */}
+            {aiState.suggestions.some((s) => s.note || s.notes) && (
+              <FieldGroup title={t('f_notes') || '备注'} icon="Notes">
+                {[...new Set(aiState.suggestions.map((s) => s.note || s.notes).filter(Boolean))].map(
+                  (v, idx) => (
+                    <FieldOption
+                      key={`note-${idx}`}
+                      value={v}
+                      onApply={() => onApply && onApply({ _field: 'notes', notes: v })}
+                    />
+                  )
+                )}
+              </FieldGroup>
+            )}
+
+            {/* 一键应用全部 */}
+            <button
+              type="button"
+              onClick={() => onApply && onApply(aiState.suggestions[0])}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition-smooth hover:bg-primary/90"
+            >
+              <Check size={14} />
+              {t('ai_recognize_apply')} {aiState.suggestions[0].name}
+            </button>
           </div>
         )}
     </motion.div>
+  )
+}
+
+function FieldGroup({ title, children }) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-text-tertiary">
+        <span>{title}</span>
+      </div>
+      <div className="space-y-1.5">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function FieldOption({ value, confidence, onApply, applyLabel }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-bg px-2.5 py-1.5">
+      <div className="min-w-0 flex-1">
+        <span className="text-xs font-medium text-text-primary">{value}</span>
+        {confidence > 0 && (
+          <span className="ml-1.5 rounded-full bg-surface px-1.5 py-0 text-[9px] text-text-tertiary">
+            {(confidence * 100).toFixed(0)}%
+          </span>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onApply}
+        className="flex shrink-0 items-center gap-1 rounded-md bg-primary-soft px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary hover:text-primary-foreground"
+      >
+        <Check size={11} />
+        {applyLabel || '应用'}
+      </button>
+    </div>
   )
 }
 

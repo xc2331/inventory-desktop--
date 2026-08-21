@@ -1,5 +1,28 @@
 [
   {
+    "version": "1.5.8",
+    "date": "2026-08-21",
+    "type": "bugfix",
+    "summary": "深度修复物品图片不显示：QR 扫码上传/粘贴/浏览/拖拽四入口全覆盖，增加 photo.url() 兜底策略 + 调试日志",
+    "features": [
+      "修复 preload.js 中 photo.url() 文件未找到时返回空字符串导致图片静默消失的问题，改为返回相对路径触发 <img onError> 后走 IPC readPhoto 兜底",
+      "增加详细调试日志（dataDir、拼接路径、是否找到），用户可在 DevTools Console 查看 [photo.url] 相关 warn 消息",
+      "照片 URL 解析增加对 data:/https:/file: 前缀的统一透传，避免重复处理",
+      "修复 ItemCard 中相对路径图片兜底机制未生效的链路问题（photo.url 返回空字符串直接跳过兜底）"
+    ]
+  },
+  {
+    "version": "1.5.7",
+    "date": "2026-08-21",
+    "type": "bugfix",
+    "summary": "修复 TDZ 白屏：ItemCard photoUrl 变量在 render 阶段被引用但声明在 useEffect 之后",
+    "features": [
+      "将 photoUrl / displayUrl 的 const 声明移动到组件函数体顶部，避免 TDZ（暂时性死区）白屏",
+      "AI 识别逐字段应用：每条建议独立「应用」按钮，不再一键合并全部字段",
+      "图片预览即时反馈：paste/浏览/扫码/AI 四入口压缩成功后立即展示 preview"
+    ]
+  },
+  {
     "version": "1.3.1",
     "date": "2026-08-18",
     "type": "feature",

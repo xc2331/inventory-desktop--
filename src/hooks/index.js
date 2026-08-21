@@ -25,6 +25,7 @@ import {
   exportExpiringReport,
   importJSON,
   saveFile,
+  sanitizeFilename,
   openFile,
   generateItemNo,
   buildLocationCounts
@@ -636,7 +637,7 @@ export function useItems(deps) {
       const json = await exportJSON()
       const res = await saveFile({
         content: json,
-        defaultName: `inventory-${new Date().toISOString().slice(0, 10)}.json`,
+        defaultName: sanitizeFilename(`inventory-${new Date().toISOString().slice(0, 10)}.json`),
         filters: [{ name: 'JSON', extensions: ['json'] }]
       })
       if (!res.canceled && showToast) showToast(t ? t('toast_exported') : 'Exported')
@@ -650,7 +651,7 @@ export function useItems(deps) {
       const csv = await exportCSV()
       const res = await saveFile({
         content: csv,
-        defaultName: `inventory-${new Date().toISOString().slice(0, 10)}.csv`,
+        defaultName: sanitizeFilename(`inventory-${new Date().toISOString().slice(0, 10)}.csv`),
         filters: [{ name: 'CSV', extensions: ['csv'] }]
       })
       if (!res.canceled && showToast) showToast(t ? t('toast_exported') : 'Exported')
@@ -668,7 +669,7 @@ export function useItems(deps) {
       const json = await exportSelectedJSON(Array.from(selectedIds))
       const res = await saveFile({
         content: json,
-        defaultName: `inventory-selected-${new Date().toISOString().slice(0, 10)}.json`,
+        defaultName: sanitizeFilename(`inventory-selected-${new Date().toISOString().slice(0, 10)}.json`),
         filters: [{ name: 'JSON', extensions: ['json'] }]
       })
       if (!res.canceled && showToast) showToast(t ? t('toast_exported') : 'Exported')
@@ -704,7 +705,7 @@ export function useItems(deps) {
       }
       const res = await saveFile({
         content: lines.join('\n'),
-        defaultName: `expiry-report-${new Date().toISOString().slice(0, 10)}.txt`,
+        defaultName: sanitizeFilename(`expiry-report-${new Date().toISOString().slice(0, 10)}.txt`),
         filters: [{ name: '文本', extensions: ['txt'] }]
       })
       if (!res.canceled && showToast) showToast(t ? t('toast_exportedReport') : 'Exported')

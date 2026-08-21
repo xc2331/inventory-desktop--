@@ -231,8 +231,8 @@ function CategoryTab({ data, t, lang, subView, setSubView, animations }) {
           )}
           {subView === 'bar' && (
             <ChartCard title={t('stats_categoryBar')} icon={<BarChart2 size={16} />}>
-              <ResponsiveContainer width="100%" height={420}>
-                <BarChart data={categoryData} layout="vertical" margin={{ left: 16, right: 24, top: 8, bottom: 8 }}>
+              <ResponsiveContainer width="100%" height={420} key={`cat-bar-${subView}`}>
+                <BarChart key={`cat-bar-${subView}`} data={categoryData} layout="vertical" margin={{ left: 16, right: 24, top: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" horizontal={false} />
                   <XAxis type="number" hide />
                   <YAxis dataKey={lang === 'en' ? 'name_en' : 'name'} type="category" width={110} tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
@@ -291,8 +291,8 @@ function LocationTab({ data, t, lang, subView, setSubView }) {
         <motion.div key={subView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: EASE }}>
           {subView === 'bar' && (
             <ChartCard title={t('stats_locationBar')} icon={<BarChart2 size={16} />}>
-              <ResponsiveContainer width="100%" height={420}>
-                <BarChart data={locationData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+              <ResponsiveContainer width="100%" height={420} key={`loc-bar-${subView}`}>
+                <BarChart key={`loc-bar-${subView}`} data={locationData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
                   <defs>
                     <linearGradient id="locGrad2" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.95} />
@@ -310,9 +310,9 @@ function LocationTab({ data, t, lang, subView, setSubView }) {
           )}
           {subView === 'horizontal' && (
             <ChartCard title={t('stats_locationHorizontal')} icon={<FolderOpen size={16} />}>
-              <div className="space-y-3">
+              <div key={`loc-horiz-${subView}`} className="space-y-3">
                 {locationData.map((loc, i) => (
-                  <motion.div key={loc.name} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05, duration: 0.35, ease: EASE }} className="flex items-center gap-3">
+                  <motion.div key={`loc-horiz-${subView}-${loc.name}`} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05, duration: 0.35, ease: EASE }} className="flex items-center gap-3">
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
                       <MapPin size={14} />
                     </div>
@@ -322,7 +322,7 @@ function LocationTab({ data, t, lang, subView, setSubView }) {
                         <span className="font-semibold text-text-secondary"><AnimatedNumber value={loc.count} /></span>
                       </div>
                       <div className="h-2 w-full overflow-hidden rounded-full bg-bg">
-                        <motion.div initial={{ width: 0 }} animate={{ width: `${(loc.count / Math.max(...locationData.map((d) => d.count), 1)) * 100}%` }} transition={{ duration: 0.8, ease: EASE, delay: 0.15 }} className="h-full rounded-full bg-sky-500" />
+                        <motion.div key={`loc-horiz-bar-${loc.name}`} initial={{ width: 0 }} animate={{ width: `${(loc.count / Math.max(...locationData.map((d) => d.count), 1)) * 100}%` }} transition={{ duration: 0.8, ease: EASE, delay: 0.15 }} className="h-full rounded-full bg-sky-500" />
                       </div>
                     </div>
                   </motion.div>
@@ -332,13 +332,13 @@ function LocationTab({ data, t, lang, subView, setSubView }) {
           )}
           {subView === 'treemap' && (
             <ChartCard title={t('stats_locationGrid')} icon={<LayoutGrid size={16} />}>
-              <div className="flex flex-wrap gap-3">
+              <div key={`loc-grid-${subView}`} className="flex flex-wrap gap-3">
                 {locationData.map((loc, i) => {
                   const ratio = loc.count / Math.max(...locationData.map((d) => d.count), 1)
                   const size = Math.max(80, Math.round(ratio * 160))
                   return (
                     <motion.div
-                      key={loc.name}
+                      key={`loc-grid-${subView}-${loc.name}`}
                       initial={{ opacity: 0, scale: 0.5 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: i * 0.04, type: 'spring', stiffness: 300, damping: 20 }}
@@ -393,8 +393,8 @@ function ExpiryTab({ data, t, lang, subView, setSubView, animations }) {
         <motion.div key={subView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: EASE }}>
           {subView === 'donut' && (
             <ChartCard title={t('stats_expiryDonut')} icon={<CircleDollarSign size={16} />}>
-              <ResponsiveContainer width="100%" height={420}>
-                <PieChart>
+              <ResponsiveContainer width="100%" height={420} key={`exp-donut-${subView}`}>
+                <PieChart key={`exp-donut-${subView}`}>
                   <Pie data={expiryData} dataKey="count" nameKey={lang === 'en' ? 'name_en' : 'name'} innerRadius={100} outerRadius={160} paddingAngle={3} stroke="none" isAnimationActive animationDuration={500}>
                     {expiryData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                   </Pie>
@@ -406,8 +406,8 @@ function ExpiryTab({ data, t, lang, subView, setSubView, animations }) {
           )}
           {subView === 'timeline' && (
             <ChartCard title={t('stats_expiryTimeline')} icon={<Clock size={16} />}>
-              <ResponsiveContainer width="100%" height={420}>
-                <BarChart data={timeline} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+              <ResponsiveContainer width="100%" height={420} key={`exp-time-${subView}`}>
+                <BarChart key={`exp-time-${subView}`} data={timeline} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                   <XAxis dataKey="label" tick={{ fill: 'var(--color-text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -422,7 +422,7 @@ function ExpiryTab({ data, t, lang, subView, setSubView, animations }) {
           {subView === 'list' && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {expiryData.map((e, i) => (
-                <motion.div key={e.key} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }} className="rounded-xl border border-border bg-surface p-4 shadow-card">
+                <motion.div key={`exp-list-${subView}-${e.key}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }} className="rounded-xl border border-border bg-surface p-4 shadow-card">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl text-white" style={{ background: e.color }}>
                       <CalendarClock size={18} />
@@ -505,7 +505,7 @@ function StockTab({ data, t, lang, subView, setSubView, animations }) {
             <div className="space-y-3">
               {lowStockItems.length === 0 && <Empty text={t('stats_noLowStock')} />}
               {lowStockItems.map((it, i) => (
-                <motion.div key={it.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05, duration: 0.35 }} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3 shadow-card">
+                <motion.div key={`stock-list-${subView}-${it.id}`} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05, duration: 0.35 }} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3 shadow-card">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-300">
                     <AlertTriangle size={18} />
                   </div>
@@ -544,8 +544,8 @@ function TimeTab({ data, t, lang, subView, setSubView }) {
         <motion.div key={subView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: EASE }}>
           {subView === 'line' && (
             <ChartCard title={t('stats_timeLine')} icon={<TrendingUp size={16} />}>
-              <ResponsiveContainer width="100%" height={420}>
-                <LineChart data={timeData} margin={{ left: 8, right: 24, top: 24, bottom: 8 }}>
+              <ResponsiveContainer width="100%" height={420} key={`time-line-${subView}`}>
+                <LineChart key={`time-line-${subView}`} data={timeData} margin={{ left: 8, right: 24, top: 24, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                   <XAxis dataKey="month" tick={{ fill: 'var(--color-text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -559,15 +559,15 @@ function TimeTab({ data, t, lang, subView, setSubView }) {
           )}
           {subView === 'area' && (
             <ChartCard title={t('stats_timeArea')} icon={<Activity size={16} />}>
-              <ResponsiveContainer width="100%" height={420}>
-                <AreaChart data={timeData} t={t} large />
+              <ResponsiveContainer width="100%" height={420} key={`time-area-${subView}`}>
+                <AreaChart key={`time-area-${subView}`} data={timeData} t={t} large />
               </ResponsiveContainer>
             </ChartCard>
           )}
           {subView === 'bar' && (
             <ChartCard title={t('stats_timeBar')} icon={<BarChart2 size={16} />}>
-              <ResponsiveContainer width="100%" height={420}>
-                <BarChart data={timeData} margin={{ left: 8, right: 24, top: 24, bottom: 8 }}>
+              <ResponsiveContainer width="100%" height={420} key={`time-bar-${subView}`}>
+                <BarChart key={`time-bar-${subView}`} data={timeData} margin={{ left: 8, right: 24, top: 24, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                   <XAxis dataKey="month" tick={{ fill: 'var(--color-text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -581,8 +581,8 @@ function TimeTab({ data, t, lang, subView, setSubView }) {
           )}
           {subView === 'dual' && (
             <ChartCard title={t('stats_timeDual')} icon={<Layers size={16} />}>
-              <ResponsiveContainer width="100%" height={420}>
-                <ComposedChart data={timeData} margin={{ left: 8, right: 24, top: 24, bottom: 8 }}>
+              <ResponsiveContainer width="100%" height={420} key={`time-dual-${subView}`}>
+                <ComposedChart key={`time-dual-${subView}`} data={timeData} margin={{ left: 8, right: 24, top: 24, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                   <XAxis dataKey="month" tick={{ fill: 'var(--color-text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: 'var(--color-text-tertiary)', fontSize: 11 }} axisLine={false} tickLine={false} />

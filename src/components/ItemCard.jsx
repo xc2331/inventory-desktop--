@@ -1,16 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Pencil, Trash2, Minus, Plus, MapPin, AlertTriangle, CalendarClock, Check, Image as ImageIcon, ShieldAlert, MoreVertical, Copy, ExternalLink } from 'lucide-react'
+import { Pencil, Trash2, Minus, Plus, MapPin, AlertTriangle, CalendarClock, Check, Image as ImageIcon, ShieldAlert, GripVertical, Copy } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName } from '../lib/api'
 import { getCategoryIcon } from '../lib/categoryIcons'
 import { expiryStatus } from '../lib/utils'
 import { formatDate } from '../lib/format'
 import { cn } from '../lib/cn'
+import { readPhoto } from '../lib/imageStore'
 import SearchHighlight from './SearchHighlight'
 import { EASE, EASE_SPRING, cardHover } from '../lib/motion'
 
-// 过期卡片抖动动画（只播 2 次后静止，避免 repeat:Infinity 持续占用 GPU）
 const expiredShake = [
   { rotate: 0 }, { rotate: -4 }, { rotate: 4 }, { rotate: 0 }
 ]
@@ -20,11 +21,11 @@ function normalizePhotoUrl(photo) {
   const trimmed = photo.trim()
   if (!trimmed) return ''
   if (/^(data:|https?:|file:)/i.test(trimmed)) return trimmed
-  if (/^[a-z]:[\\/]/i.test(trimmed) || trimmed.startsWith('/')) {
-    const withSlash = trimmed.replace(/\\/g, '/')
-    return withSlash.startsWith('/') ? 'file://' + withSlash : 'file:///' + withSlash
+  // 相对路径：交给 Electron 后端转成真实的 file:// 绝对路径
+  if (window && window.lingguang && window.lingguang.photo && window.lingguang.photo.url) {
+    return window.lingguang.photo.url(trimmed) || ''
   }
-  return 'file:///' + trimmed.replace(/\\/g, '/')
+  return trimmed
 }
 
 export default function ItemCard({
@@ -42,34 +43,144 @@ export default function ItemCard({
   onToggleSelect,
   bulkMode,
   keyword,
-  index = 0
+  index = 0,
+  onSort,
+  gridRef
 }) {
   const { t } = useI18n()
   const localeKey = lang === 'en' || lang === 'en_US' ? 'en_US' : 'zh_CN'
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
+  const cardRef = useRef(null)
   const cat = categories.find((c) => c.key === item.category)
   const expiry = expiryStatus(item.expiry_date)
   const lowStock = item.min_quantity > 0 && item.quantity <= item.min_quantity
   const isExpired = expiry && expiry.tone === 'expired'
   const isExpiringSoon = expiry && expiry.tone === 'warn'
   const [imgErr, setImgErr] = useState(false)
-  const updatedAtStr = item.updated_at ? formatDate(item.updated_at, localeKey) : ''
+  const [fallbackUrl, setFallbackUrl] = useState('')
 
-  // UX-02 拖拽排序预览：Grip handle + framer-motion drag + spring snap-back
-  const [isDragging, setIsDragging] = useState(false)
-  const handleDragStart = () => setIsDragging(true)
-  const handleDragEnd = () => setIsDragging(false)
+  const photoUrl = normalizePhotoUrl(item.photo)
+  const displayUrl = fallbackUrl || photoUrl
 
-  // U-09 右键菜单关闭：点击别处 / 按 Esc
+  // 兜底：如果同步拼接的 file:// URL 加载失败（相对路径 → file:// 出错），尝试通过 IPC 读取 base64
+  useEffect(() => {
+    if (!imgErr || !item.photo) return
+    if (/^(data:|https?:|file:)/i.test(item.photo)) return
+    let cancelled = false
+    readPhoto(item.photo).then((data) => {
+      if (!cancelled) setFallbackUrl(data)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [imgErr, item.photo])
+
+  const canDrag = !bulkMode
+
+  // ---- 纯原生 pointer event 拖拽：完全绕开 framer-motion 的 drag ----
+  // 核心思路：按下 Grip Handle → 隐藏原卡片 + 创建 body-level ghost 跟随鼠标；
+  // 松手时：把原卡片显形（此时 React 已将其放入新 grid 位置）+ 删除 ghost。
+  // 因为没有 transform 叠加，被拖卡片永远精确对齐 grid。
+  const handleGripPointerDown = (e) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    const card = cardRef.current
+    if (!card || !gridRef?.current) return
+
+    const cardRect = card.getBoundingClientRect()
+    const offset = {
+      x: e.clientX - cardRect.left,
+      y: e.clientY - cardRect.top
+    }
+
+    // 克隆卡片为 ghost
+    const ghost = card.cloneNode(true)
+    ghost.id = 'drag-ghost'
+    ghost.style.cssText = `
+      position: fixed;
+      top: ${cardRect.top}px;
+      left: ${cardRect.left}px;
+      width: ${cardRect.width}px;
+      height: ${cardRect.height}px;
+      z-index: 99999;
+      opacity: 0.85;
+      pointer-events: none;
+      transform: scale(1.03);
+      box-shadow: 0 20px 40px -12px rgba(15,23,42,0.28), 0 8px 16px -6px rgba(15,23,42,0.18);
+      border-radius: 16px;
+    `
+    // 移除 ghost 上的交互属性
+    ghost.onPointerDown = null
+    ghost.onclick = null
+    document.body.appendChild(ghost)
+
+    // 隐藏原卡片
+    card.style.visibility = 'hidden'
+
+    let didMove = false
+    const lastX = e.clientX
+    const lastY = e.clientY
+
+    const onMove = (ev) => {
+      didMove = true
+      ghost.style.left = `${ev.clientX - offset.x}px`
+      ghost.style.top = `${ev.clientY - offset.y}px`
+    }
+
+    const onUp = (ev) => {
+      ghost.remove()
+      card.style.visibility = 'visible'
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+
+      if (!didMove) return
+
+      const dist = Math.hypot(ev.clientX - lastX, ev.clientY - lastY)
+      if (dist < 30 || !onSort) return
+
+      // 用松手时 ghost 的中心坐标
+      const ghostRect = {
+        left: parseFloat(ghost.style.left) || 0,
+        top: parseFloat(ghost.style.top) || 0,
+        width: cardRect.width,
+        height: cardRect.height
+      }
+      const dragCX = ghostRect.left + ghostRect.width / 2
+      const dragCY = ghostRect.top + ghostRect.height / 2
+
+      const grid = gridRef.current
+      const children = Array.from(grid.children).filter(
+        (c) => c.hasAttribute && c.hasAttribute('data-item-id')
+      )
+      let nearestIdx = -1
+      let nearestD2 = Infinity
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i]
+        if (child.dataset.itemId === item.id) continue
+        const rect = child.getBoundingClientRect()
+        const cx = rect.left + rect.width / 2
+        const cy = rect.top + rect.height / 2
+        const d2 = (dragCX - cx) ** 2 + (dragCY - cy) ** 2
+        if (d2 < nearestD2) {
+          nearestD2 = d2
+          nearestIdx = i
+        }
+      }
+      if (nearestIdx >= 0) {
+        onSort(item.id, nearestIdx)
+      }
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  // U-09 右键菜单关闭
   useEffect(() => {
     if (!menuOpen) return
     const handler = (e) => {
-      if (e.key === 'Escape') {
-        setMenuOpen(false)
-        return
-      }
-      // 仅左键关闭菜单；右键不关闭，避免右键打开菜单后被 mousedown 立即关闭
+      if (e.key === 'Escape') { setMenuOpen(false); return }
       if (e.type === 'mousedown' && e.button !== 0) return
       if (!menuRef.current?.contains(e.target)) setMenuOpen(false)
     }
@@ -82,14 +193,10 @@ export default function ItemCard({
     .filter((x, i, a) => x && a.indexOf(x) === i)
     .join(' · ')
 
-  const photoUrl = normalizePhotoUrl(item.photo)
-  const hasPhoto = photoUrl && !imgErr
+  const hasPhoto = displayUrl && !imgErr
   const CategoryIcon = getCategoryIcon(cat)
 
-  // 图片地址变化时重置错误状态，避免扫码上传的大图初次加载失败后必须切换分类才显示
-  useEffect(() => {
-    setImgErr(false)
-  }, [photoUrl])
+  useEffect(() => { setImgErr(false); setFallbackUrl('') }, [photoUrl])
 
   const handleCardClick = () => {
     if (bulkMode) onToggleSelect(item.id)
@@ -97,18 +204,17 @@ export default function ItemCard({
 
   const handleContextMenu = (e) => {
     e.preventDefault()
-    // 设置菜单位置（相对视口）
     setMenuOpen({ x: e.clientX, y: e.clientY })
   }
 
   const handleMenuAction = (action) => {
     setMenuOpen(false)
     switch (action) {
-      case 'edit':   if (onEdit)   onEdit(item)                    ; break
-      case 'add':    if (onAdjust) onAdjust(1, item.id)            ; break
-      case 'sub':    if (onAdjust) onAdjust(-1, item.id)           ; break
-      case 'copy':   onCopyItemNo?.(item.item_no)                  ; break
-      case 'delete': if (onDelete) onDelete(item.id, item.name)    ; break
+      case 'edit':   if (onEdit)   onEdit(item); break
+      case 'add':    if (onAdjust) onAdjust(item.id, 1); break
+      case 'sub':    if (onAdjust) onAdjust(item.id, -1); break
+      case 'copy':   onCopyItemNo?.(item.item_no); break
+      case 'delete': if (onDelete) onDelete(item); break
     }
   }
 
@@ -116,7 +222,6 @@ export default function ItemCard({
     if (hasPhoto && onDoubleClick) onDoubleClick(photoUrl, item.name)
   }
 
-  // UX-01 卡片交互参数
   const baseHover = isExpired ? cardHover : {
     ...cardHover,
     scale: 1.018,
@@ -129,21 +234,13 @@ export default function ItemCard({
 
   return (
     <motion.div
-      layout
+      ref={cardRef}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0,
         boxShadow: isExpired ? '0 0 0 2px rgba(239,68,68,0.4), 0 4px 16px rgba(239,68,68,0.12)' : undefined
       }}
       whileHover={menuOpen ? undefined : baseHover}
       whileTap={baseTap}
-      whileDrag={{ scale: 1.04, rotate: 1, boxShadow: '0 20px 40px -12px rgba(15,23,42,0.28), 0 8px 16px -6px rgba(15,23,42,0.18)', cursor: 'grabbing' }}
-      drag={!bulkMode && !hasPhoto}
-      dragConstraints={null}
-      dragElastic={0.08}
-      dragMomentum={false}
-      dragTransition={{ bounceStiffness: 400, bounceDamping: 28 }}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
       focusable
       tabIndex={0}
       transition={{ duration: 0.28, ease: EASE, delay: Math.min(index * 0.025, 0.12) }}
@@ -151,27 +248,34 @@ export default function ItemCard({
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
       className={cn(
-        'card-hover group relative flex flex-col overflow-hidden rounded-2xl border bg-surface shadow-card',
+        'card-hover group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-surface shadow-card',
         'transition-shadow duration-200 ease-[0.22,1,0.36,1]',
         'outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-bg',
-        isDragging && 'z-[50] opacity-80',
         selected ? 'border-primary shadow-[0_0_0_3px_rgba(16,185,129,0.22),0_8px_24px_-6px_rgba(16,185,129,0.25)] z-[5]' : 'border-border hover:shadow-lg',
         isExpired ? 'border-danger' : undefined,
         isExpiringSoon ? 'border-warn' : undefined,
         bulkMode && 'cursor-pointer',
-        hasPhoto && 'cursor-zoom-in',
-        !bulkMode && !hasPhoto && 'cursor-grab active:cursor-grabbing'
+        hasPhoto && 'cursor-zoom-in'
       )}
       data-item-id={item.id}
     >
-      {/* UX-01 选中指示环（强化：外发光 + 顶部角标 + 呼吸脉冲） */}
+      {canDrag && (
+        <div
+          onPointerDown={handleGripPointerDown}
+          className={cn(
+            'absolute right-2 top-2 z-30 flex h-7 w-7 cursor-grab items-center justify-center rounded-full bg-surface/90 shadow-sm backdrop-blur-md transition-smooth hover:bg-surface',
+            'active:cursor-grabbing'
+          )}
+          title={t('card_drag')}
+        >
+          <GripVertical size={14} className="text-text-tertiary" />
+        </div>
+      )}
       {selected && (
         <AnimatePresence>
           <motion.span
             initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1,
-              boxShadow: '0 0 0 0 rgba(16,185,129,0.4)'
-            }}
+            animate={{ opacity: 1, scale: 1, boxShadow: '0 0 0 0 rgba(16,185,129,0.4)' }}
             exit={{ opacity: 0, scale: 0.8 }}
             transition={{ duration: 0.25, ease: EASE_SPRING }}
             className="pointer-events-none absolute inset-0 z-[15] rounded-2xl ring-2 ring-primary animate-pulse"
@@ -188,7 +292,6 @@ export default function ItemCard({
         </AnimatePresence>
       )}
 
-      {/* 过期警示：顶部红色渐变带 + 边框 + 徽章（不遮挡卡片内容，避免信息丢失和 GPU 持续抖动） */}
       {isExpired && (
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -207,7 +310,6 @@ export default function ItemCard({
         </motion.div>
       )}
 
-      {/* U-02 即将过期横幅（顶部黄色渐变带） */}
       {isExpiringSoon && !isExpired && (
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -220,12 +322,11 @@ export default function ItemCard({
         </motion.div>
       )}
 
-      {/* 图片区 (P-02：懒加载 + 错误恢复占位) */}
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-bg">
         {hasPhoto ? (
           <>
             <img
-              src={photoUrl}
+              src={displayUrl}
               alt={item.name}
               className="img-zoom h-full w-full object-cover"
               loading="lazy"
@@ -247,10 +348,8 @@ export default function ItemCard({
           </div>
         )}
 
-        {/* 底部渐变遮罩 */}
         <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/15 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
-        {/* 批量勾选 */}
         {bulkMode && (
           <div
             className={cn(
@@ -264,7 +363,6 @@ export default function ItemCard({
           </div>
         )}
 
-        {/* 分类标签 */}
         <span
           className="absolute left-2.5 z-10 inline-flex max-w-[70%] items-center gap-1 truncate rounded-full bg-surface/92 px-2 py-1 text-[11px] font-medium text-text-secondary shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface"
           style={{ top: bulkMode ? '2.5rem' : '0.625rem' }}
@@ -273,14 +371,13 @@ export default function ItemCard({
           <span className="truncate">{cat ? categoryDisplayName(cat, lang) : item.category || t('nav_categories')}</span>
         </span>
 
-        {/* 操作按钮组 */}
-        <div className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-surface/88 p-1 shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface">
+        <div className={cn(
+          'absolute right-2 z-10 flex items-center gap-1 rounded-full bg-surface/88 p-1 shadow-sm backdrop-blur-md transition-smooth group-hover:bg-surface',
+          canDrag ? 'top-10' : 'top-2'
+        )}>
           <motion.button
             whileTap={{ scale: 0.9 }}
-            onClick={(e) => {
-              e.stopPropagation()
-              onEdit(item)
-            }}
+            onClick={(e) => { e.stopPropagation(); onEdit(item) }}
             title={t('form_editTitle')}
             className="flex h-7 w-7 items-center justify-center rounded-full text-text-tertiary transition-smooth hover:bg-primary-soft hover:text-primary"
           >
@@ -288,10 +385,7 @@ export default function ItemCard({
           </motion.button>
           <motion.button
             whileTap={{ scale: 0.9 }}
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete(item)
-            }}
+            onClick={(e) => { e.stopPropagation(); onDelete(item) }}
             title={t('btn_delete')}
             className="flex h-7 w-7 items-center justify-center rounded-full text-text-tertiary transition-smooth hover:bg-danger-soft hover:text-danger"
           >
@@ -300,7 +394,6 @@ export default function ItemCard({
         </div>
       </div>
 
-      {/* 内容区 */}
       <div className="flex flex-1 flex-col p-4">
         <div className="flex items-start justify-between gap-2">
           <h3 className="truncate text-[15px] font-semibold leading-tight text-text-primary" title={item.name}>
@@ -313,7 +406,6 @@ export default function ItemCard({
           )}
         </div>
 
-        {/* 位置 */}
         {locationText && (
           <div
             className="mt-2 inline-flex w-fit max-w-full items-center gap-1 truncate rounded-lg bg-primary-soft/70 px-2 py-1 text-xs font-medium text-primary"
@@ -324,15 +416,11 @@ export default function ItemCard({
           </div>
         )}
 
-        {/* 数量步进器 */}
         <div className="mt-3 flex items-center justify-between rounded-xl bg-bg p-1">
           <div className="flex items-center gap-0.5">
             <motion.button
               whileTap={{ scale: 0.88 }}
-              onClick={(e) => {
-                e.stopPropagation()
-                onAdjust(item.id, -1)
-              }}
+              onClick={(e) => { e.stopPropagation(); onAdjust(item.id, -1) }}
               disabled={item.quantity <= 0}
               className="flex h-7 w-7 items-center justify-center rounded-md bg-surface text-text-secondary shadow-xs ring-1 ring-border transition-smooth hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -349,10 +437,7 @@ export default function ItemCard({
             </motion.span>
             <motion.button
               whileTap={{ scale: 0.88 }}
-              onClick={(e) => {
-                e.stopPropagation()
-                onAdjust(item.id, 1)
-              }}
+              onClick={(e) => { e.stopPropagation(); onAdjust(item.id, 1) }}
               className="flex h-7 w-7 items-center justify-center rounded-md bg-surface text-text-secondary shadow-xs ring-1 ring-border transition-smooth hover:bg-surface-hover hover:text-text-primary"
             >
               <Plus size={14} strokeWidth={2.5} />
@@ -365,7 +450,6 @@ export default function ItemCard({
           )}
         </div>
 
-        {/* 状态徽章 */}
         {(lowStock || (expiry && expiry.tone !== 'ok')) && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {lowStock && (
@@ -389,43 +473,45 @@ export default function ItemCard({
         )}
       </div>
 
-      {/* U-09 右键菜单 */}
-      <AnimatePresence>
-        {menuOpen && (
-          <motion.div
-            ref={menuRef}
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.15, ease: EASE }}
-            className="absolute z-50 min-w-[160px] rounded-xl border border-border bg-surface p-1.5 shadow-float"
-            style={{
-              left: Math.min(menuOpen.x, window.innerWidth - 180),
-              top: Math.min(menuOpen.y, window.innerHeight - 220),
-              position: 'fixed'
-            }}
-          >
-            <button onClick={() => handleMenuAction('edit')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
-              <Pencil size={13} /> {t('card_edit')}
-            </button>
-            <button onClick={() => handleMenuAction('add')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
-              <Plus size={13} /> {t('card_add1')}
-            </button>
-            <button onClick={() => handleMenuAction('sub')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
-              <Minus size={13} /> {t('card_sub1')}
-            </button>
-            {item.item_no && (
-              <button onClick={() => handleMenuAction('copy')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
-                <Copy size={13} /> {t('card_copyNo')}
+      {menuOpen && typeof document !== 'undefined' && document.body &&
+        createPortal(
+          <AnimatePresence>
+            <motion.div
+              ref={menuRef}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.15, ease: EASE }}
+              className="z-[9999] min-w-[160px] rounded-xl border border-border bg-surface p-1.5 shadow-float"
+              style={{
+                left: Math.min(menuOpen.x, window.innerWidth - 180),
+                top: Math.min(menuOpen.y, window.innerHeight - 220),
+                position: 'fixed'
+              }}
+            >
+              <button onClick={() => handleMenuAction('edit')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
+                <Pencil size={13} /> {t('card_edit')}
               </button>
-            )}
-            <div className="my-1 h-px bg-border" />
-            <button onClick={() => handleMenuAction('delete')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-danger transition-smooth hover:bg-danger-soft">
-              <Trash2 size={13} /> {t('card_delete')}
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <button onClick={() => handleMenuAction('add')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
+                <Plus size={13} /> {t('card_add1')}
+              </button>
+              <button onClick={() => handleMenuAction('sub')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
+                <Minus size={13} /> {t('card_sub1')}
+              </button>
+              {item.item_no && (
+                <button onClick={() => handleMenuAction('copy')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-primary transition-smooth hover:bg-primary-soft hover:text-primary">
+                  <Copy size={13} /> {t('card_copyNo')}
+                </button>
+              )}
+              <div className="my-1 h-px bg-border" />
+              <button onClick={() => handleMenuAction('delete')} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-danger transition-smooth hover:bg-danger-soft">
+                <Trash2 size={13} /> {t('card_delete')}
+              </button>
+            </motion.div>
+          </AnimatePresence>,
+          document.body
+        )
+      }
     </motion.div>
   )
 }

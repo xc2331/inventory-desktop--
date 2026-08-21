@@ -26,11 +26,11 @@ function toPhotoSrc(photo) {
   const s = photo.trim()
   if (!s) return ''
   if (/^(data:|https?:|file:)/i.test(s)) return s
-  if (/^[a-z]:[\\/]/i.test(s) || s.startsWith('/')) {
-    const withSlash = s.replace(/\\/g, '/')
-    return withSlash.startsWith('/') ? 'file://' + withSlash : 'file:///' + withSlash
+  // 相对路径：交给 Electron 后端转成真实的 file:// 绝对路径
+  if (window && window.lingguang && window.lingguang.photo && window.lingguang.photo.url) {
+    return window.lingguang.photo.url(s) || ''
   }
-  return 'file:///' + s.replace(/\\/g, '/')
+  return s
 }
 
 // 从剪贴板事件中提取图片文件（没有则返回 null）
@@ -113,6 +113,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const [treeOpen, setTreeOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [photoHint, setPhotoHint] = useState('')
+  const [singleProgress, setSingleProgress] = useState(0)
   const [photoPreview, setPhotoPreview] = useState('')
   const [photoMeta, setPhotoMeta] = useState(null)
   const [origFileSizeKB, setOrigFileSizeKB] = useState(null)
@@ -135,24 +136,55 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     }
   }, [])
 
+  // 单张上传进度（粘贴 / 浏览 / AI 识别），压缩期间从 10% 逐步走到 90%，完成后跳到 100%
+  const singleProgressRef = { current: 0, timer: null, done: false }
+
+  function startSingleProgress() {
+    singleProgressRef.current = 10
+    singleProgressRef.done = false
+    setSingleProgress(10)
+    clearInterval(singleProgressRef.timer)
+    singleProgressRef.timer = setInterval(() => {
+      if (singleProgressRef.done) return
+      singleProgressRef.current = Math.min(90, singleProgressRef.current + 10)
+      setSingleProgress(singleProgressRef.current)
+    }, 180)
+  }
+  function finishSingleProgress() {
+    singleProgressRef.done = true
+    clearInterval(singleProgressRef.timer)
+    setSingleProgress(100)
+  }
+  function resetSingleProgress() {
+    singleProgressRef.done = false
+    clearInterval(singleProgressRef.timer)
+    setSingleProgress(0)
+  }
+
   // 监听 Ctrl+V 粘贴图片（仅在表单打开时生效）
   useEffect(() => {
     const handlePaste = async (e) => {
       const file = getImageFromClipboard(e)
       if (!file) return
       e.preventDefault()
-      setPhotoHint('图片压缩中…')
+      setPhotoHint(t('photo_compressing'))
+      startSingleProgress()
       const result = await compressImageToBase64(file)
       if (result.ok) {
+        finishSingleProgress()
         setForm((f) => ({ ...f, photo: result.data }))
         setPhotoMeta({ size: result.sizeKB * 1024, type: 'image/webp' })
-        setPhotoHint(`已压缩至 ${result.sizeKB}KB`)
+        setPhotoHint(t('photo_saved') + ` ${result.sizeKB}KB`)
       } else {
+        setSingleProgress(0)
         setPhotoHint(result.error)
       }
     }
     window.addEventListener('paste', handlePaste)
-    return () => window.removeEventListener('paste', handlePaste)
+    return () => {
+      clearInterval(singleProgressRef.timer)
+      window.removeEventListener('paste', handlePaste)
+    }
   }, [])
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
@@ -176,24 +208,40 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     setQrState({ url: '', status: 'idle' })
   }
 
-  // 点击浏览：选择本地图片后自动压缩为 Base64 存入 photo
+  // 点击浏览：直接复制原图到 dataDir/photos/，避免 base64 存入 SQLite 被截断
   const handleBrowse = async () => {
     try {
       setPhotoHint('')
+      resetSingleProgress()
       setOrigFileSizeKB(null)
       const res = await pickImage()
       if (res.canceled || !res.path) return
       setOrigSize(res.size)
-      setPhotoHint('图片压缩中…')
-      const result = await compressImageToBase64(res.path)
-      if (result.ok) {
-        set('photo', result.data)
-        setPhotoMeta({ size: result.sizeKB * 1024, type: 'image/webp' })
-        setPhotoHint(`已压缩至 ${result.sizeKB}KB`)
-      } else {
-        setPhotoHint(result.error)
+      const ext = res.path.match(/\.(\w+)$/)?.[1] || 'png'
+      try {
+        const relPath = await savePhotoFromPath(res.path, ext)
+        setForm((f) => ({ ...f, photo: relPath }))
+        // 保留原文件作为即时预览（避免渲染瞬间相对路径拼接时序问题）
+        setPhotoPreview('file://' + res.path.replace(/\\/g, '/'))
+        setPhotoMeta({ size: res.size || 0, type: '' })
+        setPhotoHint(t('photo_saved'))
+      } catch (e) {
+        // 兜底：原 base64 路径，可能截断但保证可用
+        setPhotoHint(t('photo_compressing'))
+        startSingleProgress()
+        const result = await compressImageToBase64(res.path)
+        if (result.ok) {
+          finishSingleProgress()
+          setForm((f) => ({ ...f, photo: result.data }))
+          setPhotoMeta({ size: result.sizeKB * 1024, type: 'image/webp' })
+          setPhotoHint(t('photo_saved') + ` ${result.sizeKB}KB`)
+        } else {
+          setSingleProgress(0)
+          setPhotoHint(result.error || t('photo_compressing_failed'))
+        }
       }
     } catch (e) {
+      setSingleProgress(0)
       setPhotoHint(e.message || '图片读取失败')
     }
   }
@@ -202,12 +250,16 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const saveCompressedPhoto = async (source, label) => {
     try {
       setPhotoHint('图片压缩中…')
+      resetSingleProgress()
       if (source && typeof source.size === 'number') setOrigSize(source.size)
+      startSingleProgress()
       const result = await compressImageToBase64(source)
       if (!result.ok) {
+        setSingleProgress(0)
         setPhotoHint(result.error || t('ai_recognize_failed'))
         return false
       }
+      finishSingleProgress()
       setPhotoPreview(result.data)
       setPhotoMeta({ size: result.sizeKB * 1024, type: 'image/webp' })
       // 尝试保存到 dataDir/photos/，仅把相对路径写入 form.photo
@@ -222,6 +274,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       }
       return true
     } catch {
+      setSingleProgress(0)
       setPhotoHint(t('ai_recognize_failed'))
       return false
     }
@@ -280,8 +333,11 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       setQrState({ url: info.url, status: 'waiting' })
       const unsub = onQRUploadImage(async ({ image }) => {
         setPhotoHint('图片压缩中…')
+        resetSingleProgress()
+        startSingleProgress()
         const result = await compressImageToBase64(image)
         if (result.ok) {
+          finishSingleProgress()
           setPhotoPreview(result.data)
           setPhotoMeta({ size: result.sizeKB * 1024, type: 'image/webp' })
           try {
@@ -293,6 +349,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
           setQrState((s) => ({ ...s, status: 'success' }))
           setPhotoHint(`${t('qrUpload_success')}（已压缩至 ${result.sizeKB}KB）`)
         } else {
+          setSingleProgress(0)
           setForm((f) => ({ ...f, photo: image }))
           setQrState((s) => ({ ...s, status: 'success' }))
           setPhotoHint(`${t('qrUpload_success')}，${result.error}`)
@@ -352,28 +409,54 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     }
   }
 
-  // 应用某条 AI 建议到表单
+  // AI 应用反馈
+  const [aiApplied, setAiApplied] = useState(null)
+
+  // 应用某条 AI 建议到表单。带 _field 时仅改对应字段；不带时（"一键应用"）合并全部字段
   const applySuggestion = (s) => {
-    const next = {
-      name: s.name || form.name,
-      category: s.category || form.category,
-      quantity: s.quantity || 1,
-      notes: s.note ? (form.notes ? `${form.notes}\n${s.note}` : s.note) : form.notes
+    const prev = { ...form }
+    let appliedField = null
+    if (s._field) {
+      if (s._field === 'name' && s.name) { prev.name = s.name; appliedField = t('f_name') }
+      else if (s._field === 'category' && s.category) { prev.category = s.category; appliedField = t('f_category') }
+      else if (s._field === 'quantity' && s.quantity > 0) { prev.quantity = s.quantity; appliedField = t('f_quantity') }
+      else if (s._field === 'notes' && s.notes) { prev.notes = form.notes ? `${form.notes}\n${s.notes}` : s.notes; appliedField = t('f_notes') }
+      else if (s._field === 'location' && s.location) {
+        const parts = String(s.location).split(/\s*>\s*/).filter(Boolean)
+        prev.room = parts[0] || ''
+        prev.position = parts[parts.length - 1] || ''
+        prev.location = s.location
+        appliedField = t('f_location')
+        const match = locations.find((l) => {
+          const lp = locationParts(locations, l.id)
+          return lp.location === s.location
+        })
+        if (match) prev._locId = match.id
+      }
+    } else {
+      // 一键应用：合并全部字段
+      if (s.name) prev.name = s.name
+      if (s.category) prev.category = s.category
+      if (s.quantity > 0) prev.quantity = s.quantity
+      if (s.note) prev.notes = form.notes ? `${form.notes}\n${s.note}` : s.note
+      if (s.location) {
+        const parts = String(s.location).split(/\s*>\s*/).filter(Boolean)
+        prev.room = parts[0] || ''
+        prev.position = parts[parts.length - 1] || ''
+        prev.location = s.location
+        const match = locations.find((l) => {
+          const lp = locationParts(locations, l.id)
+          return lp.location === s.location
+        })
+        if (match) prev._locId = match.id
+      }
+      appliedField = t('ai_recognize_all')
     }
-    if (s.location) {
-      const parts = String(s.location).split(/\s*>\s*/).filter(Boolean)
-      next.room = parts[0] || ''
-      next.position = parts[parts.length - 1] || ''
-      next.location = s.location
-      // 尝试匹配已有位置
-      const match = locations.find((l) => {
-        const lp = locationParts(locations, l.id)
-        return lp.location === s.location
-      })
-      if (match) next._locId = match.id
+    setForm(prev)
+    if (appliedField) {
+      setAiApplied(appliedField)
+      setTimeout(() => setAiApplied(null), 1800)
     }
-    setForm((f) => ({ ...f, ...next }))
-    setAiState({ status: 'idle', suggestions: [], error: '' })
   }
 
   const pickLocation = (id) => {
@@ -433,18 +516,18 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.2, ease: EASE }}
-      className="fixed inset-0 z-[65] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm"
+      transition={{ duration: 0.25, ease: EASE }}
+      className="fixed inset-0 z-[65] bg-black/55 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        initial={{ opacity: 0, scale: 0.95, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 6 }}
-        transition={{ duration: 0.32, ease: EASE_SPRING }}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-surface shadow-float"
+        initial={{ opacity: 0, y: 40, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.98 }}
+        transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+        className="absolute inset-0 overflow-y-auto bg-surface"
       >
         {/* 头部 */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface/95 px-5 py-3.5 backdrop-blur">
@@ -461,7 +544,12 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
           </motion.button>
         </div>
 
-        <div className="p-5">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.1, ease: EASE }}
+          className="p-5"
+        >
           <div className="grid grid-cols-2 gap-3.5">
               <Field label={t('f_name')} required error={errors.name} className="col-span-2" dataField="name">
                 <input type="text" data-field="name" value={form.name} onChange={(e) => { set('name', e.target.value); if (errors.name) setErrors((p) => ({...p, name: ''})) }} onBlur={() => validateField('name')} className="input" autoFocus />
@@ -588,8 +676,9 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                         placeholder={t('f_photo_dragHint')}
                         className="input h-8 py-1 text-xs"
                       />
-                      {photoHint && photoHint.match(/压缩中…) (\d+)\/(\d+)/) && (() => {
-                        const m = photoHint.match(/(\d+)\/(\d+)/)
+                      {(() => {
+                        // 批量拖拽：从 photoHint 正则提取进度
+                        const m = photoHint.match(/压缩中…\s*(\d+)\/(\d+)/)
                         if (m) {
                           const pct = Math.round(parseInt(m[1]) / parseInt(m[2]) * 100)
                           return (
@@ -600,7 +689,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                               className="mt-1 space-y-0.5"
                             >
                               <div className="flex items-center justify-between">
-                                <span className="text-[11px] text-text-tertiary">压缩中…</span>
+                                <span className="text-[11px] text-text-tertiary">{t('photo_compressing')}</span>
                                 <span className="text-[11px] font-medium text-primary tabular-nums">{pct}%</span>
                               </div>
                               <div className="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -608,6 +697,30 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                                   className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70"
                                   initial={{ width: 0 }}
                                   animate={{ width: `${pct}%` }}
+                                  transition={{ duration: 0.3, ease: EASE }}
+                                />
+                              </div>
+                            </motion.div>
+                          )
+                        }
+                        // 单张上传：使用 singleProgress 状态
+                        if (singleProgress > 0) {
+                          return (
+                            <motion.div
+                              key={`sp-${singleProgress}`}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className="mt-1 space-y-0.5"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] text-text-tertiary">{t('photo_compressing')}</span>
+                                <span className="text-[11px] font-medium text-primary tabular-nums">{singleProgress}%</span>
+                              </div>
+                              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                                <motion.div
+                                  className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70"
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${singleProgress}%` }}
                                   transition={{ duration: 0.3, ease: EASE }}
                                 />
                               </div>
@@ -746,7 +859,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                 <p className="mt-2 text-[11px] text-text-tertiary">{t('ai_coming')}</p>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* AI 识别建议弹窗 */}
           <AnimatePresence>
@@ -762,8 +875,35 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
             )}
           </AnimatePresence>
 
+          {/* AI 应用成功反馈 */}
+          <AnimatePresence>
+            {aiApplied && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+                className="sticky top-0 z-20 flex justify-center pt-2"
+              >
+                <motion.div
+                  className="flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground shadow-md"
+                  initial={{ scale: 0.9 }}
+                  animate={{ scale: 1 }}
+                >
+                  <Check size={12} />
+                  {t('ai_recognize_applied', { field: aiApplied })}
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* 底部操作 */}
-          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface/95 px-5 py-3 backdrop-blur">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+            className="sticky bottom-0 flex justify-end gap-2 border-t border-border bg-surface/95 px-5 py-3 backdrop-blur"
+          >
             <motion.button
               type="button"
               whileTap={{ scale: 0.97 }}
@@ -779,7 +919,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
             >
               {t('btn_save')}
             </motion.button>
-          </div>
+          </motion.div>
         </motion.form>
       </motion.div>
   )

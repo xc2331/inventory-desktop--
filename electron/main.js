@@ -153,6 +153,201 @@ function backupDatabase() {
   }
 }
 
+// 备份目录：<dataDir>/backups/
+function resolveBackupDir() {
+  return path.join(resolveDataDir(), 'backups')
+}
+
+// 查找备份目录下最新的 *.bak 文件（按 mtime 排序）
+function findLatestBackup() {
+  const dir = resolveBackupDir()
+  if (!fs.existsSync(dir)) return null
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.bak'))
+  if (files.length === 0) return null
+  try {
+    let best = null
+    for (const f of files) {
+      const fullPath = path.join(dir, f)
+      const st = fs.statSync(fullPath)
+      if (!best || st.mtimeMs > best.mtimeMs) best = { file: fullPath, mtimeMs: st.mtimeMs }
+    }
+    return best?.file || null
+  } catch (e) {
+    console.error('[backup] 查找最新备份失败:', e)
+    return null
+  }
+}
+
+// 判断错误是否为"数据库损坏"信号
+function isCorruptError(err) {
+  if (!err || !err.message) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('corrupt') ||
+    msg.includes('unable to open') ||
+    msg.includes('database disk image') ||
+    msg.includes('malformed')
+}
+
+// 数据库损坏恢复链：备份原文件 → 找最新 .bak → 有则恢复，无则空库重建
+function recoverFromCorrupt(error, mainWindow) {
+  const dbPath = resolveDbPath()
+  const corruptedPath = dbPath + '.corrupted.' + Date.now()
+  console.error('[db-recovery] 数据库损坏，尝试恢复。错误:', error?.message)
+
+  // 1. 备份损坏文件
+  try {
+    if (fs.existsSync(dbPath)) {
+      fs.copyFileSync(dbPath, corruptedPath)
+      console.log(`[db-recovery] 损坏文件已备份到: ${corruptedPath}`)
+    }
+  } catch (e) {
+    console.error('[db-recovery] 备份损坏文件失败:', e)
+  }
+
+  // 2. 查找最新备份
+  const latest = findLatestBackup()
+  let recoveredFrom = null
+
+  if (latest) {
+    try {
+      // 清除原文件及相关 WAL/SHM，用备份替换
+      for (const suffix of ['', '-wal', '-shm']) {
+        const p = dbPath + suffix
+        if (fs.existsSync(p)) fs.unlinkSync(p)
+      }
+      fs.copyFileSync(latest, dbPath)
+      recoveredFrom = latest
+      console.log(`[db-recovery] 已从备份恢复: ${latest}`)
+    } catch (e) {
+      console.error('[db-recovery] 从备份恢复失败:', e)
+    }
+  } else {
+    console.log('[db-recovery] 未找到可用备份，将创建空数据库')
+  }
+
+  // 3. 重新初始化数据库（建表/索引/种子）
+  initDatabase(mainWindow, { recoveredFrom, corruptedPath })
+}
+
+// 初始化数据库：建表、索引、种子数据
+// opts.recoveredFrom / opts.corruptedPath 用于通知前端恢复来源
+function initDatabase(mainWindow, opts) {
+  const doInit = () => {
+    backupDatabase()
+    db = new Database(resolveDbPath())
+    db.pragma('journal_mode = WAL')
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS items (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        item_no TEXT DEFAULT '',
+        room TEXT DEFAULT '',
+        position TEXT DEFAULT '',
+        location TEXT DEFAULT '',
+        quantity INTEGER NOT NULL DEFAULT 0,
+        min_quantity INTEGER NOT NULL DEFAULT 0,
+        photo TEXT DEFAULT '',
+        category TEXT DEFAULT '',
+        expiry_date INTEGER DEFAULT 0,
+        notes TEXT DEFAULT '',
+        consume_rate REAL DEFAULT 0,
+        consume_unit TEXT DEFAULT 'day',
+        consume_start_at INTEGER DEFAULT 0,
+        photo_meta TEXT DEFAULT '',
+        created_at INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_items_name ON items(name);
+      CREATE INDEX IF NOT EXISTS idx_items_category ON items(category);
+
+      CREATE TABLE IF NOT EXISTS materials (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL DEFAULT 'note',
+        title TEXT NOT NULL DEFAULT '',
+        content TEXT DEFAULT '',
+        url TEXT DEFAULT '',
+        tags TEXT DEFAULT '',
+        photo TEXT DEFAULT '',
+        meta TEXT DEFAULT '',
+        created_at INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_materials_type ON materials(type);
+      CREATE INDEX IF NOT EXISTS idx_materials_title ON materials(title);
+
+      CREATE TABLE IF NOT EXISTS categories (
+        id TEXT PRIMARY KEY,
+        key TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL DEFAULT '',
+        name_en TEXT DEFAULT '',
+        icon TEXT DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_categories_key ON categories(key);
+
+      CREATE TABLE IF NOT EXISTS locations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        parent_id TEXT DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
+      CREATE INDEX IF NOT EXISTS idx_items_room ON items(room);
+      CREATE INDEX IF NOT EXISTS idx_items_position ON items(position);
+      CREATE INDEX IF NOT EXISTS idx_items_expiry_date ON items(expiry_date);
+      CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at);
+    `)
+
+    ensureItemColumns(db)
+    migrateIndexes(db)
+
+    const catCount = db.prepare('SELECT COUNT(*) c FROM categories').get().c
+    if (catCount === 0) {
+      const now = Date.now()
+      const ins = db.prepare(
+        'INSERT INTO categories (id,key,name,name_en,icon,sort_order,created_at,updated_at) VALUES (@id,@key,@name,@name_en,@icon,@sort_order,@created_at,@updated_at)'
+      )
+      DEFAULT_CATEGORIES.forEach((c, i) =>
+        ins.run({
+          id: crypto.randomUUID(),
+          key: c.key,
+          name: c.name,
+          name_en: c.name_en,
+          icon: c.icon,
+          sort_order: i,
+          created_at: now,
+          updated_at: now
+        })
+      )
+    }
+
+    // 如果来自恢复流程，通知前端
+    if (opts && mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('main:dbRecovered', {
+        recoveredFrom: opts.recoveredFrom || null,
+        corruptedPath: opts.corruptedPath || null,
+        emptyRecovery: !opts.recoveredFrom
+      })
+    }
+  }
+
+  // 首次打开：捕获损坏错误 → 触发恢复链
+  try {
+    doInit()
+  } catch (err) {
+    if (!opts && isCorruptError(err)) {
+      recoverFromCorrupt(err, mainWindow)
+    } else {
+      throw err
+    }
+  }
+}
+
 // 默认分类（key 与手机端一致，如 electronic）
 const DEFAULT_CATEGORIES = [
   { key: 'electronic', name: '电子产品', name_en: 'Electronics', icon: '🔌' },
@@ -1252,6 +1447,22 @@ ipcMain.handle('photo:save', async (_event, { base64, filename }) => {
   }
 })
 
+// 从绝对文件路径直接复制/移动图片到 photos 目录（避免大 base64 截断）
+ipcMain.handle('photo:saveFile', async (_event, { filePath, extension }) => {
+  if (!filePath || typeof filePath !== 'string') return { ok: false, error: 'invalid path' }
+  try {
+    const dir = path.join(resolveDataDir(), 'photos')
+    fs.mkdirSync(dir, { recursive: true })
+    const ext = extension && /^\.[a-zA-Z0-9]+$/.test(extension) ? extension : path.extname(filePath) || '.webp'
+    const sanitized = crypto.randomUUID() + ext
+    const target = safePath(sanitized, dir)
+    fs.copyFileSync(filePath, target)
+    return { ok: true, relPath: 'photos/' + sanitized }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+})
+
 ipcMain.handle('photo:delete', async (_event, relPath) => {
   if (!relPath || typeof relPath !== 'string') return { ok: false, error: 'invalid path' }
   let filePath
@@ -1265,12 +1476,16 @@ ipcMain.handle('photo:delete', async (_event, relPath) => {
   }
 })
 
-ipcMain.handle('photo:url', (_event, relPath) => {
+// 将相对路径转为 file:// 绝对 URL（供 <img src> 直接引用）
+ipcMain.handle('photo:url', async (_event, relPath) => {
   if (!relPath || typeof relPath !== 'string') return ''
-  let filePath
-  try { filePath = safePath(relPath, resolveDataDir()) }
-  catch (e) { return '' }
-  return 'file://' + filePath.replace(/\\/g, '/')
+  try {
+    const filePath = safePath(relPath, resolveDataDir())
+    if (!fs.existsSync(filePath)) return ''
+    return `file:///${filePath.replace(/\\/g, '/')}`
+  } catch (e) {
+    return ''
+  }
 })
 
 // ===== IPC：JSON 导出/导入，CSV 导出 =====
@@ -1514,12 +1729,13 @@ ipcMain.handle('file:open', async (_event, { filters }) => {
 
 // ===== 应用生命周期 =====
 app.whenReady().then(() => {
-  initDatabase()
+  // createWindow() 在 initDatabase 之后调用，因为 initDatabase 需要 mainWindow 来通知恢复
+  createWindow()
+  initDatabase(mainWindow)
   migrateCategoryKeys()
   deduplicateCategories()
   const settings = readAppSettings()
   buildMenu(settings.language || 'zh')
-  createWindow()
   createTray()
 
   // 启动外部 Agent HTTP API（本地回环，带 Token 鉴权）

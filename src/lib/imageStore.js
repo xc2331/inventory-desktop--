@@ -25,6 +25,13 @@ export async function savePhoto(base64, filename) {
   throw new Error(result?.error || '照片保存失败')
 }
 
+// 直接从文件路径复制到 dataDir/photos/，避免大 base64 截断
+export async function savePhotoFromPath(filePath, extension) {
+  const result = await api.photo.saveFile(filePath, extension)
+  if (result && result.ok) return result.relPath
+  throw new Error(result?.error || '照片保存失败')
+}
+
 export async function readPhoto(relPath) {
   const result = await api.photo.read(relPath)
   if (result && result.ok) return result.data
