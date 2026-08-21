@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.6.0",
+    "date": "2026-08-21",
+    "type": "release",
+    "summary": "满9进1版本汇总：图片不显示全链路修复 + README changelog 排序 + todo-list 清理",
+    "features": [
+      "满9进1：v1.5.9 后升级为 v1.6.0",
+      "README changelog 排序修复：按 v1.6→v1.5→v1.4→v1.3→v1.2 倒序排列",
+      "v1.4.x 版本条目展开：UX-11 过期预警列表、UX-12 统计图表动效、UX-17 上传进度、UX-16 抽屉动画撤回、UX-15 斑马纹、UX-13~14 侧栏优化",
+      "todo-list.md 版本信息更新"
+    ]
+  },
+  {
     "version": "1.5.9",
     "date": "2026-08-21",
     "type": "bugfix",
