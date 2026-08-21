@@ -69,7 +69,11 @@ export default function ItemCard({
     if (/^(data:|https?:|file:)/i.test(item.photo)) return
     let cancelled = false
     readPhoto(item.photo).then((data) => {
-      if (!cancelled) setFallbackUrl(data)
+      if (!cancelled) {
+        setFallbackUrl(data)
+        // 关键修复：fallbackUrl 就绪后清除 imgErr，否则 hasPhoto = displayUrl && !imgErr 仍为 false，<img> 不渲染
+        setImgErr(false)
+      }
     }).catch(() => {})
     return () => { cancelled = true }
   }, [imgErr, item.photo])

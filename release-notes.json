@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.5.9",
+    "date": "2026-08-21",
+    "type": "bugfix",
+    "summary": "深度修复 QR 扫码上传图片不显示：ItemCard 兜底逻辑 + photo:read MIME 类型",
+    "features": [
+      "修复 ItemCard 中 readPhoto 兜底成功后 imgErr 未清除的问题，导致 hasPhoto = false 而 <img> 不渲染",
+      "修复 photo:read IPC 硬编码 image/png 的问题，改为按文件扩展名自动匹配 MIME 类型（.webp/.png/.jpg/.jpeg/.gif/.svg/.bmp）",
+      "新增诊断脚本 scripts/diagnose-qr-photo.js，用户可通过 DevTools Console 自助排查图片链路问题"
+    ]
+  },
+  {
     "version": "1.5.8",
     "date": "2026-08-21",
     "type": "bugfix",

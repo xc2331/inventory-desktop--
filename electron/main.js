@@ -1426,7 +1426,19 @@ ipcMain.handle('photo:read', async (_event, relPath) => {
   catch (e) { return { ok: false, error: e.message } }
   try {
     const data = fs.readFileSync(filePath)
-    return { ok: true, data: 'data:image/png;base64,' + data.toString('base64') }
+    // 根据文件扩展名返回正确的 MIME 类型，避免浏览器因类型不匹配拒绝渲染
+    const ext = path.extname(filePath).toLowerCase()
+    const mimeMap = {
+      '.webp': 'image/webp',
+      '.png':  'image/png',
+      '.jpg':  'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif':  'image/gif',
+      '.svg':  'image/svg+xml',
+      '.bmp':  'image/bmp'
+    }
+    const mime = mimeMap[ext] || 'image/png'
+    return { ok: true, data: `data:${mime};base64,` + data.toString('base64') }
   } catch (e) {
     return { ok: false, error: e.message }
   }
