@@ -19,6 +19,7 @@
 - [x] 批量编辑弹窗方向错误：分类/数量选项菜单使用 `bottom-full` 向上展开，被屏幕顶部遮挡；改为 `top-full` 向下展开（v1.6.1）
 - [x] 批量编辑弹窗层级错误：分类/数量弹窗使用 `absolute` 定位，被 BulkEditBar 所在 `overflow-y-auto` 容器裁剪，被主页面物体遮挡；改为 `createPortal` 渲染到 `document.body` + `position:fixed` + `zIndex:9999`，`useLayoutEffect` 通过 `getBoundingClientRect` 精确定位按钮下方（v1.6.2）
 - [x] 批量编辑弹窗点击无显示：`useLayoutEffect` 中 `visible` 状态竞态导致 `createPortal` 首次点击时返回 `null`，移除 `visible` 标志直接以 `showCat/showQty` 控制 portal 挂载，CSS transition 做显隐动画（v1.6.3）
+- [x] 批量编辑数量弹窗右侧截断：固定宽度 288px 不检测视口右边界，改为 `getBoundingClientRect` 计算后与 `window.innerWidth` 比较，超出时自动右对齐并左移，两个弹窗均统一处理（v1.6.4）
 
 ## P1 — UX 体验（按顺序）
 
@@ -80,6 +81,7 @@
 15. **P0** 批量编辑弹窗层级错误：`absolute` 弹窗被父容器 `overflow` 裁剪，改为 `createPortal` 到 `document.body` + `fixed` + `zIndex:9999`，`useLayoutEffect` 精确计算按钮位置（v1.6.2）
 16. **P3** 更新日志自动生成脚本：`scripts/generate-release-notes.js`，支持 git tag 范围查询 + commit type 分类输出
 17. **P0** 批量编辑弹窗点击无显示：`useLayoutEffect` 中 `visible` 状态竞态导致 `createPortal` 首次点击返回 `null`，移除 `visible` 标志直接以 `showCat/showQty` 控制 portal 挂载 + CSS transition 动画（v1.6.3）
+18. **P0** 批量编辑数量弹窗右侧截断：固定 288px 未检测视口右边界，增加 `window.innerWidth` 比较，超出时自动右对齐（v1.6.4）
 
 ### v1.4.x 批次
 
@@ -97,5 +99,5 @@
 ### 版本策略说明
 
 - 「满9进1」：1.3.0~1.3.9 后 → 1.4.0；1.4.0~1.4.9 后 → 1.5.0；1.5.0~1.5.9 后 → 1.6.0
-- 当前版本：**1.6.2**（构建完成，exe 74.8MB 已复制到项目根目录）
+- 当前版本：**1.6.4**（构建完成，exe 74.8MB 已复制到项目根目录）
 - 构建输出目录：`release-v19-v169`

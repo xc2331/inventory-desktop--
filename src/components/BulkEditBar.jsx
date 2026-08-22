@@ -31,19 +31,29 @@ export default function BulkEditBar({
   const catBtnRef = useRef(null)
   const qtyBtnRef = useRef(null)
 
-  const [catPos, setCatPos] = useState({ x: 0, y: 0, width: 192 })
-  const [qtyPos, setQtyPos] = useState({ x: 0, y: 0, width: 288 })
+  const [catPos, setCatPos] = useState({ x: 0, y: 0, width: 192, align: 'left' })
+  const [qtyPos, setQtyPos] = useState({ x: 0, y: 0, width: 288, align: 'left' })
 
   useLayoutEffect(() => {
     if (!showCat) return
     const r = catBtnRef.current?.getBoundingClientRect?.()
-    if (r) setCatPos({ x: r.left, y: r.top + r.height, width: Math.max(r.width, 192) })
+    if (r) {
+      const w = Math.max(r.width, 192)
+      const vw = window.innerWidth
+      const x = r.left + w > vw ? vw - w - 8 : r.left
+      setCatPos({ x, y: r.top + r.height, width: w, align: x !== r.left ? 'right' : 'left' })
+    }
   }, [showCat])
 
   useLayoutEffect(() => {
     if (!showQty) return
     const r = qtyBtnRef.current?.getBoundingClientRect?.()
-    if (r) setQtyPos({ x: r.left, y: r.top + r.height, width: 288 })
+    if (r) {
+      const w = 288
+      const vw = window.innerWidth
+      const x = r.left + w > vw ? vw - w - 8 : r.left
+      setQtyPos({ x, y: r.top + r.height, width: w, align: x !== r.left ? 'right' : 'left' })
+    }
   }, [showQty])
 
   const handleQtySubmit = () => {

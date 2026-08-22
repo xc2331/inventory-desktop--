@@ -1,9 +1,9 @@
 {
-  "version": "1.6.2",
-  "releaseDate": "2026-08-22T02:33:22.009Z",
-  "downloadUrl": "https://github.com/xc2331/inventory-desktop--/releases/download/v1.6.2/Family%20Inventory%201.6.2.exe",
-  "filename": "Family Inventory 1.6.2.exe",
-  "size": 78412161,
-  "sha512": "32fba51e1ecfba94ae731433da764b90ecf5e12e0899fdbed97d82cc317ebb87444ceda8fad63bc0f25903a103e0160ee568083ba4a086b512d4c072b2a2b4fc",
+  "version": "1.6.4",
+  "releaseDate": "2026-08-22T03:58:26.579Z",
+  "downloadUrl": "https://github.com/xc2331/inventory-desktop--/releases/download/v1.6.4/Family%20Inventory%201.6.4.exe",
+  "filename": "Family Inventory 1.6.4.exe",
+  "size": 78414801,
+  "sha512": "9c464f9304e30c661f7443f831607a9017adca7bfad531abf762b9ca406905e8e59a8aebf6662995234b82a8bd8ba4b3fb4c8545d1c903b4a63ff1b571ad2d38",
   "releaseNotes": "1.6.1 更新内容：ItemCard 双击预览传递 displayUrl 而非 photoUrl，确保 lightbox 能正确显示 QR 上传的图片；批量编辑分类/数量选项菜单从 bottom-full 改为 top-full 向下展开，不再被屏幕顶部遮挡；todo-list P2 敏感字段条目清理：AI 配置已存入 SQLite，字段级 AES 加密延后到 P3"
 }

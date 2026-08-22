@@ -314,6 +314,9 @@ inventory-desktop/
 
 ## 最近更新
 
+- **v1.6.4**：批量编辑数量弹窗视口边界检测，超出右边界时自动右对齐，分类/数量弹窗统一处理
+- **v1.6.3**：批量编辑弹窗点击无显示修复（createPortal 竞态消除 + CSS transition 动画）
+- **v1.6.2**：批量编辑分类/数量弹窗层级修复（createPortal 渲染到 document.body + fixed + zIndex:9999）
 - **v1.6.1**：修复双击 QR 图片预览异常（ItemCard 传递 displayUrl 而非 photoUrl）；批量编辑分类/数量弹窗方向修正（bottom-full→top-full 向下展开）
 - **v1.6.0**：满9进1版本汇总；README changelog 排序修复；todo-list 清理
 - **v1.5.9**：深度修复 QR 扫码图片不显示（ItemCard readPhoto 兜底后清除 imgErr；photo:read 自动匹配 MIME 类型）；新增诊断脚本
