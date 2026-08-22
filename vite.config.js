@@ -37,6 +37,10 @@ export default defineConfig({
     setupFiles: './tests/setup.js',
     globals: true,
     include: ['src/**/*.test.{js,jsx,ts,tsx}', 'tests/**/*.test.{js,jsx,ts,tsx}'],
-    testTimeout: 10000
+    testTimeout: 10000,
+    alias: {
+      src: resolve(__dirname, 'src'),
+      '~': resolve(__dirname, 'src')
+    }
   }
 })

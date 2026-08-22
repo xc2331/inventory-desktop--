@@ -1,5 +1,19 @@
 [
   {
+    "version": "1.6.5",
+    "date": "2026-08-22",
+    "type": "feature",
+    "summary": "测试基础设施完善：Vitest 单元测试全部通过，新增错误处理与 API CRUD 测试",
+    "features": [
+      "统一 Vitest 配置到 vite.config.js，jsdom 测试环境 + 全局 beforeEach 支持",
+      "新增 src/alias 解析（src/ 和 ~ 双别名），测试文件可直引源码",
+      "新增 errorHandler 单元测试（12 用例）：safe/withError 成功、失败、fallback、onError 回调全覆盖",
+      "已有 8 个测试文件共 50 个用例全部通过（core/db、core/store、core/theme、lib/api、lib/errorHandler）",
+      "新增 tests/setup.js 提供 window.lingguang / localStorage / IntersectionObserver / ResizeObserver 模拟",
+      "新增 npm 脚本 test (vitest run) 和 test:watch (vitest)"
+    ]
+  },
+  {
     "version": "1.6.4",
     "date": "2026-08-21",
     "type": "bugfix",

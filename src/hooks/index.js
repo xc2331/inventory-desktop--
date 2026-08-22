@@ -573,14 +573,13 @@ export function useItems(deps) {
         if (showToast) showToast(t ? t('toast_bulkQtyUpdated', { n: 0 }) : 'No quantity changes')
         return
       }
-        // Use batch IPC: single transaction
-        if (op === 'set') {
-          await window.lingguang.items.batchUpdate('quantity', value, ids)
-        } else if (op === '+') {
-          await window.lingguang.items.batchChangeQty(ids, 'add', value)
-        } else if (op === '-') {
-          await window.lingguang.items.batchChangeQty(ids, 'add', -value)
-        }
+      // Use batch IPC: single transaction
+      if (op === 'set') {
+        await window.lingguang.items.batchUpdate('quantity', value, ids)
+      } else if (op === '+') {
+        await window.lingguang.items.batchChangeQty(ids, 'add', value)
+      } else if (op === '-') {
+        await window.lingguang.items.batchChangeQty(ids, 'add', -value)
       }
       if (showToast) showToast(t ? t('toast_bulkQtyUpdated', { n: changed.length }) : `Updated qty for ${changed.length}`)
       setSelectedIds(new Set())
