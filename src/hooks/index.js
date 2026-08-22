@@ -559,21 +559,20 @@ export function useItems(deps) {
     if (ids.length === 0) return
     try {
       const changed = []
-      if (typeof window !== 'undefined' && window.lingguang && window.lingguang.api && window.lingguang.api.db) {
-        const rows = await window.lingguang.api.db.query({
-          sql: `SELECT id, name, quantity FROM items WHERE id IN (${ids.map(() => '?').join(',')})`,
-          binds: ids
-        })
-        for (const r of rows) {
-          const cur = Number(r.quantity) || 0
-          const next = op === '+' ? cur + value : op === '-' ? Math.max(0, cur - value) : value
-          if (cur === next) continue
-          changed.push({ name: r.name, from: cur, to: next })
-        }
-        if (changed.length === 0) {
-          if (showToast) showToast(t ? t('toast_bulkQtyUpdated', { n: 0 }) : 'No quantity changes')
-          return
-        }
+      const rows = await dbQuery(
+        `SELECT id, name, quantity FROM items WHERE id IN (${ids.map(() => '?').join(',')})`,
+        ids
+      )
+      for (const r of rows) {
+        const cur = Number(r.quantity) || 0
+        const next = op === '+' ? cur + value : op === '-' ? Math.max(0, cur - value) : value
+        if (cur === next) continue
+        changed.push({ name: r.name, from: cur, to: next })
+      }
+      if (changed.length === 0) {
+        if (showToast) showToast(t ? t('toast_bulkQtyUpdated', { n: 0 }) : 'No quantity changes')
+        return
+      }
         // Use batch IPC: single transaction
         if (op === 'set') {
           await window.lingguang.items.batchUpdate('quantity', value, ids)

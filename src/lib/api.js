@@ -1,4 +1,4 @@
-// 前端数据访问层：封装 window.lingguang preload API
+﻿// 前端数据访问层：封装 window.lingguang preload API
 // 延迟取值：模块加载时 preload 可能尚未注入，用递归 Proxy 包装，
 // 实际调用时才读取 window.lingguang，避免顶层引用导致白屏崩溃
 function buildProxy(basePath) {
@@ -19,6 +19,9 @@ function buildProxy(basePath) {
 
 const api = buildProxy([])
 
+// SQL 统一单入口（P3-3）：所有 SELECT/INSERT/UPDATE/DELETE 走 core/db/query.js
+import { query as dbQuery, execute as dbExecute } from '../core/db/query.js'
+
 // Memoized regex used by normalizeCategoryKey to convert whitespace
 // sequences to underscores without re-compiling on every call.
 const CATEGORY_KEY_RE = /[\s\u00A0]+/g
@@ -29,34 +32,29 @@ export function uid() {
 
 // ===== 物品 =====
 export function fetchAllItems() {
-  return api.db.query({ sql: 'SELECT * FROM items ORDER BY updated_at DESC' })
+  return dbQuery('SELECT * FROM items ORDER BY updated_at DESC')
 }
 
 export function searchItems(keyword) {
   const like = `%${keyword}%`
-  return api.db.query({
-    sql: `SELECT * FROM items
+  return dbQuery(`SELECT * FROM items
           WHERE name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?
           ORDER BY updated_at DESC`,
-    binds: [like, like, like, like, like]
-  })
+    [like, like, like, like, like]
+  )
 }
 
 export function fetchByCategory(category) {
-  return api.db.query({
-    sql: 'SELECT * FROM items WHERE category = ? ORDER BY updated_at DESC',
-    binds: [category]
-  })
+  return dbQuery('SELECT * FROM items WHERE category = ? ORDER BY updated_at DESC', [category])
 }
 
 export function fetchByCategoryAndKeyword(category, keyword) {
   const like = `%${keyword}%`
-  return api.db.query({
-    sql: `SELECT * FROM items
+  return dbQuery(`SELECT * FROM items
           WHERE category = ? AND (name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?)
           ORDER BY updated_at DESC`,
-    binds: [category, like, like, like, like, like]
-  })
+    [category, like, like, like, like, like]
+  )
 }
 
 // Pagination helpers (P-02): fetch a slice of items and total count
@@ -83,7 +81,7 @@ export function fetchItemsPaged(offset, limit, opts = {}) {
   }
   sql += ' ORDER BY updated_at DESC LIMIT ? OFFSET ?'
   binds.push(limit, offset)
-  return api.db.query({ sql, binds })
+  return dbQuery(sql, binds)
 }
 
 export function fetchItemsTotal(opts = {}) {
@@ -102,13 +100,11 @@ export function fetchItemsTotal(opts = {}) {
     sql += ' WHERE name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?'
     binds.push(like, like, like, like, like)
   }
-  return api.db.query({ sql, binds })
+  return dbQuery(sql, binds)
 }
 
 export function fetchCategoryCounts() {
-  return api.db.query({
-    sql: 'SELECT category, COUNT(*) as count FROM items GROUP BY category'
-  })
+  return dbQuery('SELECT category, COUNT(*) as count FROM items GROUP BY category')
 }
 
 // ===== 统计页数据（P-03：聚合逻辑已移至后端 sync:stats，仅转发）=====
@@ -139,14 +135,13 @@ export async function createItem(item) {
     created_at: item.created_at || now,
     updated_at: now
   }
-  await api.db.execute({
-    sql: `INSERT INTO items
+  await dbExecute(`INSERT INTO items
       (id, name, item_no, room, position, location, quantity, min_quantity, photo, category, expiry_date,
        notes, consume_rate, consume_unit, consume_start_at, photo_meta, created_at, updated_at)
       VALUES (@id, @name, @item_no, @room, @position, @location, @quantity, @min_quantity, @photo, @category, @expiry_date,
               @notes, @consume_rate, @consume_unit, @consume_start_at, @photo_meta, @created_at, @updated_at)`,
-    binds: row
-  })
+    row
+  )
   // 自动把新物品的分类/位置同步到分类表和位置树
   await Promise.all([api.sync.rebuildCategories(), api.sync.rebuildLocations()])
   return row
@@ -154,7 +149,7 @@ export async function createItem(item) {
 
 export async function updateItem(id, patch) {
   const now = Date.now()
-  const rows = await api.db.query({ sql: 'SELECT * FROM items WHERE id = ?', binds: [id] })
+  const rows = await dbQuery('SELECT * FROM items WHERE id = ?', [id])
   const cur = rows[0]
   if (!cur) return null
   const categories = await fetchCategories()
@@ -172,47 +167,41 @@ export async function updateItem(id, patch) {
     photo_meta: patch.photo_meta !== undefined ? patch.photo_meta : cur.photo_meta,
     updated_at: now
   }
-  await api.db.execute({
-    sql: `UPDATE items SET
+  await dbExecute(`UPDATE items SET
       name=@name, item_no=@item_no, room=@room, position=@position, location=@location,
       quantity=@quantity, min_quantity=@min_quantity, photo=@photo, category=@category,
       expiry_date=@expiry_date, notes=@notes, consume_rate=@consume_rate, consume_unit=@consume_unit,
       consume_start_at=@consume_start_at, photo_meta=@photo_meta, updated_at=@updated_at WHERE id=@id`,
-    binds: next
-  })
+    next
+  )
   // 自动把更新后的分类/位置同步到分类表和位置树
   await Promise.all([api.sync.rebuildCategories(), api.sync.rebuildLocations()])
   return next
 }
 
 export async function adjustQuantity(id, delta) {
-  await api.db.execute({
-    sql: 'UPDATE items SET quantity = quantity + ?, updated_at = ? WHERE id = ?',
-    binds: [delta, Date.now(), id]
-  })
+  await dbExecute('UPDATE items SET quantity = quantity + ?, updated_at = ? WHERE id = ?',
+    [delta, Date.now(), id]
+  )
 }
 
 export async function deleteItem(id) {
-  await api.db.execute({ sql: 'DELETE FROM items WHERE id = ?', binds: [id] })
+  await dbExecute('DELETE FROM items WHERE id = ?', [id])
 }
 
 export async function bulkDeleteItems(ids) {
   if (!ids || ids.length === 0) return { deleted: 0 }
   const ph = ids.map(() => '?').join(',')
-  const res = await api.db.execute({
-    sql: `DELETE FROM items WHERE id IN (${ph})`,
-    binds: ids
-  })
+  const res = await dbExecute(`DELETE FROM items WHERE id IN (${ph})`, ids)
   return { deleted: res.changes || 0 }
 }
 
 export async function bulkUpdateCategory(ids, category) {
   if (!ids || ids.length === 0) return { updated: 0 }
   const ph = ids.map(() => '?').join(',')
-  const res = await api.db.execute({
-    sql: `UPDATE items SET category = ?, updated_at = ? WHERE id IN (${ph})`,
-    binds: [category, Date.now(), ...ids]
-  })
+  const res = await dbExecute(`UPDATE items SET category = ?, updated_at = ? WHERE id IN (${ph})`,
+    [category, Date.now(), ...ids]
+  )
   return { updated: res.changes || 0 }
 }
 
@@ -220,10 +209,7 @@ export async function bulkUpdateCategory(ids, category) {
 export async function bulkPreview(ids, patch) {
   if (!ids || ids.length === 0) return []
   const ph = ids.map(() => '?').join(',')
-  const rows = await api.db.query({
-    sql: `SELECT id, name, quantity, unit, item_no, category, consume_rate, min_quantity FROM items WHERE id IN (${ph})`,
-    binds: ids
-  })
+  const rows = await dbQuery(`SELECT id, name, quantity, unit, item_no, category, consume_rate, min_quantity FROM items WHERE id IN (${ph})`, ids)
   const changed = []
   for (const r of rows) {
     const before = {}
@@ -389,9 +375,7 @@ export function locationParts(list, id) {
 
 // 每个位置下的物品计数（按 position 统计，旧逻辑保留给位置管理页）
 export function fetchLocationItemCounts() {
-  return api.db.query({
-    sql: "SELECT position as name, COUNT(*) as count FROM items WHERE position != '' GROUP BY position"
-  })
+  return dbQuery("SELECT position as name, COUNT(*) as count FROM items WHERE position != '' GROUP BY position")
 }
 
 // 把物品的 location/room/position 解析为统一路径数组

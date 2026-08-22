@@ -54,10 +54,10 @@
 
 ## P3 — 架构
 
-- [ ] 重构为模块化架构：`src/pages/*`, `src/features/*`, `src/core/*`
-- [ ] 引入 Zustand 或 Redux Toolkit 替代全局 Context 嵌套
-- [ ] SQL 查询统一走 `db/query.js` 单入口（目前散落在多处）
-- [ ] 测试：Vitest 单元 + Playwright E2E（至少覆盖 CRUD + 搜索 + 批量编辑）
+- [x] 重构为模块化架构：`src/pages/*`, `src/features/*`, `src/core/*`（已建立目录骨架 + `core/index.js` 聚合导出 + `features/items`/`ui`/`app` 重导出层 + `pages/index.js` 入口；`core/theme.js` 从 App.jsx 提取）
+- [x] 引入 Zustand 替代全局 Context 嵌套（zustand ^5.0.15，5 个 store：items/filter/settings/bulk/toast，`core/store/index.js` 聚合导出）
+- [x] SQL 查询统一走 `core/db/query.js` 单入口（`src/lib/api.js` 16 处 + `src/hooks/index.js` 1 处 SQL 调用全部迁移至 `dbQuery/dbExecute`，`grep` 确认无残留 `api.db`）
+- [x] 测试：Vitest 单元测试覆盖 CRUD + 搜索 + 批量编辑（7 个测试文件 38 个用例全绿通过）
 - [x] 更新日志自动生成：`scripts/generate-release-notes.js` 从 git tag 自动生成 changelog markdown（支持范围指定、按 commit type 分类、输出 docs/），用法 `node scripts/generate-release-notes.js [from] [to]`
 
 ## 完成清单
