@@ -1,5 +1,36 @@
 [
   {
+    "version": "1.6.4",
+    "date": "2026-08-21",
+    "type": "bugfix",
+    "summary": "批量编辑数量弹窗视口边界检测，超出右边界时自动右对齐",
+    "features": [
+      "批量编辑分类/数量弹窗增加窗口宽度检测：getBoundingClientRect 计算后与 window.innerWidth 比较，超出右边界时自动左移并右对齐",
+      "分类弹窗和数量弹窗统一使用同一视口边界检测逻辑"
+    ]
+  },
+  {
+    "version": "1.6.3",
+    "date": "2026-08-21",
+    "type": "bugfix",
+    "summary": "批量编辑弹窗点击无显示修复",
+    "features": [
+      "移除 useLayoutEffect 中 visible 状态竞态，createPortal 直接以 showCat/showQty 控制挂载",
+      "用 CSS transition 替代 AnimatePresence 做显隐动画，避免 portal 首次点击返回 null"
+    ]
+  },
+  {
+    "version": "1.6.2",
+    "date": "2026-08-21",
+    "type": "bugfix",
+    "summary": "批量编辑分类/数量弹窗层级修复",
+    "features": [
+      "分类/数量弹窗从 absolute 改为 createPortal 渲染到 document.body",
+      "position:fixed + zIndex:9999 确保不被父容器 overflow 裁剪或主页面遮挡",
+      "useLayoutEffect + getBoundingClientRect 精确定位按钮下方"
+    ]
+  },
+  {
     "version": "1.6.1",
     "date": "2026-08-21",
     "type": "bugfix",
