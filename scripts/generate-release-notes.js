@@ -45,8 +45,8 @@ function getLatestVersionTag() {
 }
 
 function getChangelogForVersionRange(from, to) {
-  const tagLine = `v${from}`
-  const toLine = to === 'HEAD' ? git('describe --tags --always') : `v${to}`
+  const tagLine = from.startsWith('v') ? from : `v${from}`
+  const toLine = to === 'HEAD' ? git('describe --tags --always') : (to.startsWith('v') ? to : `v${to}`)
   const commits = git(`log ${tagLine}..${toLine} --pretty=format:"%h|%an|%s" --no-merges`)
     .split('\n').filter(Boolean)
 
@@ -55,7 +55,12 @@ function getChangelogForVersionRange(from, to) {
   const typeRe = /^(feat|fix|docs|refactor|perf|ci|chore)(\([^)]*\))?!?:\s*/i
 
   commits.forEach(c => {
-    const [, hash, author, msg] = c.split('|')
+    const parts = c.split('|')
+    if (parts.length < 3) return
+    const hash = parts[0]
+    const author = parts[1]
+    const msg = parts.slice(2).join('|')
+    if (!msg) return
     const m = msg.match(typeRe)
     const type = m ? m[1].toLowerCase() : 'other'
     buckets[type].push({ hash, author, msg })
