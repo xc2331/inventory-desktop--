@@ -59,6 +59,8 @@
 - [x] SQL 查询统一走 `core/db/query.js` 单入口（`src/lib/api.js` 16 处 + `src/hooks/index.js` 1 处 SQL 调用全部迁移至 `dbQuery/dbExecute`，`grep` 确认无残留 `api.db`）
 - [x] 测试：Vitest 单元测试覆盖 CRUD + 搜索 + 批量编辑（7 个测试文件 38 个用例全绿通过）
 - [x] 更新日志自动生成：`scripts/generate-release-notes.js` 从 git tag 自动生成 changelog markdown（支持范围指定、按 commit type 分类、输出 docs/），用法 `node scripts/generate-release-notes.js [from] [to]`
+- [x] GitHub Release 发布工具：`C:\Users\4070\.trae-cn\tools\upload-release.ps1`，支持跨项目复用（`curl.exe` 上传，规避 PowerShell Invoke-RestMethod 二进制流 URI 解析问题）
+- [x] 全版本 exe 上传 GitHub Releases（v1.5.3 ~ v1.6.4 共 12 个版本全部就位）
 
 ## 完成清单
 
