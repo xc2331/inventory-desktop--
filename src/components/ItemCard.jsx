@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Pencil, Trash2, Minus, Plus, MapPin, AlertTriangle, CalendarClock, Check, Image as ImageIcon, ShieldAlert, GripVertical, Copy } from 'lucide-react'
@@ -80,10 +80,86 @@ export default function ItemCard({
 
   const canDrag = !bulkMode
 
+  // ---- 数量步进器长按连击 ----
+  // 按下 <300ms 松手 = 单击 ±1；按住 ≥300ms 开始每 120ms 重复一次。
+  // 卸载时清理定时器；pointerleave/pointercancel 视为松手。
+  const holdTimerRef = useRef(null)
+  const repeatTimerRef = useRef(null)
+  const holdFiredRef = useRef(false)
+
+  const stopStepperHold = useCallback(() => {
+    clearTimeout(holdTimerRef.current)
+    clearInterval(repeatTimerRef.current)
+    holdTimerRef.current = null
+    repeatTimerRef.current = null
+  }, [])
+  useEffect(() => stopStepperHold, [stopStepperHold])
+
+  const bindStepper = useCallback((delta) => ({
+    onPointerDown: (e) => {
+      if (e.button !== 0) return
+      e.stopPropagation()
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      holdFiredRef.current = false
+      stopStepperHold()
+      holdTimerRef.current = setTimeout(() => {
+        holdFiredRef.current = true
+        onAdjust(item.id, delta)
+        repeatTimerRef.current = setInterval(() => onAdjust(item.id, delta), 120)
+      }, 300)
+    },
+    onPointerUp: (e) => {
+      e.stopPropagation()
+      if (!holdFiredRef.current && holdTimerRef.current) onAdjust(item.id, delta)
+      stopStepperHold()
+    },
+    onPointerLeave: stopStepperHold,
+    onPointerCancel: stopStepperHold
+  }), [item.id, onAdjust, stopStepperHold])
+
   // ---- 纯原生 pointer event 拖拽：完全绕开 framer-motion 的 drag ----
   // 核心思路：按下 Grip Handle → 隐藏原卡片 + 创建 body-level ghost 跟随鼠标；
   // 松手时：把原卡片显形（此时 React 已将其放入新 grid 位置）+ 删除 ghost。
   // 因为没有 transform 叠加，被拖卡片永远精确对齐 grid。
+  //
+  // 健壮性：所有退出路径（pointerup / pointercancel / Esc / 组件卸载）统一走 cleanup，
+  // 避免触屏系统中断拖拽时 ghost 残留、原卡片永久隐藏。
+  const dragCleanupRef = useRef(null)
+  useEffect(() => () => { dragCleanupRef.current?.() }, [])
+
+  // 键盘可达的拖拽等价操作：聚焦把手后按方向键与相邻卡片交换位置。
+  // 左右 ±1；上下 ±网格列数（从 grid 的 grid-template-columns 实时计算，随密度/窗口宽度自适应）。
+  const handleGripKeyDown = useCallback((e) => {
+    const key = e.key
+    if (key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'ArrowUp' && key !== 'ArrowDown') return
+    const card = cardRef.current
+    const grid = gridRef?.current
+    if (!card || !grid || !onSort) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    const cards = Array.from(grid.children).filter(
+      (c) => c.hasAttribute && c.hasAttribute('data-item-id')
+    )
+    const curIdx = cards.indexOf(card)
+    if (curIdx < 0) return
+
+    let step = 0
+    if (key === 'ArrowLeft') step = -1
+    else if (key === 'ArrowRight') step = 1
+    else {
+      // 列数：解析 computed style 的 grid-template-columns 空白分隔
+      let cols = 1
+      try {
+        cols = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).filter(Boolean).length || 1
+      } catch { /* ignore */ }
+      step = key === 'ArrowUp' ? -cols : cols
+    }
+    const targetIdx = curIdx + step
+    if (targetIdx < 0 || targetIdx >= cards.length || targetIdx === curIdx) return
+    onSort(item.id, targetIdx)
+  }, [item.id, onSort, gridRef])
+
   const handleGripPointerDown = (e) => {
     if (e.button !== 0) return
     e.preventDefault()
@@ -123,54 +199,97 @@ export default function ItemCard({
     card.style.visibility = 'hidden'
 
     let didMove = false
-    const lastX = e.clientX
-    const lastY = e.clientY
+    const startX = e.clientX
+    const startY = e.clientY
+    let lastPos = { x: cardRect.left, y: cardRect.top }
+    let highlightTarget = null
 
-    const onMove = (ev) => {
-      didMove = true
-      ghost.style.left = `${ev.clientX - offset.x}px`
-      ghost.style.top = `${ev.clientY - offset.y}px`
+    const setHighlight = (el) => {
+      if (highlightTarget === el) return
+      highlightTarget?.classList.remove('drag-target')
+      highlightTarget = el
+      if (el) el.classList.add('drag-target')
     }
 
-    const onUp = (ev) => {
-      ghost.remove()
-      card.style.visibility = 'visible'
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-
-      if (!didMove) return
-
-      const dist = Math.hypot(ev.clientX - lastX, ev.clientY - lastY)
-      if (dist < 30 || !onSort) return
-
-      // 用松手时 ghost 的中心坐标
-      const ghostRect = {
-        left: parseFloat(ghost.style.left) || 0,
-        top: parseFloat(ghost.style.top) || 0,
-        width: cardRect.width,
-        height: cardRect.height
-      }
-      const dragCX = ghostRect.left + ghostRect.width / 2
-      const dragCY = ghostRect.top + ghostRect.height / 2
-
+    // 在网格卡片中查找与 (cx, cy) 中心最近的其它卡片（返回 DOM index）
+    const findNearestIndex = (cx, cy, skipId) => {
       const grid = gridRef.current
+      if (!grid) return -1
       const children = Array.from(grid.children).filter(
         (c) => c.hasAttribute && c.hasAttribute('data-item-id')
       )
       let nearestIdx = -1
+      let nearestEl = null
       let nearestD2 = Infinity
       for (let i = 0; i < children.length; i++) {
         const child = children[i]
-        if (child.dataset.itemId === item.id) continue
+        if (child.dataset.itemId === skipId) continue
         const rect = child.getBoundingClientRect()
-        const cx = rect.left + rect.width / 2
-        const cy = rect.top + rect.height / 2
-        const d2 = (dragCX - cx) ** 2 + (dragCY - cy) ** 2
+        const ccx = rect.left + rect.width / 2
+        const ccy = rect.top + rect.height / 2
+        const d2 = (cx - ccx) ** 2 + (cy - ccy) ** 2
         if (d2 < nearestD2) {
           nearestD2 = d2
           nearestIdx = i
+          nearestEl = child
         }
       }
+      return { nearestIdx, nearestEl }
+    }
+
+    // 统一清理：移除 ghost / 监听 / 高亮，恢复原卡片可见性
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+      window.removeEventListener('keydown', onEsc)
+      setHighlight(null)
+      ghost.remove()
+      if (card.isConnected) card.style.visibility = 'visible'
+      if (dragCleanupRef.current === cleanup) dragCleanupRef.current = null
+    }
+    dragCleanupRef.current = cleanup
+
+    const onMove = (ev) => {
+      didMove = true
+      const left = ev.clientX - offset.x
+      const top = ev.clientY - offset.y
+      lastPos = { x: left, y: top }
+      ghost.style.left = `${left}px`
+      ghost.style.top = `${top}px`
+      // 实时高亮最近的放置目标，让用户在松手前就知道会交换到哪
+      const cx = left + cardRect.width / 2
+      const cy = top + cardRect.height / 2
+      const { nearestEl } = findNearestIndex(cx, cy, item.id)
+      setHighlight(nearestEl)
+    }
+
+    // pointercancel：触屏系统手势 / Alt+Tab 中断，等同放弃本次拖拽
+    const onCancel = () => cleanup()
+
+    // Esc：取消拖拽（不触发排序）
+    const onEsc = (ev) => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault()
+        ev.stopPropagation()
+        didMove = false
+        cleanup()
+      }
+    }
+
+    const onUp = () => {
+      // 先记录落点再清理（ghost.remove 后 style 仍在，但语义上先取值更稳）
+      const dragCX = lastPos.x + cardRect.width / 2
+      const dragCY = lastPos.y + cardRect.height / 2
+      const endX = lastPos.x + offset.x
+      const endY = lastPos.y + offset.y
+      const dist = Math.hypot(endX - startX, endY - startY)
+      cleanup()
+
+      if (!didMove) return
+      if (dist < 30 || !onSort) return
+
+      const { nearestIdx } = findNearestIndex(dragCX, dragCY, item.id)
       if (nearestIdx >= 0) {
         onSort(item.id, nearestIdx)
       }
@@ -178,6 +297,8 @@ export default function ItemCard({
 
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    window.addEventListener('keydown', onEsc, true)
   }
 
   // U-09 右键菜单关闭
@@ -268,9 +389,13 @@ export default function ItemCard({
       {canDrag && (
         <div
           onPointerDown={handleGripPointerDown}
+          onKeyDown={handleGripKeyDown}
+          tabIndex={0}
+          role="button"
+          aria-label={`${t('card_drag')}（方向键交换位置）`}
           className={cn(
             'absolute right-2 top-2 z-30 flex h-7 w-7 cursor-grab items-center justify-center rounded-full bg-surface/90 shadow-sm backdrop-blur-md transition-smooth hover:bg-surface',
-            'active:cursor-grabbing'
+            'active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
           )}
           title={t('card_drag')}
         >
@@ -424,10 +549,13 @@ export default function ItemCard({
 
         <div className="mt-3 flex items-center justify-between rounded-xl bg-bg p-1">
           <div className="flex items-center gap-0.5">
+            {/* 长按连击步进：按下 <300ms 视为单击 ±1；按住 300ms 后每 120ms 重复，
+                家庭场景常需 +5/+10 不必连点。全部走 pointer 事件，避免与 click 双触发 */}
             <motion.button
               whileTap={{ scale: 0.88 }}
-              onClick={(e) => { e.stopPropagation(); onAdjust(item.id, -1) }}
+              {...bindStepper(-1)}
               disabled={item.quantity <= 0}
+              aria-label={t('card_sub1')}
               className="flex h-7 w-7 items-center justify-center rounded-md bg-surface text-text-secondary shadow-xs ring-1 ring-border transition-smooth hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Minus size={14} strokeWidth={2.5} />
@@ -443,7 +571,8 @@ export default function ItemCard({
             </motion.span>
             <motion.button
               whileTap={{ scale: 0.88 }}
-              onClick={(e) => { e.stopPropagation(); onAdjust(item.id, 1) }}
+              {...bindStepper(1)}
+              aria-label={t('card_add1')}
               className="flex h-7 w-7 items-center justify-center rounded-md bg-surface text-text-secondary shadow-xs ring-1 ring-border transition-smooth hover:bg-surface-hover hover:text-text-primary"
             >
               <Plus size={14} strokeWidth={2.5} />

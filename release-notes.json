@@ -1,5 +1,61 @@
 [
   {
+    "version": "1.7.2",
+    "date": "2026-08-21",
+    "type": "feature",
+    "summary": "架构与安全大版本：SQL 精确白名单 + 生产启用同源策略、UI/Agent 写入路径收敛 service 层、拖拽排序持久化到数据库",
+    "features": [
+      "【安全】SQL 通用通道改为精确语句白名单（electron/sql-whitelist.json + 规范化匹配，IN 占位符个数不影响），DROP TABLE 等危险语句从此被真正拒绝；新增 Vitest 交叉验证测试保证 api.js 与白名单不漂移",
+      "【安全】生产环境恢复 webSecurity 同源策略（仅开发模式放宽以支持 http 页面加载 file:// 图片）",
+      "【安全】外部 Agent API：请求体 25MB 上限（Content-Length + 流式双保险）、Token 改常量时间比较（timingSafeEqual）",
+      "【安全】手机传图服务：上传体 15MB 上限、二维码 10 分钟自动过期关闭（忘关弹窗不再长期暴露端口）",
+      "【安全】更新器仅允许 https 下载源（http 明文链路的 exe 可被劫持，SHA-512 同源校验无法防御）",
+      "【架构】新建 electron/services/items.js：UI（IPC）与 Agent（HTTP）物品写入共用同一事务实现，消除双写漂移（v1.2.13~15 连修三版的同步 bug 的根因）；UI 保存不再触发两次全表 rebuild",
+      "【数据】拖拽排序持久化到 items.sort_order 列（此前存 localStorage 绝对下标，任何编辑都会打乱旧顺序、筛选下拖拽污染全局序）；导入前自动写滚动备份",
+      "【数据】JSON 导入支持合并模式：按 id 更新/新增、保留现有数据（原行为为清空重灌，现作为可选项并保留）",
+      "【交互】拖拽把手支持键盘操作：聚焦后方向键与相邻卡片交换（上下按实际网格列数），补齐可达性",
+      "【性能】骨架屏改纯 CSS 动画（可被「关闭动画」设置禁用），移除 framer-motion 逐节点无限动画",
+      "【修复】手机扫码传图固定文件名 qr-photo 互相覆盖：多个物品传不同照片后 photo 字段都指向同一文件，刷新后图片变成同一张——改为每次上传唯一文件名，photo:save 对同名文件自动加随机后缀不再静默覆盖",
+      "【清理】回滚无人使用的 Zustand store 及依赖（P3 渐进迁移停在第一步的双状态问题）；删除 store 测试，新增 security/services 测试"
+    ]
+  },
+  {
+    "version": "1.7.1",
+    "date": "2026-08-21",
+    "type": "bugfix",
+    "summary": "修复 v1.7.0 启动渲染崩溃（useEffect 未导入）+ 落地一批分析报告遗留改进",
+    "features": [
+      "【修复】v1.7.0 启动即崩溃：main.jsx MotionConfigured 使用了 useEffect 但未在 import 中引入（构建期不报未定义标识符），已修复并新增全 src hook 导入静态扫描防再犯",
+      "【修复】新增渲染进程启动信标：App 挂载时写入 lingguang-render.log（renderer-boot-ok），启动冒烟测试从此能真正验证渲染层而非仅主进程",
+      "【数据】切换数据目录后同步外部 Agent API 的数据库引用并补齐 schema，失败时回滚设置，杜绝「API 写旧库」数据分裂；切换成功后立即写滚动备份",
+      "【数据】数量增减增加 MAX(0,...) 下限保护，与批量修改行为一致，Agent/竞态调用无法再把库存刷成负数",
+      "【交互】删除物品后 Toast 提供「撤销」按钮（5 秒内可按原 id 原样恢复，含图片与创建时间）；确认弹窗文案同步更新",
+      "【交互】数量步进器支持长按连击：按住 300ms 后每 120ms 重复，+5/+10 不再连点",
+      "【交互】顶栏密度切换从隐形三态循环按钮改为显式三段选择器（紧凑/适中/宽松），带 aria-pressed",
+      "【修复】过期通知改为按物品 id 记忆：处理一件又新增一件时也能正确提醒，离开预警区后再次进入可重新提醒",
+      "【重构】AI 识别服务的分类归一化改为复用 data-utils 唯一实现（消除三处不一致副本），未命中自定义分类时保留原名并可自动建类"
+    ]
+  },
+  {
+    "version": "1.7.0",
+    "date": "2026-08-21",
+    "type": "bugfix",
+    "summary": "图片链路根治 + 备份恢复链接通 + 拖拽加固 + 动画开关生效（v1.6.5 分析报告 P0/P1 全量落地）",
+    "features": [
+      "【P0】根治图片显示链路：preload 中 app 未定义导致 file:// 快速路径从未生效，改为 ipcRenderer.sendSync 同步获取 dataDir，图片不再每次走「加载失败 → IPC base64」慢路径",
+      "【P0】接通数据库损坏恢复链：启动时用 better-sqlite3 backup API 写 WAL 一致性滚动备份到 backups/*.bak（保留 7 份），恢复时优先 .bak、回退旧版 inventory.db.backup，不再一出损坏就得到空库",
+      "【P0】物品列表加载失败降级为 toast 提示并保留现有数据，瞬态 IPC 错误不再触发全屏错误页",
+      "【安全】photo:saveFile 增加路径批准列表：仅接受 dialog:pickImage 选中过的路径且扩展名必须是图片，封堵「渲染进程被攻破 → 复制磁盘任意文件 → photo:read 外泄」链路",
+      "【安全】批量字段白名单清理幽灵列（unit/supplier/purchase_date/purchase_price 在 items 表不存在，调用必报 SQL 错误），bulkPreview 查询同步修正",
+      "【交互】拖拽排序加固：补 pointercancel（触屏系统中断不再导致卡片永久隐藏）、Esc 取消拖拽、组件卸载自动清理；拖拽过程中实时高亮最近放置目标",
+      "【交互】「设置 → 动画」开关现在真正接管 framer-motion：MotionConfig reducedMotion 与 CSS .no-anim 双保险，预警圆点脉冲改为纯 CSS 并可被开关禁用",
+      "【体验】过期预警页修复三个显示 bug（分类显示原始 key / 脉冲圆点颜色无效 / 预警查询走全量大字段），整页接入 i18n 并统一到项目设计令牌",
+      "【体验】暗色主题启动白闪根治：public/theme-boot.js 在首帧前根据 localStorage 镜像同步设置 dark 类（主题/动画设置变更时自动维护镜像）",
+      "【性能】新增 fetchItemsMeta 轻量查询（排除 photo/notes 大字段）：过期通知每分钟轮询、统计页预热、过期预警页三处全量拉取全部切换，图片多时显著降低 IPC 序列化开销",
+      "【清理】删除无人引用的 src/features/、src/pages/ 脚手架死代码"
+    ]
+  },
+  {
     "version": "1.6.5",
     "date": "2026-08-22",
     "type": "feature",

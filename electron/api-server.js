@@ -1,7 +1,7 @@
 // 外部 Agent HTTP API：供其它程序/Agent 管理家庭物资数据
 const http = require('http')
 const crypto = require('crypto')
-const { generateItemNo } = require('./item-no')
+const itemsService = require('./services/items')
 const { recognizeImage } = require('./ai-service')
 const {
   normalizeCategoryKey,
@@ -10,6 +10,8 @@ const {
 } = require('./data-utils')
 
 const DEFAULT_PORT = 3001
+// 请求体大小上限（字节）：防止局域网模式下大 body 耗尽内存
+const MAX_BODY_BYTES = 25 * 1024 * 1024
 
 function json(res, status, data) {
   res.writeHead(status, {
@@ -23,9 +25,28 @@ function json(res, status, data) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > MAX_BODY_BYTES) {
+      reject(new Error('payload too large'))
+      req.destroy()
+      return
+    }
     let body = ''
-    req.on('data', (chunk) => (body += chunk))
+    let total = 0
+    let aborted = false
+    req.on('data', (chunk) => {
+      if (aborted) return
+      total += chunk.length
+      if (total > MAX_BODY_BYTES) {
+        aborted = true
+        reject(new Error('payload too large'))
+        req.destroy()
+        return
+      }
+      body += chunk
+    })
     req.on('end', () => {
+      if (aborted) return
       try {
         resolve(body ? JSON.parse(body) : {})
       } catch (e) {
@@ -96,28 +117,7 @@ function materialMapper(url) {
   return url && url.searchParams.get('includePhoto') === 'true' ? toPhoneMaterialFull : toPhoneMaterial
 }
 
-function fromInputItem(data, db) {
-  const id = data.id || crypto.randomUUID()
-  const t = nowMs()
-  const categories = db ? db.prepare('SELECT * FROM categories').all() : []
-  const rawItemNo = String(data.itemNo ?? data.item_no ?? '').trim()
-  const itemNo = rawItemNo || (db ? generateItemNo(db) : '')
-  return {
-    id,
-    name: String(data.name || ''),
-    item_no: itemNo,
-    room: String(data.room ?? ''),
-    position: String(data.position ?? ''),
-    location: String(data.location ?? ''),
-    quantity: Number(data.quantity) || 0,
-    min_quantity: Number(data.minQuantity ?? data.min_quantity) || 0,
-    photo: String(data.photo ?? ''),
-    category: normalizeCategoryKey(data.category, categories),
-    expiry_date: Number(data.expiryDate ?? data.expiry_date) || 0,
-    created_at: t,
-    updated_at: t
-  }
-}
+// 注：物品行构造已收敛至 services/items.js 的 buildItemRow（与 UI IPC 共用）
 
 // ===== 位置推断辅助函数 =====
 
@@ -257,8 +257,16 @@ class ApiServer {
 
   checkAuth(req, settings) {
     const auth = req.headers['authorization'] || ''
+    const provided = auth.replace(/^Bearer\s+/i, '')
     const { token } = this.getApiConfig(settings)
-    return auth.replace(/^Bearer\s+/i, '') === token
+    // 常量时间比较（经 sha256 等长化），防止局域网模式下的计时侧信道
+    try {
+      const a = crypto.createHash('sha256').update(String(provided)).digest()
+      const b = crypto.createHash('sha256').update(String(token)).digest()
+      return crypto.timingSafeEqual(a, b)
+    } catch (e) {
+      return false
+    }
   }
 
   handle(req, res) {
@@ -459,25 +467,12 @@ class ApiServer {
       json(res, 400, { error: 'Bad request', message: 'name is required' })
       return
     }
-    const row = fromInputItem(data, this.db)
-    let createdCategories = 0
-    let createdLocations = 0
-    const tx = this.db.transaction(() => {
-      this.db
-        .prepare(
-          `INSERT INTO items (id, name, item_no, room, position, location, quantity, min_quantity, photo, category, expiry_date, created_at, updated_at)
-           VALUES (@id, @name, @item_no, @room, @position, @location, @quantity, @min_quantity, @photo, @category, @expiry_date, @created_at, @updated_at)`
-        )
-        .run(row)
-      // 自动把物品分类/位置同步到分类表和位置树，保持 UI 一致
-      createdCategories = ensureCategoriesFromItems(this.db, [row])
-      createdLocations = ensureLocationsFromItems(this.db, [row])
-    })
-    tx()
-    if (createdCategories) this.notifyRenderer('categories')
-    if (createdLocations) this.notifyRenderer('locations')
+    // 与 UI IPC 共用 services/items（同一事务、同一同步逻辑，消除双写漂移）
+    const { row, sync } = itemsService.createItem(this.db, data)
+    if (sync.categories) this.notifyRenderer('categories')
+    if (sync.locations) this.notifyRenderer('locations')
     this.notifyRenderer('items')
-    json(res, 201, { item: toPhoneItem(row), sync: { categories: createdCategories, locations: createdLocations } })
+    json(res, 201, { item: toPhoneItem(row), sync })
   }
 
   getItem(req, res, path, url) {
@@ -500,46 +495,18 @@ class ApiServer {
 
   async updateItem(req, res, path) {
     const id = decodeURIComponent(path.slice('/api/items/'.length))
-    const cur = this.db.prepare('SELECT * FROM items WHERE id = ?').get(id)
+    const cur = this.db.prepare('SELECT id FROM items WHERE id = ?').get(id)
     if (!cur) {
       json(res, 404, { error: 'Not found' })
       return
     }
     const data = await readBody(req)
-    const categories = this.db.prepare('SELECT * FROM categories').all()
-    const next = {
-      ...cur,
-      name: data.name !== undefined ? String(data.name) : cur.name,
-      item_no: data.itemNo !== undefined || data.item_no !== undefined ? String(data.itemNo ?? data.item_no) : cur.item_no,
-      room: data.room !== undefined ? String(data.room) : cur.room,
-      position: data.position !== undefined ? String(data.position) : cur.position,
-      location: data.location !== undefined ? String(data.location) : cur.location,
-      quantity: data.quantity !== undefined ? Number(data.quantity) : cur.quantity,
-      min_quantity: data.minQuantity !== undefined || data.min_quantity !== undefined ? Number(data.minQuantity ?? data.min_quantity) : cur.min_quantity,
-      photo: data.photo !== undefined ? String(data.photo) : cur.photo,
-      category: data.category !== undefined ? normalizeCategoryKey(data.category, categories) : cur.category,
-      expiry_date: data.expiryDate !== undefined || data.expiry_date !== undefined ? Number(data.expiryDate ?? data.expiry_date) : cur.expiry_date,
-      updated_at: nowMs()
-    }
-    let createdCategories = 0
-    let createdLocations = 0
-    const tx = this.db.transaction(() => {
-      this.db
-        .prepare(
-          `UPDATE items SET name=@name, item_no=@item_no, room=@room, position=@position, location=@location,
-           quantity=@quantity, min_quantity=@min_quantity, photo=@photo, category=@category,
-           expiry_date=@expiry_date, updated_at=@updated_at WHERE id=@id`
-        )
-        .run(next)
-      // 自动把物品分类/位置同步到分类表和位置树，保持 UI 一致
-      createdCategories = ensureCategoriesFromItems(this.db, [next])
-      createdLocations = ensureLocationsFromItems(this.db, [next])
-    })
-    tx()
-    if (createdCategories) this.notifyRenderer('categories')
-    if (createdLocations) this.notifyRenderer('locations')
+    // 与 UI IPC 共用 services/items（同一合并与同步逻辑）
+    const { row, sync } = itemsService.updateItem(this.db, id, data)
+    if (sync.categories) this.notifyRenderer('categories')
+    if (sync.locations) this.notifyRenderer('locations')
     this.notifyRenderer('items')
-    json(res, 200, { item: toPhoneItem(next), sync: { categories: createdCategories, locations: createdLocations } })
+    json(res, 200, { item: toPhoneItem(row), sync })
   }
 
   deleteItem(req, res, path) {

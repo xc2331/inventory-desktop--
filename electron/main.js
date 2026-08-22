@@ -17,6 +17,8 @@ const {
   sanitizeProvider
 } = require('./ai-service')
 const { generateItemNo } = require('./item-no')
+// 物品写入 service：UI IPC 与外部 Agent HTTP API 共用的唯一写入路径（消除双写漂移）
+const itemsService = require('./services/items')
 
 process.on('uncaughtException', (e) => console.error('[main] UNCAUGHT:', e))
 process.on('unhandledRejection', (e) => console.error('[main] UNHANDLED_REJECT:', e && e.message || e))
@@ -51,6 +53,16 @@ ipcMain.handle('diag:log', async (_event, msg) => {
     fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`)
   } catch (_) {}
   return { ok: true }
+})
+
+// ===== 同步获取数据目录（preload photo.url 快速路径使用）=====
+// sendSync 必须同步返回；resolveDataDir 仅读 settings.json，开销可忽略
+ipcMain.on('app:getDataDirSync', (event) => {
+  try {
+    event.returnValue = resolveDataDir()
+  } catch (e) {
+    event.returnValue = ''
+  }
 })
 
 const ICON_PATH = app.isPackaged
@@ -140,7 +152,7 @@ function getBackupPath(dbPath) {
   return dbPath + '.backup'
 }
 
-// 启动时自动备份数据库文件（.db.backup）
+// 旧版单文件备份（兼容保留，仅作为恢复链的最后回退来源）
 function backupDatabase() {
   const dbPath = resolveDbPath()
   const backupPath = getBackupPath(dbPath)
@@ -158,24 +170,93 @@ function resolveBackupDir() {
   return path.join(resolveDataDir(), 'backups')
 }
 
-// 查找备份目录下最新的 *.bak 文件（按 mtime 排序）
-function findLatestBackup() {
+const ROLLING_BACKUP_KEEP = 7
+
+// 启动时写滚动备份：用 better-sqlite3 的 backup API（自带 WAL 一致性快照），
+// 写入 backups/inventory-<时间戳>.bak，并按 mtime 滚动保留最近 N 份。
+function writeRollingBackup() {
+  if (!db) return
   const dir = resolveBackupDir()
-  if (!fs.existsSync(dir)) return null
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.bak'))
-  if (files.length === 0) return null
   try {
-    let best = null
-    for (const f of files) {
-      const fullPath = path.join(dir, f)
-      const st = fs.statSync(fullPath)
-      if (!best || st.mtimeMs > best.mtimeMs) best = { file: fullPath, mtimeMs: st.mtimeMs }
+    fs.mkdirSync(dir, { recursive: true })
+  } catch (e) {
+    console.error('[backup] 创建备份目录失败:', e?.message || e)
+    return
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const dest = path.join(dir, `inventory-${stamp}.bak`)
+  db.backup(dest)
+    .then(() => pruneRollingBackups())
+    .catch((e) => console.error('[backup] 滚动备份失败:', e?.message || e))
+}
+
+// 同步滚动备份：checkpoint 后直接复制主文件。
+// 供导入等"必须先备份完成再继续"的路径使用（writeRollingBackup 是异步的，不保证时序）。
+// 单实例单线程主进程下 checkpoint 后无并发写入，快照一致。
+function writeRollingBackupSync() {
+  if (!db) return false
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)')
+    const dir = resolveBackupDir()
+    fs.mkdirSync(dir, { recursive: true })
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    fs.copyFileSync(resolveDbPath(), path.join(dir, `inventory-${stamp}.bak`))
+    pruneRollingBackups()
+    return true
+  } catch (e) {
+    console.error('[backup] 同步滚动备份失败:', e?.message || e)
+    return false
+  }
+}
+
+// 删除超出保留数量的旧备份（按 mtime 降序保留前 ROLLING_BACKUP_KEEP 份）
+function pruneRollingBackups() {
+  try {
+    const dir = resolveBackupDir()
+    if (!fs.existsSync(dir)) return
+    const files = fs
+      .readdirSync(dir)
+      .filter((f) => f.startsWith('inventory-') && f.endsWith('.bak'))
+      .map((f) => {
+        const fullPath = path.join(dir, f)
+        return { fullPath, mtimeMs: fs.statSync(fullPath).mtimeMs }
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    for (const stale of files.slice(ROLLING_BACKUP_KEEP)) {
+      try { fs.unlinkSync(stale.fullPath) } catch (_) { /* ignore */ }
     }
-    return best?.file || null
+  } catch (e) {
+    console.error('[backup] 清理旧备份失败:', e?.message || e)
+  }
+}
+
+// 查找可用的最新备份：优先 backups/*.bak，其次回退旧版 inventory.db.backup
+function findLatestBackup() {
+  try {
+    const dir = resolveBackupDir()
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir).filter((f) => f.endsWith('.bak'))
+      let best = null
+      for (const f of files) {
+        const fullPath = path.join(dir, f)
+        const st = fs.statSync(fullPath)
+        if (st.size === 0) continue
+        if (!best || st.mtimeMs > best.mtimeMs) best = { file: fullPath, mtimeMs: st.mtimeMs }
+      }
+      if (best?.file) return best.file
+    }
   } catch (e) {
     console.error('[backup] 查找最新备份失败:', e)
-    return null
   }
+  // 回退：旧版单文件备份
+  try {
+    const legacy = getBackupPath(resolveDbPath())
+    if (fs.existsSync(legacy) && fs.statSync(legacy).size > 0) {
+      console.log('[db-recovery] 无滚动备份，回退旧版备份:', legacy)
+      return legacy
+    }
+  } catch (_) { /* ignore */ }
+  return null
 }
 
 // 判断错误是否为"数据库损坏"信号
@@ -233,7 +314,6 @@ function recoverFromCorrupt(error, mainWindow) {
 // opts.recoveredFrom / opts.corruptedPath 用于通知前端恢复来源
 function initDatabase(mainWindow, opts) {
   const doInit = () => {
-    backupDatabase()
     db = new Database(resolveDbPath())
     db.pragma('journal_mode = WAL')
 
@@ -255,6 +335,7 @@ function initDatabase(mainWindow, opts) {
         consume_unit TEXT DEFAULT 'day',
         consume_start_at INTEGER DEFAULT 0,
         photo_meta TEXT DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL DEFAULT 0,
         updated_at INTEGER NOT NULL DEFAULT 0
       );
@@ -371,7 +452,9 @@ function ensureItemColumns(database) {
     { name: 'consume_rate', def: "REAL DEFAULT 0" },
     { name: 'consume_unit', def: "TEXT DEFAULT 'day'" },
     { name: 'consume_start_at', def: "INTEGER DEFAULT 0" },
-    { name: 'photo_meta', def: "TEXT DEFAULT ''" }
+    { name: 'photo_meta', def: "TEXT DEFAULT ''" },
+    // 手动排序：0 = 从未手动排序（按 updated_at 排在其后），>0 = 用户拖拽确定的顺序
+    { name: 'sort_order', def: "INTEGER NOT NULL DEFAULT 0" }
   ]
   for (const col of needed) {
     if (!existing.has(col.name)) {
@@ -707,7 +790,9 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      webSecurity: false
+      // 生产环境保持同源策略开启（安全默认）。仅开发模式（页面来自 http://localhost:5173
+      // 而图片是 file:// URL）需要放宽；生产页面本身是 file:// 协议，file:// 图片不受影响。
+      webSecurity: process.env.DEV === 'true' ? false : true
     }
   })
 
@@ -779,21 +864,36 @@ function createWindow() {
   }
 }
 
-// ===== SQL 白名单：仅允许对已知表的参数化查询 =====
-// 使用 better-sqlite3 参数化查询已天然防注入；此白名单只校验表名，避免任意表访问
-const ALLOWED_TABLES = new Set(['items', 'categories', 'locations', 'materials', 'settings', 'sync_state', 'item_photos'])
-const SQL_SANITIZER = {
-  check(sql) {
-    if (!sql || typeof sql !== 'string') return false
-    const lower = sql.toLowerCase()
-    return Array.from(ALLOWED_TABLES).some(t => lower.includes(t))
-  }
+// ===== SQL 精确白名单：通用通道仅允许白名单中的字面语句（参数走 binds）=====
+// 旧实现的"包含表名即通过"等于没有白名单（DROP TABLE items 照样通过）。
+// 白名单与 src/lib/api.js 的 SQL_STATEMENTS 常量一一对应（有 Vitest 交叉校验测试）。
+// 规范化：折叠连续空白；把 IN (?, ?, ...) 折叠为 IN (?)，因此同形语句任意个绑定参数都匹配。
+function normalizeSql(sql) {
+  return String(sql)
+    .replace(/(\?,\s*)+\?/g, '?')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-// ===== IPC：通用数据库查询/执行（参数化，防注入）=====
+const ALLOWED_SQL = (() => {
+  try {
+    const list = JSON.parse(fs.readFileSync(path.join(__dirname, 'sql-whitelist.json'), 'utf8'))
+    return new Set(list.map(normalizeSql))
+  } catch (e) {
+    console.error('[db] SQL 白名单加载失败，通用通道将全部拒绝:', e?.message || e)
+    return new Set()
+  }
+})()
+
+function sqlAllowed(sql) {
+  if (!sql || typeof sql !== 'string') return false
+  return ALLOWED_SQL.has(normalizeSql(sql))
+}
+
+// ===== IPC：通用数据库查询/执行（仅白名单语句 + 参数化绑定）=====
 ipcMain.handle('db:query', (_event, { sql, binds }) => {
-  if (!SQL_SANITIZER.check(sql)) {
-    console.warn('[db] query rejected (whitelist):', sql?.slice(0, 80))
+  if (!sqlAllowed(sql)) {
+    console.warn('[db] query rejected (whitelist):', sql?.slice(0, 120))
     return null
   }
   const stmt = db.prepare(sql)
@@ -803,8 +903,8 @@ ipcMain.handle('db:query', (_event, { sql, binds }) => {
 })
 
 ipcMain.handle('db:execute', (_event, { sql, binds }) => {
-  if (!SQL_SANITIZER.check(sql)) {
-    console.warn('[db] execute rejected (whitelist):', sql?.slice(0, 80))
+  if (!sqlAllowed(sql)) {
+    console.warn('[db] execute rejected (whitelist):', sql?.slice(0, 120))
     throw new Error('db:execute rejected by whitelist')
   }
   const stmt = db.prepare(sql)
@@ -848,6 +948,7 @@ ipcMain.handle('settings:setMaterialTypes', (_event, types) => {
 // 切换数据目录：复制现有数据库到新目录并重开
 ipcMain.handle('settings:setDataDir', async (_event, newDir) => {
   if (!newDir) return { ok: false, error: 'empty dir' }
+  const prevDataDir = readAppSettings().dataDir
   try {
     fs.mkdirSync(newDir, { recursive: true })
     const oldPath = resolveDbPath()
@@ -864,18 +965,27 @@ ipcMain.handle('settings:setDataDir', async (_event, newDir) => {
         fs.copyFileSync(oldPath + suffix, newPath + suffix)
       }
     }
-    // 更新设置
+    // 更新设置（此后 resolveDataDir/resolveDbPath 指向新目录）
     const s = readAppSettings()
     s.dataDir = newDir
     writeAppSettings(s)
-    // 重新打开
-    db = new Database(newPath)
-    db.pragma('journal_mode = WAL')
+    // 重新打开并补齐 schema（新目录为空库时需要建表/种子）
+    initDatabase(mainWindow)
+    // 关键：同步外部 Agent API 服务持有的 db 引用，否则其后续读写仍落在旧库造成数据分裂
+    if (apiServer) apiServer.db = db
+    writeRollingBackup()
     return { ok: true, dataDir: newDir }
   } catch (e) {
-    // 失败时尝试恢复
+    // 失败回滚：恢复旧 dataDir 设置并重开原库，避免停在"设置已改但库打不开"的中间态
     try {
-      db = new Database(resolveDbPath())
+      const s = readAppSettings()
+      if (prevDataDir) s.dataDir = prevDataDir
+      else delete s.dataDir
+      writeAppSettings(s)
+    } catch (_) { /* ignore */ }
+    try {
+      initDatabase(mainWindow)
+      if (apiServer) apiServer.db = db
     } catch (e2) {
       /* ignore */
     }
@@ -1046,6 +1156,22 @@ ipcMain.handle('shell:showItemInFolder', async (_event, target) => {
   return { ok: true }
 })
 
+// ===== 文件选择批准列表：dialog:pickImage/pickFile 选中的路径才允许被 photo:saveFile 复制 =====
+// 防止渲染进程被攻破后通过 photo:saveFile + photo:read 外泄任意本地文件
+const approvedPickPaths = new Set()
+const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico'])
+
+function approvePickPath(p) {
+  if (typeof p === 'string' && p) {
+    approvedPickPaths.add(path.normalize(p))
+    // 防止集合无限增长
+    if (approvedPickPaths.size > 64) {
+      const first = approvedPickPaths.values().next().value
+      approvedPickPaths.delete(first)
+    }
+  }
+}
+
 // 选择图片文件对话框（返回路径，不读取内容）
 ipcMain.handle('dialog:pickImage', async () => {
   const res = await dialog.showOpenDialog(mainWindow, {
@@ -1055,6 +1181,7 @@ ipcMain.handle('dialog:pickImage', async () => {
   })
   if (res.canceled || res.filePaths.length === 0) return { canceled: true }
   const path = res.filePaths[0]
+  approvePickPath(path)
   let size = 0
   try {
     const stat = fs.statSync(path)
@@ -1079,9 +1206,31 @@ ipcMain.handle('items:generateItemNo', () => {
   return generateItemNo(db)
 })
 
+// ===== IPC：物品语义化写入（UI 保存路径，与 Agent API 共用 services/items）=====
+// 返回 { row, sync }；UI 保存后自行 reload，不走 api:dataChanged 通知避免双重刷新
+ipcMain.handle('items:create', (_event, data) => {
+  if (!data || typeof data !== 'object' || !String(data.name || '').trim()) {
+    throw new Error('name is required')
+  }
+  return itemsService.createItem(db, data)
+})
+
+ipcMain.handle('items:update', (_event, { id, patch }) => {
+  if (!id) throw new Error('id is required')
+  const result = itemsService.updateItem(db, id, patch || {})
+  if (!result) throw new Error('item not found')
+  return result
+})
+
+// 手动排序持久化：orderedIds 为当前视图的完整顺序
+ipcMain.handle('items:setOrder', (_event, orderedIds) => {
+  return itemsService.setOrder(db, orderedIds)
+})
+
+// 与 items 表实际存在的列保持一致（unit/supplier/purchase_* 列不存在，调用必报 SQL 错误）
 const ALLOWED_BULK_FIELDS = [
-  'category', 'name', 'quantity', 'min_quantity', 'unit', 'location',
-  'supplier', 'purchase_date', 'expiry_date', 'purchase_price', 'notes'
+  'category', 'name', 'quantity', 'min_quantity', 'location',
+  'expiry_date', 'notes'
 ]
 
 ipcMain.handle('items:batchDelete', (_event, { ids }) => {
@@ -1449,7 +1598,14 @@ ipcMain.handle('photo:save', async (_event, { base64, filename }) => {
   try {
     const dir = path.join(resolveDataDir(), 'photos')
     fs.mkdirSync(dir, { recursive: true })
-    const sanitized = filename ? String(filename).replace(/[^a-zA-Z0-9._-]/g, '_') : (crypto.randomUUID() + '.webp')
+    let sanitized = filename ? String(filename).replace(/[^a-zA-Z0-9._-]/g, '_') : (crypto.randomUUID() + '.webp')
+    // 防覆盖兜底：同名文件已存在时追加随机后缀而非静默覆盖——
+    // 任何调用方传固定文件名都不会再破坏已有物品的图片
+    if (fs.existsSync(path.join(dir, sanitized))) {
+      const ext = path.extname(sanitized)
+      const stem = ext ? sanitized.slice(0, -ext.length) : sanitized
+      sanitized = `${stem}-${crypto.randomBytes(4).toString('hex')}${ext}`
+    }
     const filePath = safePath(sanitized, dir)
     const data = Buffer.from(base64.replace(/^data:image\/\w+;base64,/, ''), 'base64')
     fs.writeFileSync(filePath, data)
@@ -1459,16 +1615,28 @@ ipcMain.handle('photo:save', async (_event, { base64, filename }) => {
   }
 })
 
-// 从绝对文件路径直接复制/移动图片到 photos 目录（避免大 base64 截断）
+// 从绝对文件路径直接复制图片到 photos 目录（避免大 base64 截断）
+// 安全约束：只接受 dialog:pickImage 选中过的路径（approvedPickPaths），且扩展名必须是图片，
+// 防止被攻破的渲染进程复制磁盘任意文件进 photos 再经 photo:read 外泄
 ipcMain.handle('photo:saveFile', async (_event, { filePath, extension }) => {
   if (!filePath || typeof filePath !== 'string') return { ok: false, error: 'invalid path' }
+  const normalized = path.normalize(filePath)
+  if (!approvedPickPaths.has(normalized)) {
+    console.warn('[photo:saveFile] rejected (not from dialog pick):', normalized)
+    return { ok: false, error: 'path not approved' }
+  }
   try {
     const dir = path.join(resolveDataDir(), 'photos')
     fs.mkdirSync(dir, { recursive: true })
-    const ext = extension && /^\.[a-zA-Z0-9]+$/.test(extension) ? extension : path.extname(filePath) || '.webp'
-    const sanitized = crypto.randomUUID() + ext
+    const rawExt = (extension && /^\.[a-zA-Z0-9]+$/.test(extension))
+      ? extension.toLowerCase()
+      : (path.extname(normalized) || '.webp').toLowerCase()
+    if (!IMAGE_EXTENSIONS.has(rawExt)) return { ok: false, error: 'unsupported image type' }
+    const sanitized = crypto.randomUUID() + rawExt
     const target = safePath(sanitized, dir)
-    fs.copyFileSync(filePath, target)
+    fs.copyFileSync(normalized, target)
+    // 一次性使用，复制完成即移出批准列表
+    approvedPickPaths.delete(normalized)
     return { ok: true, relPath: 'photos/' + sanitized }
   } catch (e) {
     return { ok: false, error: e.message }
@@ -1511,10 +1679,50 @@ ipcMain.handle('sync:exportData', () => {
   return JSON.stringify(data, null, 2)
 })
 
-ipcMain.handle('sync:importData', (_event, jsonString) => {
+// 导入 JSON：mode = 'replace'（默认，清空重灌）| 'merge'（按 id 更新/新增，保留未涉及数据）
+ipcMain.handle('sync:importData', (_event, payload) => {
+  // 兼容旧签名（直接传字符串）
+  const jsonString = typeof payload === 'string' ? payload : payload?.jsonString
+  const mode = (typeof payload === 'object' && payload?.mode) || 'replace'
   const parsed = JSON.parse(jsonString)
   const items = Array.isArray(parsed) ? parsed : parsed.items || []
   const now = Date.now()
+
+  if (mode === 'merge') {
+    // 合并模式：导入前先写滚动备份；已存在 id 覆盖更新，不存在则新增，其余数据原样保留
+    writeRollingBackupSync()
+    const tx = db.transaction((rows) => {
+      ensureCategoriesFromItems(db, rows)
+      ensureLocationsFromItems(db, rows)
+      let updated = 0
+      let inserted = 0
+      for (const r of rows) {
+        const row = fromImportItem(r, now)
+        const exists = db.prepare('SELECT id FROM items WHERE id = ?').get(row.id)
+        if (exists) {
+          db.prepare(
+            `UPDATE items SET name=@name, item_no=@item_no, room=@room, position=@position, location=@location,
+             quantity=@quantity, min_quantity=@min_quantity, photo=@photo, category=@category, expiry_date=@expiry_date,
+             updated_at=@updated_at WHERE id=@id`
+          ).run(row)
+          updated += 1
+        } else {
+          db.prepare(
+            `INSERT INTO items
+              (id, name, item_no, room, position, location, quantity, min_quantity, photo, category, expiry_date, created_at, updated_at)
+             VALUES (@id, @name, @item_no, @room, @position, @location, @quantity, @min_quantity, @photo, @category, @expiry_date, @created_at, @updated_at)`
+          ).run(row)
+          inserted += 1
+        }
+      }
+      return { updated, inserted }
+    })
+    const { updated, inserted } = tx(items)
+    return { imported: items.length, mode, updated, inserted }
+  }
+
+  // 覆盖模式（默认，旧行为）：同样先备份再清空重灌，坏文件可从 backups/ 恢复
+  writeRollingBackupSync()
   const insertSql = `
     INSERT INTO items
       (id, name, item_no, room, position, location, quantity, min_quantity, photo, category, expiry_date, created_at, updated_at)
@@ -1531,7 +1739,7 @@ ipcMain.handle('sync:importData', (_event, jsonString) => {
     }
   })
   tx(items)
-  return { imported: items.length }
+  return { imported: items.length, mode }
 })
 
 ipcMain.handle('sync:rebuildCategories', () => {
@@ -1746,6 +1954,8 @@ app.whenReady().then(() => {
   initDatabase(mainWindow)
   migrateCategoryKeys()
   deduplicateCategories()
+  // 初始化成功后写滚动备份（异步、WAL 一致性快照），供损坏恢复链使用
+  writeRollingBackup()
   const settings = readAppSettings()
   buildMenu(settings.language || 'zh')
   createTray()

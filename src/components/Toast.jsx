@@ -6,7 +6,9 @@ import { EASE_SPRING, EASE } from '../lib/motion'
 export default function Toast({ toast, onDone, progress }) {
   const timerRef = useRef(null)
   const [localProgress, setLocalProgress] = useState(0)
-  const duration = 2600
+  // 带 action（如「撤销」）的 toast 停留更久，给用户反应时间
+  const hasAction = !!toast?.actionLabel
+  const duration = hasAction ? 5200 : 2600
 
   useEffect(() => {
     if (!toast) {
@@ -41,8 +43,8 @@ export default function Toast({ toast, onDone, progress }) {
   const cursor = hasTarget ? 'cursor-pointer' : ''
 
   const handleClick = (e) => {
-    // 如果点击的是关闭按钮，不处理
-    if (e.target.closest('[data-close-btn]')) return
+    // 如果点击的是关闭按钮或操作按钮，不处理
+    if (e.target.closest('[data-close-btn]') || e.target.closest('[data-action-btn]')) return
     if (hasTarget) {
       window.dispatchEvent(new CustomEvent('locateItem', { detail: { id: toast.targetId } }))
       onDone()
@@ -81,6 +83,21 @@ export default function Toast({ toast, onDone, progress }) {
                 {isError ? <AlertCircle size={18} /> : <CheckCircle2 size={18} className="text-primary" />}
               </motion.span>
               <span className="flex-1">{toast.message}</span>
+              {/* 操作按钮（如删除后的「撤销」） */}
+              {hasAction && (
+                <motion.button
+                  data-action-btn
+                  whileTap={{ scale: 0.92 }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toast.onAction?.()
+                    onDone()
+                  }}
+                  className="flex h-7 items-center rounded-lg bg-primary-soft px-2.5 text-xs font-semibold text-primary transition-smooth hover:bg-primary hover:text-white"
+                >
+                  {toast.actionLabel}
+                </motion.button>
+              )}
               {/* U-19 关闭按钮 */}
               <motion.button
                 data-close-btn

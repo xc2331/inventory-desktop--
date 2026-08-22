@@ -314,6 +314,10 @@ inventory-desktop/
 
 ## 最近更新
 
+- **v1.7.2**：SQL 通用通道改精确语句白名单（危险语句真正被拒 + 交叉验证测试）；生产环境恢复同源策略；UI 与 Agent 物品写入收敛到 `services/items` 单一事务实现（消除双写漂移，保存不再全表 rebuild）；拖拽排序持久化到 `items.sort_order` 列（替代 localStorage 绝对下标）；JSON 导入支持合并模式；Agent API 请求体上限 + Token 常量时间比较；传图服务 15MB 上限 + 二维码 10 分钟自动过期；更新器仅 https；拖拽把手支持方向键交换（可达性）；骨架屏纯 CSS 化；回滚未使用的 Zustand store
+- **v1.7.1**：修复 v1.7.0 启动崩溃（main.jsx useEffect 未导入，附全量 hook 导入扫描防再犯）；渲染进程启动信标便于冒烟验证；切换数据目录后同步 Agent API 数据库引用+失败回滚；数量增减负数保护；删除物品 5 秒内可「撤销」；步进器长按连击；密度切换改显式三段选择器；过期通知按物品 id 记忆；AI 识别分类归一化复用唯一实现
+- **v1.7.0**：图片显示链路根治（preload `app` 未定义 → `sendSync` 同步 dataDir）；数据库损坏恢复链接通（启动滚动备份 `backups/*.bak` 保留 7 份 + 旧版备份回退）；列表加载失败降级 toast 不再全屏报错；`photo:saveFile` 路径批准列表封堵任意文件外泄；拖拽排序加固（pointercancel/Esc/卸载清理 + 实时放置目标高亮）；「关闭动画」设置真正接管 framer-motion（MotionConfig reducedMotion）；过期预警页修复分类显示/圆点颜色 bug 并整页 i18n 化；暗色启动白闪根治（theme-boot.js 首帧前设置 dark 类）；通知轮询/统计预热/预警页改用轻量元数据查询（不再全量序列化 photo 大字段）；清理死代码
+- **v1.6.5**：测试基础设施完善（Vitest 单测 50 用例通过）；SQL 单入口 core/db/query.js
 - **v1.6.4**：批量编辑数量弹窗视口边界检测，超出右边界时自动右对齐，分类/数量弹窗统一处理
 - **v1.6.3**：批量编辑弹窗点击无显示修复（createPortal 竞态消除 + CSS transition 动画）
 - **v1.6.2**：批量编辑分类/数量弹窗层级修复（createPortal 渲染到 document.body + fixed + zIndex:9999）

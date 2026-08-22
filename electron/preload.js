@@ -1,19 +1,22 @@
 // preload：通过 contextBridge 安全暴露 window.lingguang API
-const { contextBridge, ipcRenderer, app } = require('electron')
-const fs = require('fs')
+// 注意：preload 环境下 require('electron') 不包含 app（app 仅主进程可用），
+// 数据目录必须通过主进程同步 IPC 获取（app:getDataDirSync，懒加载缓存一次）
+const { contextBridge, ipcRenderer } = require('electron')
 const path = require('path')
 
-// 与 main.js 中 resolveDataDir 保持同步逻辑（用于同步生成 file:// URL）
+let cachedDataDir = null
+
+// 从主进程同步获取 dataDir（结果缓存；失败返回空串，由调用方走 IPC 兜底链）
 function resolveDataDir() {
+  if (cachedDataDir !== null) return cachedDataDir
   try {
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json')
-    if (fs.existsSync(settingsPath)) {
-      const raw = fs.readFileSync(settingsPath, 'utf-8')
-      const s = JSON.parse(raw)
-      if (s.dataDir && fs.existsSync(s.dataDir)) return s.dataDir
-    }
-  } catch (e) { /* ignore */ }
-  return app.getPath('userData')
+    const dir = ipcRenderer.sendSync('app:getDataDirSync')
+    cachedDataDir = typeof dir === 'string' ? dir : ''
+  } catch (e) {
+    console.warn('[photo.url] sendSync getDataDir failed:', e?.message)
+    cachedDataDir = ''
+  }
+  return cachedDataDir
 }
 
 contextBridge.exposeInMainWorld('lingguang', {
@@ -31,7 +34,7 @@ contextBridge.exposeInMainWorld('lingguang', {
     exportByIds: (ids) => ipcRenderer.invoke('sync:exportByIds', ids),
     exportCSV: () => ipcRenderer.invoke('sync:exportCSV'),
     exportExpiringReport: () => ipcRenderer.invoke('sync:exportExpiringReport'),
-    importData: (jsonString) => ipcRenderer.invoke('sync:importData', jsonString),
+    importData: (jsonString, mode) => ipcRenderer.invoke('sync:importData', { jsonString, mode }),
     rebuildCategories: () => ipcRenderer.invoke('sync:rebuildCategories'),
     rebuildLocations: () => ipcRenderer.invoke('sync:rebuildLocations'),
     stats: () => ipcRenderer.invoke('sync:stats')
@@ -64,6 +67,10 @@ contextBridge.exposeInMainWorld('lingguang', {
   },
   items: {
     generateItemNo: () => ipcRenderer.invoke('items:generateItemNo'),
+    // 语义化写入：与外部 Agent API 共用主进程 services/items 实现
+    create: (data) => ipcRenderer.invoke('items:create', data),
+    update: (id, patch) => ipcRenderer.invoke('items:update', { id, patch }),
+    setOrder: (orderedIds) => ipcRenderer.invoke('items:setOrder', orderedIds),
     batchDelete: (ids) => ipcRenderer.invoke('items:batchDelete', { ids }),
     batchUpdate: (field, value, ids) => ipcRenderer.invoke('items:batchUpdate', { field, value, ids }),
     batchChangeQty: (ids, type, value) => ipcRenderer.invoke('items:batchChangeQty', { ids, type, value })
@@ -74,7 +81,8 @@ contextBridge.exposeInMainWorld('lingguang', {
     read: async (relPath) => ipcRenderer.invoke('photo:read', relPath),
     delete: async (relPath) => ipcRenderer.invoke('photo:delete', relPath),
     // 同步：将相对路径转为 file:// URL（供 <img src> 直接引用）
-    // 策略：能拼出绝对路径就返回 file:// URL；失败时返回相对路径（触发 <img onError> → IPC 兜底）
+    // 策略：能拼出绝对路径就返回 file:// URL；dataDir 未就绪或路径异常时返回相对路径
+    // （触发 <img onError> → readPhoto IPC base64 兜底）
     url: (relPath) => {
       if (!relPath || typeof relPath !== 'string') return ''
       const trimmed = relPath.trim()
@@ -83,20 +91,19 @@ contextBridge.exposeInMainWorld('lingguang', {
       if (/^(data:|https?:|file:)/i.test(trimmed)) return trimmed
       try {
         const dataDir = resolveDataDir()
+        if (!dataDir) {
+          // 主进程同步通道不可用，走相对路径 → onError → IPC 兜底
+          return trimmed
+        }
         const normalized = path.normalize(path.join(dataDir, trimmed))
         if (!normalized.startsWith(dataDir)) {
           console.warn('[photo.url] path escape rejected:', trimmed, 'dataDir:', dataDir)
           return ''
         }
-        if (!fs.existsSync(normalized)) {
-          console.warn('[photo.url] file not found:', normalized, '| dataDir:', dataDir, '| will fallback via IPC')
-          // 关键修复：返回原相对路径，让 <img onError> 触发，走 readPhoto IPC 兜底
-          return trimmed
-        }
-        return 'file://' + normalized.replace(/\\/g, '/')
+        return 'file:///' + normalized.replace(/\\/g, '/').replace(/^\/+/, '')
       } catch (e) {
-        console.warn('[photo.url] error:', e.message, '| relPath:', trimmed)
-        // 同上，返回相对路径触发兜底
+        console.warn('[photo.url] error:', e?.message, '| relPath:', trimmed)
+        // 返回相对路径触发兜底
         return trimmed
       }
     }

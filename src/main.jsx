@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useMemo, Component, useState } from 'react'
+import React, { Suspense, lazy, useMemo, Component, useState, useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
 import { MotionConfig } from 'framer-motion'
 import { I18nProvider } from './lib/i18n.jsx'
@@ -7,10 +7,27 @@ import './index.css'
 
 const App = lazy(() => import('./App.jsx'))
 
+// MotionConfig：统一全局过渡 + 接管「设置 → 动画」开关
+// reducedMotion="always" 会让 framer-motion 跳过 transform/layout 动画（保留 opacity），
+// 与 .no-anim CSS 类形成双保险：CSS 动画与 JS 动画都能被设置真正关闭
 const MotionConfigured = ({ children }) => {
+  const [animationsEnabled, setAnimationsEnabled] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('animationsEnabled') || 'true') } catch { return true }
+  })
   const config = useMemo(() => ({
-    transition: { duration: 0.18, ease: [0.25, 0.1, 0.25, 1.0] }
-  }), [])
+    transition: { duration: 0.18, ease: [0.25, 0.1, 0.25, 1.0] },
+    reducedMotion: animationsEnabled ? 'never' : 'always'
+  }), [animationsEnabled])
+
+  useEffect(() => {
+    const handler = (e) => {
+      const enabled = e?.detail?.enabled
+      if (typeof enabled === 'boolean') setAnimationsEnabled(enabled)
+    }
+    window.addEventListener('motion:change', handler)
+    return () => window.removeEventListener('motion:change', handler)
+  }, [])
+
   return <MotionConfig {...config}>{children}</MotionConfig>
 }
 

@@ -1,36 +1,9 @@
 // AI 视觉识别服务：调用用户配置的 OpenAI 兼容多模态大模型，识别图片中的物品信息
 // v1.2.15 起支持多供应商配置：settings.aiProviders[] + settings.aiSelectedId
 const crypto = require('crypto')
-
-const CATEGORY_ALIASES = {
-  electronic: ['electronics', '电子', '电子产品', '電子', '電子產品'],
-  food: ['foods', '食品', '食物'],
-  beverage: ['beverages', '饮料', '飲料', 'drink', 'drinks'],
-  daily: ['dailies', '日用品', 'daily necessities'],
-  kitchen: ['kitchens', '厨房用品', '廚房用品', 'kitchenware'],
-  cleaning: ['cleanings', '清洁用品', '清潔用品', 'cleaning supplies'],
-  medical: ['medicals', '医药', '醫藥', 'medicine', 'medicines', 'drug', 'drugs'],
-  stationery: ['stationeries', '文具', 'office supplies'],
-  tools: ['tool', '工具', 'hand tools', 'power tools'],
-  other: ['others', '其他', '其它', 'misc', 'miscellaneous']
-}
-
-function normalizeCategoryKey(raw, categories = []) {
-  if (!raw) return 'other'
-  const key = String(raw).trim().toLowerCase()
-  if (!key) return 'other'
-  const direct = categories.find((c) => c.key && c.key.toLowerCase() === key)
-  if (direct) return direct.key
-  for (const [canonical, aliases] of Object.entries(CATEGORY_ALIASES)) {
-    if (canonical.toLowerCase() === key) return canonical
-    if (aliases.includes(key)) return canonical
-  }
-  const byName = categories.find(
-    (c) => (c.name && c.name.toLowerCase() === key) || (c.name_en && c.name_en.toLowerCase() === key)
-  )
-  if (byName) return byName.key
-  return 'other'
-}
+// 分类归一化统一复用 data-utils（主进程唯一实现，避免与 main/api-server 行为漂移）：
+// 未命中时保留原始输入（可能是自定义分类名），由 ensureCategoriesFromItems 决定是否新建
+const { normalizeCategoryKey } = require('./data-utils')
 
 function extractJson(text) {
   if (!text) return null
@@ -83,7 +56,8 @@ function buildPrompt(categories) {
 function sanitizeSuggestion(item, categories) {
   return {
     name: String(item.name || '').trim() || '未识别物品',
-    category: normalizeCategoryKey(item.category, categories),
+    // 共享版 normalizeCategoryKey 对空输入返回 ''，AI 建议兜底到 other
+    category: normalizeCategoryKey(item.category, categories) || 'other',
     location: String(item.location || '').trim(),
     quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
     confidence: Math.min(1, Math.max(0, Number(item.confidence) || 0)),

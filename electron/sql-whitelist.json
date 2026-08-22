@@ -1,0 +1,23 @@
+[
+  "SELECT * FROM items ORDER BY CASE WHEN sort_order > 0 THEN 0 ELSE 1 END, sort_order ASC, updated_at DESC",
+  "SELECT id, name, item_no, room, position, location, quantity, min_quantity, category, expiry_date, consume_unit, photo_meta, created_at, updated_at FROM items ORDER BY CASE WHEN sort_order > 0 THEN 0 ELSE 1 END, sort_order ASC, updated_at DESC",
+  "SELECT * FROM items WHERE name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ? ORDER BY CASE WHEN sort_order > 0 THEN 0 ELSE 1 END, sort_order ASC, updated_at DESC",
+  "SELECT * FROM items WHERE category = ? ORDER BY CASE WHEN sort_order > 0 THEN 0 ELSE 1 END, sort_order ASC, updated_at DESC",
+  "SELECT * FROM items WHERE category = ? AND (name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?) ORDER BY CASE WHEN sort_order > 0 THEN 0 ELSE 1 END, sort_order ASC, updated_at DESC",
+  "SELECT * FROM items ORDER BY CASE WHEN sort_order > 0 THEN 0 ELSE 1 END, sort_order ASC, updated_at DESC LIMIT ? OFFSET ?",
+  "SELECT * FROM items WHERE category = ? ORDER BY CASE WHEN sort_order > 0 THEN 0 ELSE 1 END, sort_order ASC, updated_at DESC LIMIT ? OFFSET ?",
+  "SELECT * FROM items WHERE name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ? ORDER BY CASE WHEN sort_order > 0 THEN 0 ELSE 1 END, sort_order ASC, updated_at DESC LIMIT ? OFFSET ?",
+  "SELECT * FROM items WHERE category = ? AND (name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?) ORDER BY CASE WHEN sort_order > 0 THEN 0 ELSE 1 END, sort_order ASC, updated_at DESC LIMIT ? OFFSET ?",
+  "SELECT COUNT(*) AS cnt FROM items",
+  "SELECT COUNT(*) AS cnt FROM items WHERE category = ?",
+  "SELECT COUNT(*) AS cnt FROM items WHERE name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?",
+  "SELECT COUNT(*) AS cnt FROM items WHERE category = ? AND (name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?)",
+  "SELECT category, COUNT(*) as count FROM items GROUP BY category",
+  "SELECT position as name, COUNT(*) as count FROM items WHERE position != '' GROUP BY position",
+  "UPDATE items SET quantity = MAX(0, CAST(quantity AS INTEGER) + ?), updated_at = ? WHERE id = ?",
+  "DELETE FROM items WHERE id = ?",
+  "DELETE FROM items WHERE id IN (?)",
+  "UPDATE items SET category = ?, updated_at = ? WHERE id IN (?)",
+  "SELECT id, name, quantity, item_no, category, consume_rate, min_quantity, expiry_date, notes, location FROM items WHERE id IN (?)",
+  "SELECT id, name, quantity FROM items WHERE id IN (?)"
+]

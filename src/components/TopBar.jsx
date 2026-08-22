@@ -21,8 +21,7 @@ import {
   PanelLeftOpen,
   AlertTriangle,
   CalendarClock,
-  Bell,
-  LayoutGrid
+  Bell
 } from 'lucide-react'
 import { getCategoryIcon } from '../lib/categoryIcons'
 
@@ -49,6 +48,7 @@ export default function TopBar({
   total,
   lowStock,
   expiringSoon,
+  density = 'medium',
   onDensityChange,
   notifOn,
   onToggleNotif
@@ -284,14 +284,33 @@ export default function TopBar({
           {t('bulk_select')}
         </button>
 
-        <button
-          onClick={onDensityChange}
-          title={t('density_toggle')}
-          className="flex h-8 items-center gap-1 rounded-lg border border-border bg-surface/60 px-2.5 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
+        {/* 密度三段选择器：显式展示当前档位，替代原先的隐形循环按钮 */}
+        <div
+          className="flex h-8 items-center overflow-hidden rounded-lg border border-border bg-surface/60 p-0.5"
+          role="group"
+          aria-label={t('density_toggle')}
         >
-          <LayoutGrid size={14} />
-          {t('density_toggle')}
-        </button>
+          {[
+            { key: 'compact', label: t('density_compact') },
+            { key: 'medium', label: t('density_medium') },
+            { key: 'relaxed', label: t('density_relaxed') }
+          ].map((d) => (
+            <button
+              key={d.key}
+              onClick={() => onDensityChange(d.key)}
+              aria-pressed={density === d.key}
+              title={`${t('density_toggle')}: ${d.label}`}
+              className={cn(
+                'flex h-7 items-center rounded-md px-2 text-[11px] font-medium transition-smooth',
+                density === d.key
+                  ? 'bg-primary text-white shadow-sm'
+                  : 'text-text-tertiary hover:bg-surface-hover hover:text-text-primary'
+              )}
+            >
+              {d.label}
+            </button>
+          ))}
+        </div>
 
         <button
           onClick={onToggleNotif}

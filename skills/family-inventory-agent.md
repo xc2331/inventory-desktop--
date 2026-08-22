@@ -1,6 +1,6 @@
 # 家庭物资管家 · 中文友好版（Inv-Manage + UTF-8 REST Client）
 
-> 当前文档对应版本：**v1.2.18**（2026-08-06）。本版本将 Agent API 的图片 base64 从列表/详情响应中分离：默认返回 `hasPhoto` 布尔值，新增独立取图端点 `GET /api/items/:id/photo`，大幅减少 Agent 上下文长度。
+> 当前文档对应版本：**v1.7.2**（2026-08-22）。相对 v1.2.18 的变化：图片已从列表/详情响应分离（默认 `hasPhoto`，独立取图端点）；物品创建/更新与 UI 共用同一服务实现——`quantity`/`minQuantity` 负数自动截断为 0、支持 `notes` 与 `consume_*` 字段、传入 `createdAt` 会被保留；POST/PATCH 请求体上限 25MB；DELETE 返回 `200 {deleted: n}`（并非 204）。
 
 ## Overview
 
@@ -36,13 +36,10 @@
 | Base URL | `http://127.0.0.1:3001` |
 | Auth | `Authorization: Bearer <TOKEN>` |
 | Content-Type | `application/json; charset=utf-8` |
-| Binding | 仅 127.0.0.1（不对外暴露） |
+| Binding | 默认仅 127.0.0.1；若用户开启「暴露到局域网」则监听 0.0.0.0（用本机 IP 访问） |
 
-**本次会话 Token**（已验证有效）：
-```
-45628386f195932b66d5402c2d31d3b843e9e909ac01d4b7
-```
-> Token 变更时以用户最新告知为准；若返回 401，提示用户到「设置 → 外部 Agent 接口」重新复制或刷新。
+**Token**：向用户索取（「设置 → 外部 Agent 接口」可查看/复制），不要使用文档中的占位符。
+> 若返回 401，提示用户到「设置 → 外部 Agent 接口」重新复制或刷新。
 
 ---
 
@@ -51,21 +48,23 @@
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/status` | 应用状态、数据库路径 |
-| GET | `/api/items?keyword=...&category=...` | 物品列表（模糊搜索）。默认不含图片 base64，返回 `hasPhoto` 布尔值 |
-| GET | `/api/items/<id 或名称>` | 单个物品（精确 id 或模糊候选）。默认不含图片 |
+| GET | `/api/items?keyword=...&category=...` | 物品列表（模糊搜索）。默认不含图片 base64，返回 `hasPhoto` 布尔值；按 updatedAt 倒序（UI 拖拽排序不影响此顺序） |
+| GET | `/api/items/<id 或名称>` | 单个物品（精确 id 或模糊候选）。默认不含图片；`?includePhoto=true` 附带完整图片 |
 | GET | `/api/items/<id>/photo` | **独立获取物品图片 base64**（按需调用，避免上下文膨胀） |
-| POST | `/api/items` | 新建物品（可传 `photo` 字段设置图片） |
-| PATCH | `/api/items/<id>` | 更新物品（仅传要改的字段） |
-| DELETE | `/api/items/<id>` | 删除物品 |
+| POST | `/api/items` | 新建物品（可传 `photo`、`notes`、`consume_*` 等字段） |
+| PATCH | `/api/items/<id>` | 更新物品（仅传要改的字段；`quantity`/`minQuantity` 负数自动截断为 0） |
+| DELETE | `/api/items/<id>` | 删除物品，返回 `200 { "deleted": n }` |
 | GET | `/api/categories` | 分类列表 |
+| POST / PATCH / DELETE | `/api/categories[/<id>]` | 分类增改删（改 key 自动同步物品；删除后物品归入 other） |
+| POST | `/api/categories/merge` | 合并分类 `{fromKey, toKey}` |
 | GET | `/api/locations` | 位置列表 |
-| GET | `/api/e-materials?type=...&keyword=...` | **电子材料库**列表（v1.3.0.a 起）。默认不含图片 base64，`title` 带【电子材料】前缀 |
-| GET | `/api/e-materials/types` | **电子材料库类型列表**（v1.3.0.a 新增） |
-| PATCH | `/api/e-materials/types` | **电子材料库类型更新**（v1.3.0.a 新增） |
+| POST / PATCH / DELETE | `/api/locations[/<id>]` | 位置增改删（改名/删除自动同步物品引用，递归删除子节点） |
+| POST | `/api/locations/infer` | **位置层级推断**：自然语言位置 → 复用/创建位置树节点（Agent 收到位置描述应先调此接口） |
+| GET | `/api/e-materials?type=...&keyword=...` | **电子材料库**列表。默认不含图片 base64，`title` 带【电子材料】前缀 |
+| GET / PATCH | `/api/e-materials/types` | **电子材料库类型**列表 / 更新 |
 | GET | `/api/e-materials/<id>/photo` | **电子材料库图片** base64（按需调用） |
-| POST | `/api/e-materials` | 新建电子材料 |
-| PATCH | `/api/e-materials/<id>` | 更新电子材料 |
-| DELETE | `/api/e-materials/<id>` | 删除电子材料 |
+| POST / PATCH / DELETE | `/api/e-materials[/<id>]` | 电子材料增改删 |
+| POST | `/api/ai/recognize` | **AI 视觉识别**：传图片返回名称/分类/位置/数量建议（需用户已配置 AI 供应商，失败返回 502） |
 | GET | `/api/settings` | 设置信息 |
 
 > **图片分离说明（v1.2.17+）**：所有列表/详情接口默认返回 `hasPhoto: true/false` 而非 `photo` base64。如需完整图片，有两种方式：
@@ -84,7 +83,7 @@
 import urllib.request, json, sys, urllib.parse
 
 sys.stdout.reconfigure(encoding='utf-8')   # 让控制台正确显示中文
-token = "45628386f195932b66d5402c2d31d3b843e9e909ac01d4b7"
+token = "<用户提供的 TOKEN>"
 headers = {
     'Authorization': 'Bearer ' + token,
     'Content-Type': 'application/json; charset=utf-8'
@@ -137,7 +136,8 @@ print(json.dumps(json.loads(urllib.request.urlopen(req).read()),
 ```python
 req = urllib.request.Request(f'http://127.0.0.1:3001/api/items/{item_id}',
                              headers=headers, method='DELETE')
-print(urllib.request.urlopen(req).status)   # 204 表示成功
+print(json.loads(urllib.request.urlopen(req).read()))
+# 成功返回 200 与 {"deleted": 1}（注意：不是 204，响应体有内容）
 ```
 
 ---
@@ -201,7 +201,13 @@ print(urllib.request.urlopen(req).status)   # 204 表示成功
 ## 时间戳
 
 - `expiryDate`：**毫秒级** Unix 时间戳；`0` = 未设置。判断过期：`expiryDate < Date.now()`
-- `createdAt` / `updatedAt`：ISO 8601 字符串。
+- `createdAt` / `updatedAt`：响应中为 ISO 8601 字符串。**创建物品时若传入毫秒时间戳 `createdAt`，会被原样保留**（v1.7+，数据迁移场景可用）。
+
+## 数量字段约定（v1.7+）
+
+- `quantity` / `minQuantity` 会被服务端**截断为非负整数**（传 `-3` 存为 `0`）。
+- 消耗追踪字段使用下划线名：`consume_rate`、`consume_unit`、`consume_start_at`。
+- 想清零库存：直接 `PATCH { "quantity": 0 }`，不要传负数。
 
 ---
 
@@ -213,7 +219,8 @@ print(urllib.request.urlopen(req).status)   # 204 表示成功
 | 400 | 参数错误 | 通常缺 `name`，检查请求体 |
 | 401 | 未授权 | Token 错误/失效，提示用户重新提供 |
 | 404 | 资源不存在 | id 不对，重新搜索 |
-| 500 | 内部错误 | 看 message |
+| 500 | 内部错误 | 看 message（含请求体超 25MB 的 `payload too large`） |
+| 502 | AI 识别失败 | 仅 `/api/ai/recognize`：未配置供应商或模型返回异常，看 message |
 
 ---
 

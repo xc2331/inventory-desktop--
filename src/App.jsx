@@ -29,6 +29,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import ExpiryAlerts from './components/ExpiryAlerts'
 import {
   fetchAllItems,
+  fetchItemsMeta,
   searchItems,
   fetchByCategory,
   fetchByCategoryAndKeyword,
@@ -36,6 +37,7 @@ import {
   fetchCategories,
   fetchLocations,
   fetchStatistics,
+  setItemsOrder,
   createItem,
   updateItem,
   adjustQuantity,
@@ -101,6 +103,9 @@ export default function App() {
 
   // 全局异步错误兜底：捕获 useEffect、异步回调、Promise 未处理拒绝等 ErrorBoundary 捕获不到的错误
   useEffect(() => {
+    // 渲染进程启动信标：写入主进程 lingguang-render.log，供启动冒烟测试/白屏排查确认渲染层真正挂载
+    try { window.lingguang?.diag?.log?.('[App] renderer-boot-ok') } catch { /* ignore */ }
+
     const handler = (event) => {
       event.preventDefault()
       const msg = event.error?.message || String(event.error || 'Unknown error')
@@ -214,27 +219,12 @@ export default function App() {
     return items.filter((it) => locationMatchesPath(it, activeLocation))
   }, [items, activeLocation])
 
-  // 客户端拖拽排序：以 JSON string 形式缓存 items 顺序到 localStorage
-  const [itemOrder, setItemOrder] = useState(() => {
-    try {
-      const stored = localStorage.getItem('itemsSortOrder')
-      return stored ? JSON.parse(stored) : {}
-    } catch { return {} }
-  })
+  // 排序由数据库 sort_order 列承载（列表查询 ORDER BY 见 lib/api.js SQL 常量），
+  // 不再用 localStorage 存绝对下标 —— 旧方案在基础序（updated_at）变化后会拼出错乱排列。
+  const sortedItems = filteredItems
 
-  const sortedItems = useMemo(() => {
-    const idToIdx = {}
-    filteredItems.forEach((it, i) => { idToIdx[it.id] = i })
-    return [...filteredItems].sort((a, b) => {
-      const aIdx = itemOrder[a.id] ?? idToIdx[a.id]
-      const bIdx = itemOrder[b.id] ?? idToIdx[b.id]
-      return aIdx - bIdx
-    })
-  }, [filteredItems, itemOrder])
-
-  // 方案 A（修正版）：真正的两两交换。
-  // 拖拽结束时拿到被拖卡片的 id 和目标 index（按视觉网格计算），
-  // 只交换这两个 index 上的卡片顺序，其它卡片保持原位。
+  // 拖拽交换：互换两位置后把当前视图完整顺序物化写入 items.sort_order（主进程事务），
+  // 随后 reload 以新排序刷新列表。
   const handleSortItem = useCallback((targetId, targetIdx) => {
     const currentList = sortedItems
     const dragIdx = currentList.findIndex((it) => it.id === targetId)
@@ -242,16 +232,14 @@ export default function App() {
     if (targetIdx < 0 || targetIdx >= currentList.length || targetIdx === dragIdx) return
 
     const orderedIds = currentList.map((it) => it.id)
-    // 真正的交换：只互换 drag 和 target 两个位置
     const temp = orderedIds[dragIdx]
     orderedIds[dragIdx] = orderedIds[targetIdx]
     orderedIds[targetIdx] = temp
 
-    const newOrder = {}
-    orderedIds.forEach((id, i) => { newOrder[id] = i })
-    setItemOrder(newOrder)
-    try { localStorage.setItem('itemsSortOrder', JSON.stringify(newOrder)) } catch { /* ignore */ }
-  }, [sortedItems])
+    setItemsOrder(orderedIds)
+      .then(() => reload())
+      .catch((e) => console.warn('[App] 排序持久化失败:', e))
+  }, [sortedItems, reload])
 
   // Infinite scroll: auto-load next page when user scrolls near bottom of items grid
   const itemsGridRef = useRef(null)
@@ -295,7 +283,7 @@ export default function App() {
   })
 
   const exitBulkRef = useRef(null)
-  const lastNotifyCount = useRef(0)
+  const lastNotifiedIds = useRef(new Set())
   const [bulkReorderIds, setBulkReorderIds] = useState([])
 
   const selectedItemsArray = useMemo(
@@ -322,25 +310,36 @@ export default function App() {
 
     const intervalId = setInterval(async () => {
       try {
-        const all = await fetchAllItems()
+        // 轮询只需过期时间与名称，使用轻量元数据查询（不含 photo 大字段），
+        // 避免每分钟把整库 base64 图片在 IPC 上序列化一遍
+        const all = await fetchItemsMeta()
         const now = Date.now()
         const expired = all.filter((it) => it.expiry_date && it.expiry_date < now)
         const expiring = all.filter((it) => it.expiry_date && it.expiry_date >= now && it.expiry_date < now + 7 * 86400000)
         const list = expired.concat(expiring)
 
+        // 按物品 id 记忆已提醒集合，只对「新进入预警区」的物品发通知；
+        // 旧实现比较总数（处理一件又新增一件时数量不变 → 漏通知）
         if (
           typeof Notification !== 'undefined' &&
           Notification.permission === 'granted' &&
           notifyEnabled &&
-          list.length > 0 &&
-          list.length > lastNotifyCount.current
+          list.length > 0
         ) {
-          lastNotifyCount.current = list.length
-          const preview = list.slice(0, 3).map((it) => it.name || it.item_no || '—')
-          new Notification(t('notify_expiryTitle'), {
-            body: `${list.length} ${t('notify_expiryBody')} · ${preview.join('、')}`,
-            tag: 'expiry-' + Date.now()
-          })
+          const fresh = list.filter((it) => !lastNotifiedIds.current.has(it.id))
+          fresh.forEach((it) => lastNotifiedIds.current.add(it.id))
+          // 已离开预警区（被删除/延期）的 id 移出记忆，再次进入时可重新提醒
+          const currentIds = new Set(list.map((it) => it.id))
+          for (const id of lastNotifiedIds.current) {
+            if (!currentIds.has(id)) lastNotifiedIds.current.delete(id)
+          }
+          if (fresh.length > 0) {
+            const preview = fresh.slice(0, 3).map((it) => it.name || it.item_no || '—')
+            new Notification(t('notify_expiryTitle'), {
+              body: `${fresh.length} ${t('notify_expiryBody')} · ${preview.join('、')}`,
+              tag: 'expiry-' + Date.now()
+            })
+          }
         }
       } catch (e) {
         console.warn('[App] 过期通知检查失败', e)
@@ -921,7 +920,8 @@ export default function App() {
                     total={total}
                     lowStock={lowStock}
                     expiringSoon={expiringSoon}
-                    onDensityChange={() => setCardDensity((d) => d === 'compact' ? 'medium' : d === 'medium' ? 'relaxed' : 'compact')}
+                    density={cardDensity}
+                    onDensityChange={setCardDensity}
                     notifOn={notifyEnabled}
                     onToggleNotif={() => setNotifyEnabled((v) => !v)}
                   />
@@ -1084,9 +1084,26 @@ export default function App() {
   async function handleConfirmDelete() {
     const { id, name } = confirm
     setConfirm({ open: false, id: null, name: '' })
+    // 删除前留档完整行，供「撤销」按原 id 原样恢复
+    const snapshot = itemsHook.items.find((it) => it.id === id) ||
+      itemsHook.allItems.find((it) => it.id === id) || null
     try {
       await deleteItem(id)
-      showToast(t('toast_deleted', { name }))
+      showToast(t('toast_deleted', { name }), 'success', {
+        actionLabel: t('btn_undo'),
+        onAction: async () => {
+          try {
+            if (snapshot) {
+              await createItem({ ...snapshot, item_no: snapshot.item_no || snapshot.itemNo || '' })
+              await reload()
+              await refreshCounts()
+              showToast(t('toast_restored', { name: snapshot.name || name }))
+            }
+          } catch (e2) {
+            showToast(t('toast_saveFail', { msg: e2.message }), 'error')
+          }
+        }
+      })
       await reload()
       await refreshCounts()
     } catch (e) {

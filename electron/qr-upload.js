@@ -42,11 +42,30 @@ function getLocalIps() {
   return getInterfaceCandidates().map((c) => c.address)
 }
 
+// 上传体大小上限：超过即断开连接，防止局域网恶意大 body 耗尽内存
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+// 二维码有效期：启动 10 分钟后自动关闭服务，用户忘关弹窗不再长期暴露端口
+const QR_EXPIRE_MS = 10 * 60 * 1000
+
 function parseMultipart(req, boundary) {
   return new Promise((resolve, reject) => {
     const chunks = []
-    req.on('data', (c) => chunks.push(c))
+    let total = 0
+    let aborted = false
+    req.on('data', (c) => {
+      if (aborted) return
+      total += c.length
+      if (total > MAX_UPLOAD_BYTES) {
+        aborted = true
+        chunks.length = 0
+        reject(new Error('payload too large'))
+        req.destroy()
+        return
+      }
+      chunks.push(c)
+    })
     req.on('end', () => {
+      if (aborted) return
       const buffer = Buffer.concat(chunks)
       const boundaryBuf = Buffer.from('--' + boundary)
       const parts = []
@@ -89,11 +108,13 @@ class QRUploadServer {
     this.token = ''
     this.used = false
     this.receivedImage = null
+    this.expireTimer = null
   }
 
   start() {
     return new Promise((resolve, reject) => {
       if (this.server) {
+        this.scheduleExpire()
         resolve({ port: this.port, url: this.getUrl(), token: this.token, ips: getLocalIps() })
         return
       }
@@ -111,6 +132,7 @@ class QRUploadServer {
         this.port = this.server.address().port
         const info = { port: this.port, url: this.getUrl(), token: this.token, ips: getLocalIps() }
         console.log('[qr-upload] server started at', info.url)
+        this.scheduleExpire()
         resolve(info)
       }
       const onError = (e) => {
@@ -133,7 +155,21 @@ class QRUploadServer {
     })
   }
 
+  // 二维码有效期：超时自动关闭服务（token 一并失效），避免用户忘关弹窗长期暴露端口
+  scheduleExpire() {
+    clearTimeout(this.expireTimer)
+    this.expireTimer = setTimeout(() => {
+      if (this.server) {
+        console.log('[qr-upload] expired after', QR_EXPIRE_MS / 60000, 'min, stopping server')
+        this.stop()
+      }
+    }, QR_EXPIRE_MS)
+    if (this.expireTimer.unref) this.expireTimer.unref()
+  }
+
   stop() {
+    clearTimeout(this.expireTimer)
+    this.expireTimer = null
     if (this.server) {
       try {
         // 强制断开所有活跃连接，确保端口立即释放

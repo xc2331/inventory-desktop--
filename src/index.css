@@ -256,11 +256,54 @@ select {
   }
 }
 
-/* HTML 默认背景 = app 底色，避免加载白闪；跟随系统颜色模式 */
+/* HTML 默认背景 = app 底色，避免加载白闪。
+   dark 类由 public/theme-boot.js 在首帧前根据 localStorage 镜像（useSettings 维护）
+   或系统偏好同步设置；--color-bg 已在 .dark 令牌块中重定义，无需 media query */
 html, body { background-color: var(--color-bg, #fbfaf8); }
-@media (prefers-color-scheme: dark) {
-  html:not(.light), body:not(.light) { background-color: #0f172a; }
+html.dark, html.dark body { background-color: var(--color-bg, #0f172a); }
+
+/* 拖拽排序：放置目标高亮（ItemCard 原生拖拽在 pointermove 中切换该类） */
+.drag-target {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--color-primary-glow, rgba(16, 185, 129, 0.15));
+  transition: outline-color 0.12s ease, box-shadow 0.12s ease;
 }
+
+/* 预警圆点脉冲：纯 CSS（替代 framer-motion repeat:Infinity，减少 JS 动画节点），
+   并可被 .no-anim（设置→关闭动画）统一禁用 */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(1.35); }
+}
+.no-anim-pulse-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
+.no-anim .no-anim-pulse-dot { animation: none; }
+
+/* 骨架屏块：呼吸 + shimmer 流光，纯 CSS（可被 .no-anim 禁用，替代 framer-motion 逐节点动画） */
+@keyframes skel-breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+@keyframes skel-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+.skel-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.375rem;
+  background-color: var(--color-bg);
+  animation: skel-breathe 1.4s ease-in-out infinite;
+}
+.skel-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  animation: skel-shimmer 1.6s linear infinite;
+}
+.no-anim .skel-block,
+.no-anim .skel-block::after { animation: none; }
 
 /* 设置页关闭动效：禁用 Recharts SVG 动画 + framer-motion 过渡 */
 .no-anim .recharts-wrapper *,

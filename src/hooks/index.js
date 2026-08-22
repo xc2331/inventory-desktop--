@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { withError, safe } from '../lib/errorHandler'
 import {
   fetchAllItems,
+  fetchItemsMeta,
+  fetchQtyByIds,
   searchItems,
   fetchByCategory,
   fetchByCategoryAndKeyword,
@@ -43,7 +45,15 @@ export function useToasts() {
   const [queue, setQueue] = useState([])
 
   const showToast = useCallback((message, type = 'success', opts) => {
-    const item = { message, type, id: Date.now() + Math.random(), targetId: opts?.targetId || null }
+    // 透传 targetId（定位条目）与 action（撤销等操作按钮）到 Toast 组件
+    const item = {
+      message,
+      type,
+      id: Date.now() + Math.random(),
+      targetId: opts?.targetId || null,
+      actionLabel: opts?.actionLabel || null,
+      onAction: typeof opts?.onAction === 'function' ? opts.onAction : null
+    }
     if (toast) {
       setQueue((q) => {
         if (q.length >= MAX_STACK) return q
@@ -199,11 +209,16 @@ export function useSettings(getSettings, setSettingsFn, applyThemeClass) {
       const initialTheme = s.theme || 'light'
       setTheme(initialTheme)
       if (applyThemeClass) applyThemeClass(initialTheme)
+      // 主题镜像到 localStorage，供 index.html 内联脚本在首帧前同步设置 dark 类（防白闪）
+      try { localStorage.setItem('theme', initialTheme) } catch { /* ignore */ }
       const anim = s.animations !== false
       setAnimations(anim)
+      try { localStorage.setItem('animationsEnabled', JSON.stringify(anim)) } catch { /* ignore */ }
       if (typeof document !== 'undefined' && document.documentElement) {
         document.documentElement.classList.toggle('no-anim', !anim)
       }
+      // 通知 MotionConfig（main.jsx）同步 reducedMotion
+      window.dispatchEvent(new CustomEvent('motion:change', { detail: { enabled: anim } }))
       setCloseAction(s.closeAction || '')
       if (s.language) setLang(s.language)
     }).catch(() => { /* ignore init failure */ })
@@ -229,14 +244,17 @@ export function useSettings(getSettings, setSettingsFn, applyThemeClass) {
     if (setSettingsFn) await setSettingsFn({ theme: nextTheme })
     setTheme(nextTheme)
     if (applyThemeClass) applyThemeClass(nextTheme)
+    try { localStorage.setItem('theme', nextTheme) } catch { /* ignore */ }
   }, [setSettingsFn, applyThemeClass])
 
   const handleChangeAnimations = useCallback(async (on) => {
     if (setSettingsFn) await setSettingsFn({ animations: on })
     setAnimations(on)
+    try { localStorage.setItem('animationsEnabled', JSON.stringify(on)) } catch { /* ignore */ }
     if (typeof document !== 'undefined' && document.documentElement) {
       document.documentElement.classList.toggle('no-anim', !on)
     }
+    window.dispatchEvent(new CustomEvent('motion:change', { detail: { enabled: on } }))
   }, [setSettingsFn])
 
   const handleChangeCloseAction = useCallback(async (action) => {
@@ -245,8 +263,9 @@ export function useSettings(getSettings, setSettingsFn, applyThemeClass) {
   }, [setSettingsFn])
 
   useEffect(() => {
+    // 统计页预热只用轻量元数据（不含 photo 大字段），降低启动 IPC 序列化开销
     Promise.allSettled([
-      fetchAllItems().then((all) => {
+      fetchItemsMeta().then((all) => {
         setWarmItems(all)
         return { items: all }
       }),
@@ -359,6 +378,8 @@ export function useItems(deps) {
         const [rowsFetched, totalFetched, allItemsFromDB] = await Promise.all([
           fetchItemsPaged(0, PAGE_SIZE, opts),
           fetchItemsTotal(opts),
+          // allItems 供位置树计数/位置地图缩略图使用：地图 ItemThumb 需要 photo，
+          // 其余大字段（notes）不需要；此处保持全量列以兼容地图缩略图
           fetchAllItems()
         ])
         rows = rowsFetched
@@ -372,6 +393,12 @@ export function useItems(deps) {
         setPaginationLoadedIds(new Set(rowsFetched.map((it) => it.id)))
         setItems(rowsFetched)
       }
+    } catch (e) {
+      // 瞬态错误（IPC 忙、数据库短暂锁等）降级为 toast 提示，保持现有列表数据，
+      // 不再冒泡为 unhandledrejection 触发全屏错误页
+      console.error('[useItems] fetchItems failed:', e)
+      const { showToast: st, t: tx } = depsRef.current
+      if (st) st(tx ? tx('toast_loadFail', { msg: e?.message || '' }) : '加载失败，请稍后重试', 'error')
     } finally {
       setLoadingItems(false)
     }
@@ -559,10 +586,8 @@ export function useItems(deps) {
     if (ids.length === 0) return
     try {
       const changed = []
-      const rows = await dbQuery(
-        `SELECT id, name, quantity FROM items WHERE id IN (${ids.map(() => '?').join(',')})`,
-        ids
-      )
+      // SQL 收敛在 api 层（走主进程白名单），hooks 不再拼语句
+      const rows = await fetchQtyByIds(ids)
       for (const r of rows) {
         const cur = Number(r.quantity) || 0
         const next = op === '+' ? cur + value : op === '-' ? Math.max(0, cur - value) : value
@@ -716,8 +741,19 @@ export function useItems(deps) {
     try {
       const res = await openFile({ filters: [{ name: 'JSON', extensions: ['json'] }] })
       if (res.canceled) return
-      const { imported } = await importJSON(res.content)
-      if (showToast) showToast(t ? t('toast_imported', { n: imported }) : `Imported ${imported}`)
+      // 导入模式二选一：合并（按 id 更新/新增，保留现有数据，默认推荐）/ 覆盖（清空重灌）
+      const merge = !window.confirm(
+        (t ? t('import_confirmOverwrite') : '是否覆盖导入？\n\n「确定」= 覆盖：清空现有物品后导入\n「取消」= 合并：保留现有数据，按编号合并')
+      )
+      const result = await importJSON(res.content, merge ? 'merge' : 'replace')
+      const n = result?.imported ?? 0
+      if (showToast) {
+        if (merge) {
+          showToast(t ? t('toast_importedMerge', { n, u: result?.updated ?? 0, a: result?.inserted ?? 0 }) : `Merged ${n}`)
+        } else {
+          showToast(t ? t('toast_imported', { n }) : `Imported ${n}`)
+        }
+      }
       await reload()
       await refreshCategories()
       await refreshLocations()

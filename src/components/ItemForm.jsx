@@ -341,7 +341,10 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
           setPhotoPreview(result.data)
           setPhotoMeta({ size: result.sizeKB * 1024, type: 'image/webp' })
           try {
-            const relPath = await savePhoto(result.data, 'qr-photo')
+            // 每次上传必须用唯一文件名：此前固定 'qr-photo' 会被下一次扫码传图覆盖，
+            // 导致多个物品指向同一张图（刷新后图片变一样的根因）
+            const uniqueName = `qr-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+            const relPath = await savePhoto(result.data, uniqueName)
             setForm((f) => ({ ...f, photo: relPath }))
           } catch {
             setForm((f) => ({ ...f, photo: result.data }))

@@ -1,5 +1,7 @@
 # Family Inventory Agent API
 
+> 当前文档对应版本：**v1.7.2**（2026-08-22）。
+
 软件启动后会在本地回环地址 `127.0.0.1:3001` 启动一个 HTTP 服务，供外部 Agent / 脚本管理物品数据。
 
 ## 鉴权
@@ -10,7 +12,9 @@
 Authorization: Bearer <your-token>
 ```
 
-Token 可在「设置 → 外部 Agent 接口」中查看、复制或刷新。
+Token 可在「设置 → 外部 Agent 接口」中查看、复制或刷新。比较采用常量时间算法（无计时侧信道）。
+
+**请求体限制**：POST/PATCH 请求体上限 **25MB**，超限请求失败（`message: "payload too large"`）。
 
 ## 接口列表
 
@@ -31,12 +35,16 @@ GET /api/items?keyword=牛奶&category=food
 支持查询参数：
 - `keyword`：按名称/编号/位置模糊搜索
 - `category`：按分类 key 过滤
+- `includePhoto=true`：响应中的每个物品附带完整 `photo` 字段（默认只返回 `hasPhoto` 布尔值，避免 base64 撑爆 Agent 上下文）
+
+列表按 `updatedAt` 倒序返回。注意：用户在界面里手动拖拽的自定义排序**不影响** Agent 接口的返回顺序。
 
 ### 获取单个物品（支持模糊搜索）
 
 ```http
 GET /api/items/<id>
 GET /api/items/牛奶
+GET /api/items/<id>?includePhoto=true   # 附带完整图片
 ```
 
 优先按 `id` 精确匹配；若未命中，则按名称或编号模糊搜索，返回候选列表：
@@ -47,6 +55,14 @@ GET /api/items/牛奶
   "candidates": [{...}, {...}]
 }
 ```
+
+### 获取物品图片
+
+```http
+GET /api/items/<id>/photo
+```
+
+返回 `{ "id": "...", "photo": "data:image/webp;base64,..." }`（或空串）。列表/详情默认不带图片，需要看图时按需调用本接口。
 
 ### 创建物品
 
@@ -65,13 +81,16 @@ Content-Type: application/json
 
 字段说明：
 - `name`（必填）
-- `quantity`：数量，默认 0
-- `minQuantity`：最低库存
-- `category`：分类 key，支持中文别名（如 `"食品"` 会自动归一化为 `food`）
+- `quantity`：数量，默认 0。**负数会被自动截断为 0**（v1.7+）
+- `minQuantity`：最低库存，同样非负截断
+- `category`：分类 key，支持中文别名（如 `"食品"` 会自动归一化为 `food`）；未匹配到现有分类时保留原值并自动创建该分类
 - `location`：**推荐**。层级位置，使用 `>` 分隔（也支持 `/`、`→`），例如 `"厨房 > 冰箱 > 冷藏室"`。系统会自动把每一层同步到位置树。
 - `room` / `position`：当没有 `location` 时使用，组合成两层位置。
-- `photo`：图片路径/URL
+- `photo`：图片路径/URL/data URL
 - `expiryDate`：过期时间毫秒时间戳
+- `notes`：备注（v1.7+ 创建/更新均支持）
+- `consumeRate` / `consume_unit` 等消耗追踪字段：使用数据库原字段名（`consume_rate`、`consume_unit`、`consume_start_at`，下划线形式）
+- `createdAt` / `updatedAt`：创建时若传入毫秒时间戳则原样保留（v1.7+，用于数据恢复/迁移场景）；不传则取当前时间
 
 创建/更新成功后，响应体包含 `sync.categories` 和 `sync.locations`，表示本次新增的分类和位置数量。
 
@@ -283,12 +302,21 @@ GET /api/e-materials?type=url&keyword=教程
 
 - `type`：按类型过滤，可选 `note`、`url`、`photo`、`recipe`、`tutorial`、`doc`、`other`
 - `keyword`：按标题/内容/标签模糊搜索
+- `includePhoto=true`：附带完整 `photo` 字段（默认仅 `hasPhoto` 布尔值）
 
 #### 获取单个材料
 
 ```http
 GET /api/e-materials/<id>
 ```
+
+#### 获取材料图片
+
+```http
+GET /api/e-materials/<id>/photo
+```
+
+返回 `{ "id": "...", "photo": "data:image/...;base64,..." }`，按需取图。
 
 #### 创建材料
 
@@ -325,6 +353,27 @@ Content-Type: application/json
 ```http
 DELETE /api/e-materials/<id>
 ```
+
+### AI 视觉识别（v1.2.5+）
+
+```http
+POST /api/ai/recognize
+Content-Type: application/json
+
+{ "image": "data:image/webp;base64,..." }
+```
+
+`image`（或 `photo`）支持 data URL / http(s) URL / 本地绝对路径。调用用户在「设置 → AI 视觉识别」配置的多模态模型，返回识别建议：
+
+```json
+{
+  "suggestions": [
+    { "name": "薯片", "category": "food", "location": "厨房 > 零食柜", "quantity": 1, "confidence": 0.9, "note": "..." }
+  ]
+}
+```
+
+未配置 AI 供应商或识别失败时返回 `502`（`message` 含原因）。建议仅为参考值，Agent 应经用户确认后再调用创建接口入库。
 
 ### 设置信息
 
@@ -363,6 +412,8 @@ print(r.json())
 
 ## 安全提示
 
-- 服务仅绑定 `127.0.0.1`，不会暴露到局域网或公网。
-- Token 存储在 `%APPDATA%/Family Inventory/settings.json` 中，请勿泄露。
+- 默认仅绑定 `127.0.0.1`；在「设置 → 外部 Agent 接口」开启「暴露到局域网」后会监听 `0.0.0.0`，**同一局域网内任何知道 Token 的设备都可访问**，请仅在可信网络开启。
+- Token 存储在 `%APPDATA%/family-inventory/settings.json`（注意目录为小写）中，请勿泄露。
 - 刷新 Token 后，旧 Token 会立即失效。
+- POST/PATCH 请求体上限 25MB。
+- 所有 SQL 参数化执行；接口无法访问数据库以外的本地文件。
