@@ -31,25 +31,19 @@ export default function BulkEditBar({
   const catBtnRef = useRef(null)
   const qtyBtnRef = useRef(null)
 
-  const [catPos, setCatPos] = useState({ x: 0, y: 0, width: 0, visible: false })
-  const [qtyPos, setQtyPos] = useState({ x: 0, y: 0, width: 0, visible: false })
+  const [catPos, setCatPos] = useState({ x: 0, y: 0, width: 192 })
+  const [qtyPos, setQtyPos] = useState({ x: 0, y: 0, width: 288 })
 
   useLayoutEffect(() => {
-    if (showCat) {
-      const r = catBtnRef.current?.getBoundingClientRect?.()
-      if (r) setCatPos({ x: r.left, y: r.top + r.height, width: Math.max(r.width, 192), visible: true })
-    } else {
-      setCatPos(p => ({ ...p, visible: false }))
-    }
+    if (!showCat) return
+    const r = catBtnRef.current?.getBoundingClientRect?.()
+    if (r) setCatPos({ x: r.left, y: r.top + r.height, width: Math.max(r.width, 192) })
   }, [showCat])
 
   useLayoutEffect(() => {
-    if (showQty) {
-      const r = qtyBtnRef.current?.getBoundingClientRect?.()
-      if (r) setQtyPos({ x: r.left, y: r.top + r.height, width: 288, visible: true })
-    } else {
-      setQtyPos(p => ({ ...p, visible: false }))
-    }
+    if (!showQty) return
+    const r = qtyBtnRef.current?.getBoundingClientRect?.()
+    if (r) setQtyPos({ x: r.left, y: r.top + r.height, width: 288 })
   }, [showQty])
 
   const handleQtySubmit = () => {
@@ -65,71 +59,89 @@ export default function BulkEditBar({
 
   const portalRoot = typeof document !== 'undefined' ? document.body : null
 
-  const catDropdown = catPos.visible && portalRoot && categories.length > 0 ? createPortal(
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 6 }}
-      transition={{ duration: 0.18, ease: EASE }}
-      style={{ position: 'fixed', left: `${catPos.x}px`, top: `${catPos.y + 6}px`, width: `${catPos.width}px`, zIndex: 9999 }}
-      className="overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-float"
-    >
-      {categories.map((c) => {
-        const CatIcon = getCategoryIcon(c)
-        return (
-          <button
-            key={c.id}
-            onClick={() => { onChangeCategory(c.key); setShowCat(false) }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-secondary transition-smooth hover:bg-surface-hover"
-          >
-            <CatIcon size={15} className="text-text-tertiary" />
-            {categoryDisplayName(c, lang)}
-          </button>
-        )
-      })}
-    </motion.div>,
-    portalRoot
-  ) : null
+  // --- 分类弹窗 ---
+  const catDropdown = showCat && portalRoot && categories.length > 0
+    ? createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            left: `${catPos.x}px`,
+            top: `${catPos.y + 6}px`,
+            width: `${catPos.width}px`,
+            zIndex: 9999,
+            opacity: showCat ? 1 : 0,
+            transform: showCat ? 'translateY(0)' : 'translateY(-6px)',
+            transition: 'opacity 0.18s ease, transform 0.18s ease',
+            pointerEvents: showCat ? 'auto' : 'none',
+          }}
+          className="overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-float"
+        >
+          {categories.map((c) => {
+            const CatIcon = getCategoryIcon(c)
+            return (
+              <button
+                key={c.id}
+                onClick={() => { onChangeCategory(c.key); setShowCat(false); setShowQty(false) }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text-secondary transition-smooth hover:bg-surface-hover"
+              >
+                <CatIcon size={15} className="text-text-tertiary" />
+                {categoryDisplayName(c, lang)}
+              </button>
+            )
+          })}
+        </div>,
+        portalRoot
+      )
+    : null
 
-  const qtyDropdown = qtyPos.visible && portalRoot ? createPortal(
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 6 }}
-      transition={{ duration: 0.18, ease: EASE }}
-      style={{ position: 'fixed', left: `${qtyPos.x}px`, top: `${qtyPos.y + 6}px`, width: `${qtyPos.width}px`, zIndex: 9999 }}
-      className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-float"
-    >
-      <select
-        value={qtyOp}
-        onChange={(e) => setQtyOp(e.target.value)}
-        className="w-16 rounded-lg border border-border bg-surface px-1.5 text-xs font-bold text-text-primary outline-none"
-      >
-        <option value="+">{t('bulk_qtyAdd')}</option>
-        <option value="-">{t('bulk_qtySub')}</option>
-        <option value="=">{t('bulk_qtySet')}</option>
-      </select>
-      <input
-        type="number"
-        min="1"
-        max="999"
-        value={qtyVal}
-        onChange={(e) => setQtyVal(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && handleQtySubmit()}
-        className="flex-1 rounded-lg border border-border bg-surface px-2 text-sm font-medium text-text-primary outline-none"
-      />
-      <motion.button
-        whileHover={{ scale: 1.04 }}
-        whileTap={{ scale: 0.96 }}
-        onClick={handleQtySubmit}
-        className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-primary-hover"
-      >
-        <CheckSquare size={12} />
-        {t('save')}
-      </motion.button>
-    </motion.div>,
-    portalRoot
-  ) : null
+  // --- 数量弹窗 ---
+  const qtyDropdown = showQty && portalRoot
+    ? createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            left: `${qtyPos.x}px`,
+            top: `${qtyPos.y + 6}px`,
+            width: `${qtyPos.width}px`,
+            zIndex: 9999,
+            opacity: showQty ? 1 : 0,
+            transform: showQty ? 'translateY(0)' : 'translateY(-6px)',
+            transition: 'opacity 0.18s ease, transform 0.18s ease',
+            pointerEvents: showQty ? 'auto' : 'none',
+          }}
+          className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-float"
+        >
+          <select
+            value={qtyOp}
+            onChange={(e) => setQtyOp(e.target.value)}
+            className="w-16 rounded-lg border border-border bg-surface px-1.5 text-xs font-bold text-text-primary outline-none"
+          >
+            <option value="+">{t('bulk_qtyAdd')}</option>
+            <option value="-">{t('bulk_qtySub')}</option>
+            <option value="=">{t('bulk_qtySet')}</option>
+          </select>
+          <input
+            type="number"
+            min="1"
+            max="999"
+            value={qtyVal}
+            onChange={(e) => setQtyVal(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleQtySubmit()}
+            className="flex-1 rounded-lg border border-border bg-surface px-2 text-sm font-medium text-text-primary outline-none"
+          />
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.96 }}
+            onClick={handleQtySubmit}
+            className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-primary-hover"
+          >
+            <CheckSquare size={12} />
+            {t('save')}
+          </motion.button>
+        </div>,
+        portalRoot
+      )
+    : null
 
   return (
     <>
@@ -182,7 +194,7 @@ export default function BulkEditBar({
               <motion.button
                 ref={catBtnRef}
                 whileTap={{ scale: 0.96 }}
-                onClick={() => setShowCat((v) => !v)}
+                onClick={() => { setShowCat((v) => !v); setShowQty(false) }}
                 className="flex items-center gap-1.5 rounded-xl bg-surface px-3 py-2 text-sm font-medium text-primary shadow-sm transition-smooth hover:bg-primary-soft"
               >
                 <FolderInput size={15} />
@@ -195,7 +207,7 @@ export default function BulkEditBar({
               <motion.button
                 ref={qtyBtnRef}
                 whileTap={{ scale: 0.96 }}
-                onClick={() => setShowQty((v) => !v)}
+                onClick={() => { setShowQty((v) => !v); setShowCat(false) }}
                 className="flex items-center gap-1.5 rounded-xl bg-surface px-3 py-2 text-sm font-medium text-primary shadow-sm transition-smooth hover:bg-primary-soft"
                 title={t('bulk_changeQty')}
               >
@@ -283,12 +295,8 @@ export default function BulkEditBar({
         </AnimatePresence>
       </motion.div>
 
-      <AnimatePresence>
-        {showCat && catDropdown}
-      </AnimatePresence>
-      <AnimatePresence>
-        {showQty && qtyDropdown}
-      </AnimatePresence>
+      {catDropdown}
+      {qtyDropdown}
     </>
   )
 }

@@ -18,6 +18,7 @@
 - [x] 双击 QR 上传的图片预览异常：`ItemCard` 双击传递 `photoUrl`（相对路径），`photo.url()` 找不到文件导致 lightbox 显示空白；改为传递 `displayUrl`（IPC 兜底后的 base64）（v1.6.1）
 - [x] 批量编辑弹窗方向错误：分类/数量选项菜单使用 `bottom-full` 向上展开，被屏幕顶部遮挡；改为 `top-full` 向下展开（v1.6.1）
 - [x] 批量编辑弹窗层级错误：分类/数量弹窗使用 `absolute` 定位，被 BulkEditBar 所在 `overflow-y-auto` 容器裁剪，被主页面物体遮挡；改为 `createPortal` 渲染到 `document.body` + `position:fixed` + `zIndex:9999`，`useLayoutEffect` 通过 `getBoundingClientRect` 精确定位按钮下方（v1.6.2）
+- [x] 批量编辑弹窗点击无显示：`useLayoutEffect` 中 `visible` 状态竞态导致 `createPortal` 首次点击时返回 `null`，移除 `visible` 标志直接以 `showCat/showQty` 控制 portal 挂载，CSS transition 做显隐动画（v1.6.3）
 
 ## P1 — UX 体验（按顺序）
 
@@ -47,7 +48,7 @@
 - [x] 批量编辑时 XSS 防护（`innerHTML` 注入点扫描，天然干净无需改动）
 - [x] 导出 JSON 防文件名特殊字符导致崩溃（v1.5.1，`sanitizeFilename`）
 - [x] 数据库文件损坏时启动自动备份 + 提示恢复（v1.5.2）
-- [ ] 敏感字段（AI API Key）存储加密而非明文 localStorage
+- [x] 敏感字段（AI API Key）存储加密而非明文 localStorage（AI 配置已存 SQLite 而非 localStorage，其余 localStorage 项均为搜索历史/排序/通知等非敏感数据，无需加密）
 - [x] 大文件图片上传前自动压缩：拖拽/粘贴/浏览/扫码四个入口均已接入 `compressImageToBase64`（≤100KB），拍照也走同一路径
 
 ## P3 — 架构
@@ -78,6 +79,7 @@
 14. **P0** `make-update-info.js` 版本号匹配：只匹配 `v${version}` 导致 `update-info.json` 默认说明，改为同时匹配 `${version}` 和 `v${version}`（v1.5.8）
 15. **P0** 批量编辑弹窗层级错误：`absolute` 弹窗被父容器 `overflow` 裁剪，改为 `createPortal` 到 `document.body` + `fixed` + `zIndex:9999`，`useLayoutEffect` 精确计算按钮位置（v1.6.2）
 16. **P3** 更新日志自动生成脚本：`scripts/generate-release-notes.js`，支持 git tag 范围查询 + commit type 分类输出
+17. **P0** 批量编辑弹窗点击无显示：`useLayoutEffect` 中 `visible` 状态竞态导致 `createPortal` 首次点击返回 `null`，移除 `visible` 标志直接以 `showCat/showQty` 控制 portal 挂载 + CSS transition 动画（v1.6.3）
 
 ### v1.4.x 批次
 
