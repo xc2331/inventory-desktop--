@@ -17,6 +17,7 @@
 - [x] README changelog 排序修复：v1.5.x 条目从 v1.2.16 上方移动到 v1.3.x 上方，v1.4.x 条目展开（v1.6.0）
 - [x] 双击 QR 上传的图片预览异常：`ItemCard` 双击传递 `photoUrl`（相对路径），`photo.url()` 找不到文件导致 lightbox 显示空白；改为传递 `displayUrl`（IPC 兜底后的 base64）（v1.6.1）
 - [x] 批量编辑弹窗方向错误：分类/数量选项菜单使用 `bottom-full` 向上展开，被屏幕顶部遮挡；改为 `top-full` 向下展开（v1.6.1）
+- [x] 批量编辑弹窗层级错误：分类/数量弹窗使用 `absolute` 定位，被 BulkEditBar 所在 `overflow-y-auto` 容器裁剪，被主页面物体遮挡；改为 `createPortal` 渲染到 `document.body` + `position:fixed` + `zIndex:9999`，`useLayoutEffect` 通过 `getBoundingClientRect` 精确定位按钮下方（v1.6.2）
 
 ## P1 — UX 体验（按顺序）
 
@@ -55,7 +56,7 @@
 - [ ] 引入 Zustand 或 Redux Toolkit 替代全局 Context 嵌套
 - [ ] SQL 查询统一走 `db/query.js` 单入口（目前散落在多处）
 - [ ] 测试：Vitest 单元 + Playwright E2E（至少覆盖 CRUD + 搜索 + 批量编辑）
-- [ ] 更新日志自动生成（git tag → 脚本 → release notes）
+- [x] 更新日志自动生成：`scripts/generate-release-notes.js` 从 git tag 自动生成 changelog markdown（支持范围指定、按 commit type 分类、输出 docs/），用法 `node scripts/generate-release-notes.js [from] [to]`
 
 ## 完成清单
 
@@ -75,6 +76,8 @@
 12. **UX-10** 图片预览缩放：双击缩放循环 + 滚轮缩放 + 键盘平移 + 触屏捏合
 13. **P0** 图片不显示（QR 扫码/粘贴/浏览/拖拽）：`photo.url()` 文件未找到时返回空字符串，跳过 IPC 兜底；改为返回相对路径触发 `<img onError>` 后走 `readPhoto` IPC 兜底，同时增加详细 `console.warn` 调试日志（v1.5.8）
 14. **P0** `make-update-info.js` 版本号匹配：只匹配 `v${version}` 导致 `update-info.json` 默认说明，改为同时匹配 `${version}` 和 `v${version}`（v1.5.8）
+15. **P0** 批量编辑弹窗层级错误：`absolute` 弹窗被父容器 `overflow` 裁剪，改为 `createPortal` 到 `document.body` + `fixed` + `zIndex:9999`，`useLayoutEffect` 精确计算按钮位置（v1.6.2）
+16. **P3** 更新日志自动生成脚本：`scripts/generate-release-notes.js`，支持 git tag 范围查询 + commit type 分类输出
 
 ### v1.4.x 批次
 
@@ -92,5 +95,5 @@
 ### 版本策略说明
 
 - 「满9进1」：1.3.0~1.3.9 后 → 1.4.0；1.4.0~1.4.9 后 → 1.5.0；1.5.0~1.5.9 后 → 1.6.0
-- 当前版本：**1.6.1**（构建完成，exe 74.8MB 已复制到项目根目录）
+- 当前版本：**1.6.2**（构建完成，exe 74.8MB 已复制到项目根目录）
 - 构建输出目录：`release-v19-v169`
