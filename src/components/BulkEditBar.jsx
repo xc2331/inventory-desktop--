@@ -100,11 +100,11 @@ export default function BulkEditBar({
             <AnimatePresence>
               {showCat && (
                 <motion.div
-                  initial={{ opacity: 0, y: -6 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
+                  exit={{ opacity: 0, y: 8 }}
                   transition={{ duration: 0.18, ease: EASE }}
-                  className="absolute bottom-full right-0 z-30 mb-1.5 w-48 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-float"
+                  className="absolute top-full right-0 z-30 mt-1.5 w-48 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-float"
                 >
                   {categories.map((c) => {
                     const CatIcon = getCategoryIcon(c)
@@ -141,11 +141,11 @@ export default function BulkEditBar({
             <AnimatePresence>
               {showQty && (
                 <motion.div
-                  initial={{ opacity: 0, y: -6 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
+                  exit={{ opacity: 0, y: 8 }}
                   transition={{ duration: 0.18, ease: EASE }}
-                  className="absolute bottom-full right-0 z-30 mb-1.5 flex w-72 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-float"
+                  className="absolute top-full right-0 z-30 mt-1.5 flex w-72 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-float"
                 >
                   <select
                     value={qtyOp}

@@ -223,7 +223,9 @@ export default function ItemCard({
   }
 
   const handleDoubleClick = () => {
-    if (hasPhoto && onDoubleClick) onDoubleClick(photoUrl, item.name)
+    // 使用 displayUrl（可能已通过 readPhoto 兜底转为 base64），确保 lightbox 能正常显示
+    // 仅当 displayUrl 有值且不是当前 photoUrl（说明兜底成功）时，兜底数据才是可显示的
+    if (hasPhoto && onDoubleClick) onDoubleClick(displayUrl || photoUrl, item.name)
   }
 
   const baseHover = isExpired ? cardHover : {

@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.6.1",
+    "date": "2026-08-21",
+    "type": "bugfix",
+    "summary": "修复双击 QR 图片预览异常 + 批量编辑弹窗方向错误",
+    "features": [
+      "ItemCard 双击预览传递 displayUrl 而非 photoUrl，确保 lightbox 能正确显示 QR 上传的图片",
+      "批量编辑分类/数量选项菜单从 bottom-full 改为 top-full 向下展开，不再被屏幕顶部遮挡",
+      "todo-list P2 敏感字段条目清理：AI 配置已存入 SQLite，字段级 AES 加密延后到 P3"
+    ]
+  },
+  {
     "version": "1.6.0",
     "date": "2026-08-21",
     "type": "release",

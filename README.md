@@ -314,7 +314,8 @@ inventory-desktop/
 
 ## 最近更新
 
-- **v1.6.0**：满9进1版本汇总；README changelog 排序修复
+- **v1.6.1**：修复双击 QR 图片预览异常（ItemCard 传递 displayUrl 而非 photoUrl）；批量编辑分类/数量弹窗方向修正（bottom-full→top-full 向下展开）
+- **v1.6.0**：满9进1版本汇总；README changelog 排序修复；todo-list 清理
 - **v1.5.9**：深度修复 QR 扫码图片不显示（ItemCard readPhoto 兜底后清除 imgErr；photo:read 自动匹配 MIME 类型）；新增诊断脚本
 - **v1.5.8**：深度修复物品图片不显示（QR 扫码/粘贴/浏览/拖拽四入口全覆盖），photo.url() 增加 IPC 兜底 + 调试日志
 - **v1.5.7**：修复 TDZ 白屏（ItemCard photoUrl 声明顺序）；AI 识别逐字段应用；图片预览即时反馈
