@@ -313,12 +313,48 @@ function MaterialLibraryInner({ onBack }) {
     setToast({ message, type, id: Date.now() })
   }, [])
 
+  // 迁移旧版字符串数组 materialTypes → 对象数组
+  const CUSTOM_DEFAULT_COLORS = ['violet', 'orange', 'teal', 'rose', 'amber', 'cyan', 'lime', 'indigo']
+  const CUSTOM_DEFAULT_ICONS = ['FileText', 'Globe', 'FolderOpen', 'BookOpen', 'Clipboard', 'Calendar', 'Heart', 'Star']
+
+  function migrateMaterialTypes(savedTypes) {
+    const defaultById = {}
+    DEFAULT_MATERIAL_TYPES.forEach((t) => { defaultById[t.id] = t })
+
+    let customIdx = 0
+    const migrated = savedTypes.map((item) => {
+      if (typeof item === 'string') {
+        const def = defaultById[item]
+        if (def) return def
+        // 自定义类型：随机 icon/color
+        const idx = customIdx++ % CUSTOM_DEFAULT_COLORS.length
+        return {
+          id: item,
+          name: { zh: item, en: item },
+          icon: CUSTOM_DEFAULT_ICONS[idx],
+          color: CUSTOM_DEFAULT_COLORS[idx]
+        }
+      }
+      return item
+    })
+
+    const changed = JSON.stringify(migrated) !== JSON.stringify(savedTypes)
+    return { migrated, changed }
+  }
+
   useEffect(() => {
     getSettings().then((s) => {
       if (!s) return
       const savedTypes = s.materialTypes
       if (Array.isArray(savedTypes) && savedTypes.length > 0) {
-        setMaterialTypes(savedTypes)
+        const { migrated, changed } = migrateMaterialTypes(savedTypes)
+        if (changed) {
+          setSettings({ materialTypes: migrated }).then(() => {
+            setMaterialTypes(migrated)
+          }).catch(() => { setMaterialTypes(migrated) })
+          return
+        }
+        setMaterialTypes(migrated)
       }
       const action = s.materialDoubleClickAction
       if (action === 'openFile' || action === 'openFolder' || action === 'ask') {
