@@ -780,7 +780,7 @@ function createWindow() {
     width: 1320,
     height: 880,
     minWidth: 1280,
-    minHeight: 720,
+    minHeight: 640,
     frame: false,
     title: '家庭物资管家',
     icon: ICON_PATH,

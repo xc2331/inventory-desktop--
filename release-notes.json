@@ -5,13 +5,13 @@
     "type": "fix",
     "summary": "修复窄窗口下窗口控制按钮（最小化/最大化/关闭）被顶栏内容遮挡的问题",
     "features": [
-      "最小窗口宽度 960px → 1280px，最小高度 640px → 720px，确保顶栏搜索框、统计徽章、操作按钮与窗口控制区共存不被遮挡",
+      "最小窗口宽度 960px → 1280px（解决窄窗口顶栏遮挡窗口控制按钮），最小高度调整为 640px（适配 1280×720 / 1366×768 小屏笔记本）",
       "窗口控制按钮区域增加固定宽度保护，不再随左侧内容挤压",
       "低配机器/小屏幕也可正常收缩到合理最小值，避免误触窗口控制按钮"
     ],
     "fixes": [],
     "changelog": [
-      "electron/main.js: BrowserWindow minWidth 960→1280, minHeight 640→720"
+      "electron/main.js: BrowserWindow minWidth 960→1280, minHeight adjusted to 640 (小屏适配)"
     ]
   },
   {
