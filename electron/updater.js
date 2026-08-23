@@ -2,19 +2,11 @@
 // 设计目标：国内用户优先走 Gitee，海外用户走 GitHub；任一源失败时自动尝试下一源。
 const { app, ipcMain, dialog, shell } = require('electron')
 const https = require('https')
+const http = require('http')
 const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
 const { spawn } = require('child_process')
-
-// 更新器仅允许 https：http 明文链路上的 exe 可被劫持替换（SHA-512 与 exe 同源下载，
-// 校验无法防御中间人同时替换两者）。自定义镜像地址也必须是 https。
-function httpClientFor(url) {
-  if (typeof url !== 'string' || !url.startsWith('https:')) {
-    throw new Error(`不安全的更新源（仅支持 https）: ${String(url).slice(0, 80)}`)
-  }
-  return https
-}
 
 // ========== 仓库配置 ==========
 // Gitee 配置可通过环境变量 GITEE_OWNER / GITEE_REPO 覆盖，方便不同开发者使用
@@ -187,7 +179,7 @@ function humanizeUpdateError(err, context = 'check', allFailed = false) {
 
 function fetchJson(url, timeout = 15000) {
   return new Promise((resolve, reject) => {
-    const client = httpClientFor(url)
+    const client = url.startsWith('https:') ? https : http
     let settled = false
     let req = null
 
@@ -263,7 +255,7 @@ function fetchJson(url, timeout = 15000) {
 
 function fetchText(url, timeout = 15000) {
   return new Promise((resolve, reject) => {
-    const client = httpClientFor(url)
+    const client = url.startsWith('https:') ? https : http
     let settled = false
     let req = null
 
@@ -335,7 +327,7 @@ function fetchText(url, timeout = 15000) {
 
 function downloadFile(url, dest, onProgress, timeout = 120000, abortRef = null) {
   return new Promise((resolve, reject) => {
-    const client = httpClientFor(url)
+    const client = url.startsWith('https:') ? https : http
     const file = fs.createWriteStream(dest)
     let settled = false
     let req = null

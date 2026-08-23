@@ -10,6 +10,7 @@ import { tsToDateInput, dateInputToTs } from '../lib/utils'
 import { EASE, EASE_SPRING } from '../lib/motion'
 import { cn } from '../lib/cn'
 import { AIRecognitionPanel } from './AIRecognitionPanel'
+import QRImage from './QRImage'
 
 const shakeKeyframes = `
 @keyframes field-shake {
@@ -71,6 +72,15 @@ const EMPTY = {
   _locId: ''
 }
 
+// 可库存类目：必须填写位置。key 必须与 DEFAULT_CATEGORIES 一致 ——
+// 此前误写 household/supplies/medicine（不存在或拼写错，medicine 实为 medical），
+// 导致位置必填规则对真实分类从不生效
+const STOCK_CATEGORY_KEYS = new Set([
+  'food', 'beverage', 'daily', 'kitchen', 'cleaning', 'medical', 'tools'
+])
+
+const requiresLocation = (categoryKey) => STOCK_CATEGORY_KEYS.has(categoryKey)
+
 export default function ItemForm({ initial, categories, locations, lang, onSave, onClose }) {
   const { t } = useI18n()
   const [form, setForm] = useState(() => {
@@ -99,10 +109,11 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     setTouched((t) => ({ ...t, [key]: true }))
     const e = {}
     const f = form
+    const needLoc = requiresLocation(form.category)
     if (key === 'name' && !f.name.trim()) e.name = t('err_nameRequired')
     if (key === 'category' && !f.category) e.category = t('err_categoryRequired')
-    if (key === 'room' && (form.category === 'household' || form.category === 'kitchen' || form.category === 'tools' || form.category === 'cleaning' || form.category === 'supplies' || form.category === 'food' || form.category === 'medicine') && !f.room.trim()) e.room = t('err_roomRequired')
-    if (key === 'position' && (form.category === 'household' || form.category === 'kitchen' || form.category === 'tools' || form.category === 'cleaning' || form.category === 'supplies' || form.category === 'food' || form.category === 'medicine') && !f.position.trim()) e.position = t('err_positionRequired')
+    if (key === 'room' && needLoc && !f.room.trim()) e.room = t('err_roomRequired')
+    if (key === 'position' && needLoc && !f.position.trim()) e.position = t('err_positionRequired')
     if (key === 'quantity' && Number(f.quantity) < 1) e.quantity = t('err_quantityMin')
     setErrors((prev) => ({ ...prev, ...e }))
     if (e[key]) {
@@ -137,27 +148,28 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   }, [])
 
   // 单张上传进度（粘贴 / 浏览 / AI 识别），压缩期间从 10% 逐步走到 90%，完成后跳到 100%
-  const singleProgressRef = { current: 0, timer: null, done: false }
+  // 必须用 useRef：此前是普通对象，每次渲染重建导致定时器句柄丢失、进度条卡死
+  const singleProgressRef = useRef({ current: 0, timer: null, done: false })
 
   function startSingleProgress() {
-    singleProgressRef.current = 10
-    singleProgressRef.done = false
+    singleProgressRef.current.value = 10
+    singleProgressRef.current.done = false
     setSingleProgress(10)
-    clearInterval(singleProgressRef.timer)
-    singleProgressRef.timer = setInterval(() => {
-      if (singleProgressRef.done) return
-      singleProgressRef.current = Math.min(90, singleProgressRef.current + 10)
-      setSingleProgress(singleProgressRef.current)
+    clearInterval(singleProgressRef.current.timer)
+    singleProgressRef.current.timer = setInterval(() => {
+      if (singleProgressRef.current.done) return
+      singleProgressRef.current.value = Math.min(90, singleProgressRef.current.value + 10)
+      setSingleProgress(singleProgressRef.current.value)
     }, 180)
   }
   function finishSingleProgress() {
-    singleProgressRef.done = true
-    clearInterval(singleProgressRef.timer)
+    singleProgressRef.current.done = true
+    clearInterval(singleProgressRef.current.timer)
     setSingleProgress(100)
   }
   function resetSingleProgress() {
-    singleProgressRef.done = false
-    clearInterval(singleProgressRef.timer)
+    singleProgressRef.current.done = false
+    clearInterval(singleProgressRef.current.timer)
     setSingleProgress(0)
   }
 
@@ -182,7 +194,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     }
     window.addEventListener('paste', handlePaste)
     return () => {
-      clearInterval(singleProgressRef.timer)
+      clearInterval(singleProgressRef.current.timer)
       window.removeEventListener('paste', handlePaste)
     }
   }, [])
@@ -479,8 +491,8 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     const errs = {}
     if (!form.name.trim()) errs.name = t('err_nameRequired')
     if (!form.category) errs.category = t('err_categoryRequired')
-    // 可库存类目强制位置字段
-    if (form.category === 'household' || form.category === 'kitchen' || form.category === 'tools' || form.category === 'cleaning' || form.category === 'supplies' || form.category === 'food' || form.category === 'medicine') {
+    // 可库存类目强制位置字段（key 见 STOCK_CATEGORY_KEYS）
+    if (requiresLocation(form.category)) {
       if (!form.room.trim()) errs.room = t('err_roomRequired')
       if (!form.position.trim()) errs.position = t('err_positionRequired')
     }
@@ -795,11 +807,8 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
 
                   {qrState.url && (
                     <div className="flex items-center gap-4 rounded-xl bg-bg p-3">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrState.url)}`}
-                        alt="QR"
-                        className="h-24 w-24 rounded-lg ring-1 ring-border"
-                      />
+                      {/* 本地离线生成二维码：不再把含 token 的上传地址发给第三方服务 */}
+                      <QRImage url={qrState.url} width={96} className="h-24 w-24 shrink-0" />
                       <div className="flex-1">
                         <p className="text-xs font-medium text-text-secondary">{t('qrUpload_title')}</p>
                         <p className="mt-1 text-[11px] text-text-tertiary">{t('qrUpload_desc')}</p>

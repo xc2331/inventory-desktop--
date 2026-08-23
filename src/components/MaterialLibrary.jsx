@@ -23,6 +23,7 @@ import {
 import { useI18n } from '../lib/i18n'
 import { EASE, EASE_SPRING } from '../lib/motion'
 import { cn } from '../lib/cn'
+import QRImage from './QRImage'
 import {
   fetchMaterials,
   createMaterial,
@@ -1870,7 +1871,7 @@ function MaterialForm({ initial, materialTypes, onSave, onClose }) {
                 </div>
                 {qrState.url && (
                   <div className="flex items-center gap-4 rounded-xl bg-surface-hover p-3">
-                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrState.url)}`} alt="QR" className="h-24 w-24 rounded-lg ring-1 ring-border" />
+                    <QRImage url={qrState.url} width={96} className="h-24 w-24 shrink-0" />
                     <div className="flex-1">
                       <p className="text-xs font-medium text-text-secondary">{t('qrUpload_title')}</p>
                       <p className="mt-1 text-[11px] text-text-tertiary">{t('qrUpload_desc')}</p>

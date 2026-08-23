@@ -28,6 +28,7 @@ import {
 import { useI18n } from '../lib/i18n'
 import { EASE } from '../lib/motion'
 import { cn } from '../lib/cn'
+import QRImage from './QRImage'
 import {
   fetchFloorPlan,
   saveFloorPlan,
@@ -1357,11 +1358,7 @@ function FloorPlanEditorInner({ locationId, locationName, locations, items, onBa
 
             {qrDialog.url ? (
               <div className="flex items-center gap-4 rounded-xl bg-bg p-3">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(qrDialog.url)}`}
-                  alt="QR"
-                  className="h-28 w-28 rounded-lg ring-1 ring-border"
-                />
+                <QRImage url={qrDialog.url} width={112} className="h-28 w-28 shrink-0" />
                 <div className="flex-1">
                   <p className={cn('text-xs font-medium', qrDialog.status === 'success' ? 'text-primary' : 'text-text-secondary')}>
                     {qrDialog.status === 'success' ? t('qrUpload_success') : t('qrUpload_waiting')}

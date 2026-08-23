@@ -779,8 +779,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1320,
     height: 880,
-    minWidth: 960,
-    minHeight: 640,
+    minWidth: 1280,
+    minHeight: 720,
     frame: false,
     title: '家庭物资管家',
     icon: ICON_PATH,

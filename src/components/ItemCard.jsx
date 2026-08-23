@@ -318,6 +318,12 @@ export default function ItemCard({
     .filter((x, i, a) => x && a.indexOf(x) === i)
     .join(' · ')
 
+  // 多图支持（photo 字段可能以 \n 存多张路径）：封面取第一张，其余计数徽章
+  const photoList = (item.photo || '').split('\n').map((p) => p.trim()).filter(Boolean)
+  const photoCount = photoList.length
+  const coverPhoto = photoList[0] || ''
+  const hasPhoto = photoUrl && !imgErr
+
   const hasPhoto = displayUrl && !imgErr
   const CategoryIcon = getCategoryIcon(cat)
 

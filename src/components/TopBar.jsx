@@ -147,7 +147,7 @@ export default function TopBar({
       </div>
 
       {/* 搜索框 (U-03：焦点态强化 + 匹配数 badge + 关键词高亮预留) */}
-      <div className="group no-drag relative mx-auto flex w-full max-w-xl flex-1 px-2">
+      <div className="group no-drag relative mx-auto flex w-full max-w-xl min-w-0 flex-1 px-2">
         <Search
           size={15}
           className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-text-tertiary transition-all duration-300 group-focus-within:text-primary group-focus-within:scale-110"
