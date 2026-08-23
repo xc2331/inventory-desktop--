@@ -322,7 +322,6 @@ export default function ItemCard({
   const photoList = (item.photo || '').split('\n').map((p) => p.trim()).filter(Boolean)
   const photoCount = photoList.length
   const coverPhoto = photoList[0] || ''
-  const hasPhoto = photoUrl && !imgErr
 
   const hasPhoto = displayUrl && !imgErr
   const CategoryIcon = getCategoryIcon(cat)
