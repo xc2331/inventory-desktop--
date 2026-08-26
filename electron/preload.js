@@ -132,7 +132,11 @@ contextBridge.exposeInMainWorld('lingguang', {
     setConfig: (patch) => ipcRenderer.invoke('ai:setConfig', patch),
     recognize: (image) => ipcRenderer.invoke('ai:recognize', { image }),
     fetchModels: (opts) => ipcRenderer.invoke('ai:fetchModels', opts || {}),
-    testConnection: (opts) => ipcRenderer.invoke('ai:testConnection', opts || {})
+    testConnection: (opts) => ipcRenderer.invoke('ai:testConnection', opts || {}),
+    // OCR：识别图片中所有文字，写入 item_ocr / material_ocr 独立表
+    // image 可选；不传则用对应记录已存的 photo
+    ocrItem: ({ id, image } = {}) => ipcRenderer.invoke('ai:ocrItem', { id, image }),
+    ocrMaterial: ({ id, image } = {}) => ipcRenderer.invoke('ai:ocrMaterial', { id, image })
   },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),

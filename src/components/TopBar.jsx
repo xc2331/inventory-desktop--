@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useI18n } from '../lib/i18n'
 import { categoryDisplayName, winControl } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -65,6 +66,18 @@ export default function TopBar({
     }
   })
   const inputRef = useRef(null)
+  const historyMenuRef = useRef(null)
+  const exportBtnRef = useRef(null)
+  const [historyPos, setHistoryPos] = useState({ left: 0, top: 0, width: 280 })
+  const [exportPos, setExportPos] = useState({ left: 0, top: 0 })
+
+  // 当搜索框聚焦或 history 变化时，计算下拉菜单位置（createPortal 到 body 需要 fixed 坐标）
+  useEffect(() => {
+    if (focused && !keyword && history.length > 0 && inputRef.current) {
+      const r = inputRef.current.getBoundingClientRect()
+      setHistoryPos({ left: r.left, top: r.bottom + 4, width: r.width })
+    }
+  }, [focused, keyword, history])
 
   // 保存搜索历史到 localStorage
   useEffect(() => {
@@ -179,9 +192,15 @@ export default function TopBar({
               {matchCount}
             </span>
             <button
+              type="button"
+              onMouseDown={(e) => {
+                // 防止 onBlur 先于 onClick 触发导致按钮被卸载（修复"按 3 次才清空"）
+                e.preventDefault()
+              }}
               onClick={() => {
                 if (keyword) addToHistory(keyword)
                 onKeywordChange('')
+                inputRef.current?.focus()
               }}
               className="absolute right-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full text-text-tertiary transition hover:bg-danger hover:text-white"
               title={t('search_clear')}
@@ -195,8 +214,11 @@ export default function TopBar({
           </span>
         )}
         {/* 搜索历史下拉（U-12：仅当输入聚焦且关键词为空时显示） */}
-        {focused && !keyword && history.length > 0 && (
-          <div className="absolute left-2 right-2 top-[calc(100%+0.25rem)] z-50 rounded-xl border border-border bg-surface p-1.5 shadow-float">
+        {focused && !keyword && history.length > 0 && createPortal(
+          <div
+            ref={historyMenuRef}
+            className="fixed z-[9999] min-w-[260px] max-w-[420px] rounded-xl border border-border bg-surface p-1.5 shadow-float"
+            style={{ left: historyPos.left, top: historyPos.top, width: historyPos.width }}>
             <div className="px-3 py-1.5 text-[10px] font-medium text-text-tertiary">{t('search_history')}</div>
             {history.map((h, i) => (
               <button
@@ -212,7 +234,8 @@ export default function TopBar({
                 <span className="truncate">{h}</span>
               </button>
             ))}
-          </div>
+          </div>,
+          document.body
         )}
       </div>
 
@@ -220,15 +243,26 @@ export default function TopBar({
       <div className="no-drag flex shrink-0 items-center gap-1.5">
         <div className="relative">
           <button
-            onClick={() => setExportOpen((v) => !v)}
+            ref={exportBtnRef}
+            onClick={() => {
+              setExportOpen((v) => {
+                if (!v && exportBtnRef.current) {
+                  const r = exportBtnRef.current.getBoundingClientRect()
+                  setExportPos({ left: r.right - 176, top: r.bottom + 6 })
+                }
+                return !v
+              })
+            }}
             onBlur={() => setTimeout(() => setExportOpen(false), 150)}
             className="flex h-8 items-center gap-1 rounded-lg border border-border bg-surface/60 px-2.5 text-xs font-medium text-text-secondary transition-smooth hover:bg-surface-hover hover:text-text-primary"
           >
             <Download size={14} />
             <ChevronDown size={12} className={cn('transition-transform', exportOpen && 'rotate-180')} />
           </button>
-          {exportOpen && (
-            <div className="absolute right-0 top-full z-40 mt-1.5 w-44 overflow-hidden rounded-xl border border-border bg-surface p-1.5 shadow-float">
+          {exportOpen && createPortal(
+            <div
+              className="fixed z-[9999] w-44 overflow-hidden rounded-xl border border-border bg-surface p-1.5 shadow-float"
+              style={{ left: exportPos.left, top: exportPos.top }}>
               <button
                 onMouseDown={onImport}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-text-secondary transition hover:bg-surface-hover"
@@ -266,7 +300,8 @@ export default function TopBar({
                 <AlertTriangle size={14} className="text-amber-500" />
                 {t('export_report')}
               </button>
-            </div>
+            </div>,
+            document.body
           )}
         </div>
 

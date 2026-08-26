@@ -1,4 +1,4 @@
-﻿// 前端数据访问层：封装 window.lingguang preload API
+// 前端数据访问层：封装 window.lingguang preload API
 // 延迟取值：模块加载时 preload 可能尚未注入，用递归 Proxy 包装，
 // 实际调用时才读取 window.lingguang，避免顶层引用导致白屏崩溃
 function buildProxy(basePath) {
@@ -567,6 +567,16 @@ export async function setAIConfig(patch) {
 
 export async function recognizeImageWithAI(image) {
   return api.ai.recognize(image)
+}
+
+// OCR：识别图片中所有文字，写入 item_ocr / material_ocr 独立表
+// 返回 { ok, text, error }
+export async function ocrItem({ id, image } = {}) {
+  return api.ai.ocrItem({ id, image })
+}
+
+export async function ocrMaterial({ id, image } = {}) {
+  return api.ai.ocrMaterial({ id, image })
 }
 
 export async function fetchAIModels(providerId) {

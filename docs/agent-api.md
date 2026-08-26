@@ -1,6 +1,6 @@
 # Family Inventory Agent API
 
-> 当前文档对应版本：**v1.7.2**（2026-08-22）。
+> 当前文档对应版本：**v1.7.9**（2026-08-26）。
 
 软件启动后会在本地回环地址 `127.0.0.1:3001` 启动一个 HTTP 服务，供外部 Agent / 脚本管理物品数据。
 
@@ -26,6 +26,39 @@ GET /api/status
 
 返回当前数据库路径、数据目录等基本信息。
 
+**v1.7.5+** 响应新增 `health` 字段（数据库健康检查）：
+
+```json
+{
+  "app": "Family Inventory Agent API",
+  "version": "1.8.0",
+  "dbPath": "...",
+  "dataDir": "...",
+  "timestamp": 1234567890000,
+  "health": {
+    "ok": true,
+    "integrity": "ok",
+    "items": 123,
+    "materials": 45,
+    "locations": 31,
+    "categories": 14,
+    "indexes": [
+      "idx_items_created_at",
+      "idx_items_expiry_date",
+      "idx_materials_event_end",
+      "idx_materials_event_start",
+      "idx_materials_updated_at",
+      "..."
+    ],
+    "message": "数据库健康（items=123, materials=45, locations=31, categories=14）"
+  }
+}
+```
+
+- `ok: false` 时 `integrity` 字段会写具体异常（`PRAGMA integrity_check` 返回值）
+- `indexes` 数组（v1.7.8+）列出所有 `sqlite_master` 里的用户索引名（自动排除 `sqlite_%` 内部索引）。Agent 校验"日期范围索引是否建好"时直接读这个数组即可，无需自己跑 `EXPLAIN`。
+- Agent 启动时建议先 `GET /api/status` 探活，确认 `health.ok === true`
+
 ### 物品列表
 
 ```http
@@ -33,11 +66,46 @@ GET /api/items?keyword=牛奶&category=food
 ```
 
 支持查询参数：
-- `keyword`：按名称/编号/位置模糊搜索
+- `keyword`：按名称/编号/位置/标签/OCR 文字做 FTS5 全文搜索（v1.8.0+；零命中回退 LIKE）。多个关键字按空格分词为 `term*` 前缀通配符组合，例如 `发票 保单` 等价于 `发票* AND 保单*`。
 - `category`：按分类 key 过滤
 - `includePhoto=true`：响应中的每个物品附带完整 `photo` 字段（默认只返回 `hasPhoto` 布尔值，避免 base64 撑爆 Agent 上下文）
 
 列表按 `updatedAt` 倒序返回。注意：用户在界面里手动拖拽的自定义排序**不影响** Agent 接口的返回顺序。
+
+#### v1.7.8+ 列表分页
+
+物品 / 材料 / 分类 / 位置 四个列表端点都支持分页查询参数：
+
+- `page`：从 1 开始的页码，默认 `1`（不传时不分页）
+- `limit`：每页条数，默认 `100`，上限 `500`（防单请求爆内存）
+
+**不传 `page` / `limit` 时**：保持 v1.7.7 之前的行为，响应体**只**包含列表字段（不返回 `pagination`），老 Agent 代码无感。
+
+**传了任一参数时**：响应体多一个 `pagination` 字段：
+
+```json
+{
+  "items": [{ "id": "..." }, { "id": "..." }],
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "total": 1234,
+    "totalPages": 25,
+    "hasMore": true
+  }
+}
+```
+
+适用端点：
+
+| 端点 | 列表字段 | 关键过滤参数 |
+|---|---|---|
+| `GET /api/items` | `items` | `keyword`, `category` |
+| `GET /api/materials` | `materials` | `type`, `keyword`, `tag`, `startDate`, `endDate` |
+| `GET /api/categories` | `categories` | （无过滤） |
+| `GET /api/locations` | `locations` | （无过滤） |
+
+**最佳实践**：Agent 一次性拉全表前先读 `/api/status` 的 `health.items` / `health.materials` 知道总数，再决定要不要分页拉。`total > 500` 时建议按页拉，避免单次响应体过大。
 
 ### 获取单个物品（支持模糊搜索）
 
@@ -293,7 +361,7 @@ Content-Type: application/json
 #### 列出材料
 
 ```http
-GET /api/e-materials?type=url&keyword=教程
+GET /api/e-materials?type=url&keyword=教程&startDate=2024-01-01&endDate=2024-12-31&tag=奖项
 ```
 
 > 注意：响应体中 `title` 字段带 `【电子材料】` 前缀，与实物库存（`/api/items`）明确区分。
@@ -301,8 +369,31 @@ GET /api/e-materials?type=url&keyword=教程
 支持查询参数：
 
 - `type`：按类型过滤，可选 `note`、`url`、`photo`、`recipe`、`tutorial`、`doc`、`other`
-- `keyword`：按标题/内容/标签模糊搜索
+- `keyword`：按标题/内容/标签/OCR 文字做 FTS5 全文搜索（v1.8.0+；零命中回退 LIKE）。
+- `startDate` / `endDate`：按材料事件时间范围过滤（ISO 日期，如 `2024-01-01`），对应字段 `eventStartDate` / `eventEndDate`
+- `tag`：按单个标签模糊匹配
 - `includePhoto=true`：附带完整 `photo` 字段（默认仅 `hasPhoto` 布尔值）
+
+材料响应示例：
+
+```json
+{
+  "id": "...",
+  "type": "photo",
+  "title": "【电子材料】2024 年度优秀员工证书",
+  "content": "",
+  "url": "",
+  "tags": ["奖项", "个人", "2024"],
+  "hasPhoto": true,
+  "meta": "",
+  "eventStartDate": "2024-01-01",
+  "eventEndDate": "2024-12-31",
+  "createdAt": "2024-12-31T16:00:00.000Z",
+  "updatedAt": "2024-12-31T16:00:00.000Z"
+}
+```
+
+> v1.7.4 更新：`tags` 统一返回数组；存储层兼容旧版逗号分隔字符串，写接口同时接受数组或逗号字符串。
 
 #### 获取单个材料
 
@@ -331,11 +422,13 @@ Content-Type: application/json
   "url": "https://tailwindcss.com",
   "tags": ["css", "frontend"],
   "photo": "",
-  "meta": ""
+  "meta": "",
+  "eventStartDate": "2024-01-01",
+  "eventEndDate": "2024-12-31"
 }
 ```
 
-`title` 必填；`type` 默认为 `note`；`tags` 支持数组或逗号字符串。
+`title` 必填；`type` 默认为 `note`；`tags` 支持数组或逗号字符串；`eventStartDate` / `eventEndDate` 为可选 ISO 日期。
 
 #### 更新材料
 
@@ -375,6 +468,117 @@ Content-Type: application/json
 
 未配置 AI 供应商或识别失败时返回 `502`（`message` 含原因）。建议仅为参考值，Agent 应经用户确认后再调用创建接口入库。
 
+### 图片 OCR（v1.7.9+）
+
+识别物品或电子材料照片里的文字（票据/说明书/保单/保质期/合同等），结果存入独立表并可用于 `keyword` 搜索。
+
+#### 识别物品照片文字
+
+```http
+POST /api/items/<id>/ocr
+Content-Type: application/json
+
+{ "image": "data:image/webp;base64,..." }
+```
+
+- `image` 可选；不传则使用物品已保存的 `photo`。
+- 成功返回：`{ "id": "...", "ocr_text": "...", "ocr_at": 1234567890000 }`
+- 失败返回：`400`（无图）、`404`（物品不存在）、`502`（OCR 失败）。
+
+#### 读取物品 OCR 结果
+
+```http
+GET /api/items/<id>/ocr
+```
+
+返回：`{ "id": "...", "ocr_text": "...", "ocr_at": 1234567890000 }`。
+
+若该物品尚未识别，返回 `ocr_text` 为空串、`ocr_at` 为 `0`，**不**返回 `404`。
+
+#### 识别电子材料照片文字
+
+```http
+POST /api/e-materials/<id>/ocr
+Content-Type: application/json
+
+{ "image": "data:image/webp;base64,..." }
+```
+
+参数与物品 OCR 相同。
+
+#### 读取电子材料 OCR 结果
+
+```http
+GET /api/e-materials/<id>/ocr
+```
+
+#### 通过 keyword 搜索 OCR 文字
+
+`GET /api/items?keyword=保质期` 与 `GET /api/e-materials?keyword=合同编号` 现在会同时搜索已识别的照片文字。
+
+存储说明（Agent 无需关心，仅供排查）：
+- 物品 OCR 结果存在 `item_ocr` 表，`item_id` 外键关联 `items.id`。
+- 电子材料 OCR 结果存在 `material_ocr` 表，`material_id` 外键关联 `materials.id`。
+- 删除物品/材料时，级联删除对应 OCR 记录。
+
+### 全文搜索 FTS5（v1.8.0+）
+
+物品库（`items`）与电子材料库（`materials`）各有一张 FTS5 虚表：
+
+- `items_fts(id, name, item_no, room, position, location, notes, tags, ocr_text)`
+- `materials_fts(id, title, content, tags, ocr_text)`
+
+主表 `items` / `materials` 的 INSERT/UPDATE/DELETE 通过触发器自动同步到虚表；OCR 文本（`item_ocr` / `material_ocr`）的写入也会同步更新虚表的 `ocr_text` 列。
+
+**query 行为（v1.8.2+ 召回率优化）**
+
+1. 关键字按空格分词，每词加 `term*` 前缀通配符；
+2. **v1.8.2+**：`ftsUnionLikeSearch()` 同时跑 FTS5 MATCH + LIKE `%...%` 求并集（`id IN (FTS5) OR id IN (LIKE)`），处理中文单字 / 词干场景的召回；`keyword` 中 `%` / `_` 用 `ESCAPE '\\'` 转义防注入；
+3. FTS5 零命中或表达式触发 syntax error 时回退 LIKE（兼容 unicode61 中文边界、特殊字符等场景）；
+4. LIMIT 200 防爆，超过请用分页参数 `page` / `pageSize`。
+
+**老库兼容**
+
+v1.8.0 启动时自动 `SELECT * FROM items/materials` + `LEFT JOIN item_ocr/material_ocr` 把已有数据全量回填到 FTS5 虚表（每库执行一次，幂等）；
+
+**启动期 FTS5 自维护（v1.8.3+）**
+
+`backfillFtsFromMainTables` 末尾对 `items_fts` / `materials_fts` 依次跑：
+
+1. FTS5 内部 `optimize` 命令：整理倒排索引碎片（删除/更新频繁时回收空间），失败 console.warn 不影响启动；
+2. FTS5 内部 `integrity-check` 命令：验证虚表内部结构一致；损坏时抛 `SQLITE_CORRUPT_VTAB` 被捕获并 console.warn 告警；正常则 `global.__ftsHealth` 标记为 `{ items_fts_check: 'ok', materials_fts_check: 'ok' }`。
+
+**FTS5 健康端点（v1.8.4+）**
+
+`GET /api/fts-health`：返回虚表自维护结果，便于外部探针 / Agent 监测。
+
+```http
+GET /api/fts-health
+```
+
+响应：
+
+```json
+{
+  "healthy": true,
+  "items_fts": { "status": "ok", "ok": true },
+  "materials_fts": { "status": "ok", "ok": true },
+  "hint": "FTS5 内部结构正常"
+}
+```
+
+不健康时返回 `503`：
+
+```json
+{
+  "healthy": false,
+  "items_fts": { "status": "error", "ok": false },
+  "materials_fts": { "status": "ok", "ok": true },
+  "hint": "FTS5 内部结构损坏，建议从备份恢复或重置库"
+}
+```
+
+`status` 含义：`ok` = 启动期 integrity-check 通过；`error` = 启动期抛 `SQLITE_CORRUPT_VTAB`；`unknown` = 启动期 integrity-check 未执行（如新装用户首次冷启动）。
 ### 设置信息
 
 ```http

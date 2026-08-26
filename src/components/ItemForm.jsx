@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen, Smartphone, Sparkles, Receipt, Boxes, Wand2, Loader2, AlertTriangle, Check } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
-import { categoryDisplayName, buildLocationTree, locationParts, pickImage, startQRUpload, stopQRUpload, onQRUploadImage, recognizeImageWithAI, getAIConfig } from '../lib/api'
+import { categoryDisplayName, buildLocationTree, locationParts, pickImage, startQRUpload, stopQRUpload, onQRUploadImage, recognizeImageWithAI, getAIConfig, ocrItem } from '../lib/api'
 import { compressImageToBase64 } from '../lib/imageCompress'
 import { savePhoto } from '../lib/imageStore'
 import { getCategoryIcon } from '../lib/categoryIcons'
@@ -11,6 +11,7 @@ import { EASE, EASE_SPRING } from '../lib/motion'
 import { cn } from '../lib/cn'
 import { AIRecognitionPanel } from './AIRecognitionPanel'
 import QRImage from './QRImage'
+import TagBlock from './TagBlock'
 
 const shakeKeyframes = `
 @keyframes field-shake {
@@ -133,6 +134,9 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
 
   // AI 识别建议
   const [aiState, setAiState] = useState({ status: 'idle', suggestions: [], error: '' })
+  // OCR 状态：识别物品照片中的所有文字，存到 item_ocr 独立表
+  // text 保存最近一次成功结果；error 存错误；at 是时间戳
+  const [ocrState, setOcrState] = useState({ status: 'idle', text: '', error: '', at: 0 })
   const [aiConfig, setAiConfig] = useState(null)
 
   // 组件卸载时关闭二维码服务
@@ -424,6 +428,43 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
     }
   }
 
+  // ===== OCR：识别照片中所有文字（票据/说明书/保单/保质期等）=====
+  // 与 AI 识别共用视觉模型，但 prompt 不同；结果只写数据库 item_ocr 独立表，不改表单
+  const handleOcr = async () => {
+    if (!form.id) {
+      setOcrState({ status: 'error', text: '', error: '请先保存物品后再识别', at: Date.now() })
+      return
+    }
+    if (!form.photo) {
+      setOcrState({ status: 'error', text: '', error: t('ai_recognize_emptyPhoto'), at: Date.now() })
+      return
+    }
+    const cfg = aiConfig || (await getAIConfig().catch(() => ({})))
+    const provider = getActiveProviderFromConfig(cfg)
+    if (!provider?.baseUrl || !provider?.key) {
+      setOcrState({ status: 'error', text: '', error: t('ai_recognize_configFirst'), at: Date.now() })
+      return
+    }
+    setOcrState({ status: 'loading', text: '', error: '', at: Date.now() })
+    try {
+      // 不传 image，让后端用 items.photo 已存的照片
+      const result = await ocrItem({ id: form.id })
+      if (result && result.ok) {
+        const text = String(result.ocr_text || '')
+        setOcrState({
+          status: text ? 'done' : 'empty',
+          text,
+          error: text ? '' : t('ocr_empty'),
+          at: result.ocr_at || Date.now()
+        })
+      } else {
+        setOcrState({ status: 'error', text: '', error: (result && result.error) || t('ocr_error', { msg: 'unknown' }), at: Date.now() })
+      }
+    } catch (e) {
+      setOcrState({ status: 'error', text: '', error: e.message || t('ocr_error', { msg: 'unknown' }), at: Date.now() })
+    }
+  }
+
   // AI 应用反馈
   const [aiApplied, setAiApplied] = useState(null)
 
@@ -518,6 +559,7 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       photo: form.photo.trim(),
       photo_meta: photoMeta ? JSON.stringify(photoMeta) : '',
       notes: form.notes,
+      tags: form.tags || '[]',
       consume_rate: Number(form.consume_rate) || 0,
       consume_unit: form.consume_unit,
       consume_start_at: form.consume_start_at ? dateInputToTs(form.consume_start_at) : 0
@@ -775,6 +817,16 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                         </button>
                         <button
                           type="button"
+                          onClick={handleOcr}
+                          disabled={ocrState.status === 'loading' || !form.id}
+                          className="flex items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-[11px] font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary disabled:opacity-60"
+                          title={form.id ? t('ocr_btn') : '请先保存物品'}
+                        >
+                          {ocrState.status === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <Receipt size={12} />}
+                          {ocrState.status === 'loading' ? t('ocr_loading') : t('ocr_btn')}
+                        </button>
+                        <button
+                          type="button"
                           onClick={qrState.status === 'idle' ? startQR : refreshQR}
                           className="flex items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-[11px] font-medium text-text-secondary transition-smooth hover:bg-surface-active hover:text-text-primary"
                         >
@@ -822,6 +874,15 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                 </div>
               </Field>
 
+              <Field label={t('f_tags')} className="col-span-2">
+                <TagBlock
+                  value={form.tags}
+                  onChange={(arr) => set('tags', JSON.stringify(arr))}
+                  categories={categories}
+                  lang={lang}
+                />
+              </Field>
+
               <Field label={t('f_notes')} className="col-span-2">
                 <textarea
                   value={form.notes}
@@ -831,6 +892,27 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
                   placeholder={t('f_notes')}
                 />
               </Field>
+
+              {ocrState.text || ocrState.status === 'loading' || ocrState.status === 'error' ? (
+                <Field label={t('ocr_section_title')} className="col-span-2">
+                  {ocrState.status === 'loading' && (
+                    <div className="flex items-center gap-2 rounded-md border border-border bg-bg px-3 py-2 text-[12px] text-text-tertiary">
+                      <Loader2 size={14} className="animate-spin" />
+                      {t('ocr_loading')}
+                    </div>
+                  )}
+                  {ocrState.status === 'error' && (
+                    <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-[12px] text-danger">
+                      {ocrState.error || t('ocr_error')}
+                    </div>
+                  )}
+                  {ocrState.text ? (
+                    <div className="rounded-md border border-border bg-bg px-3 py-2 text-[12px] leading-relaxed text-text-secondary whitespace-pre-wrap max-h-40 overflow-y-auto">
+                      {ocrState.text}
+                    </div>
+                  ) : null}
+                </Field>
+              ) : null}
 
               <Field label={t('f_consumeRate')} className="col-span-2 sm:col-span-1">
                 <input

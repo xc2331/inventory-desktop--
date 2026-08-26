@@ -560,12 +560,21 @@ export default function SettingsView({
                 <div className="flex items-center gap-2 text-text-secondary">
                   <Rocket size={15} className="shrink-0 text-text-tertiary" />
                   <span>{t('settings_update_current')}</span>
-                  <span className="font-mono font-medium text-text-primary">{updaterInfo?.currentVersion || '—'}</span>
+                  <span className="font-mono font-medium text-text-primary">
+                    {updaterInfo?.currentVersion
+                      ? `v${updaterInfo.currentVersion}`
+                      : (
+                        <span className="inline-flex items-center gap-1 text-text-tertiary">
+                          <Loader2 size={12} className="animate-spin" />
+                          加载中
+                        </span>
+                      )}
+                  </span>
                 </div>
                 <motion.button
                   whileTap={{ scale: isCheckingUpdate ? 1 : 0.97 }}
                   onClick={onCheckUpdate}
-                  disabled={isCheckingUpdate}
+                  disabled={isCheckingUpdate || !updaterInfo?.currentVersion}
                   className={cn(
                     'flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium transition-smooth',
                     isCheckingUpdate
@@ -594,10 +603,15 @@ export default function SettingsView({
                   value={updaterInfo?.source || ''}
                   onChange={(e) => onChangeUpdateSource(e.target.value)}
                   className="input h-9 w-full text-sm"
+                  disabled={!updaterInfo?.sources?.length}
                 >
+                  {!updaterInfo?.sources?.length && (
+                    <option value="">加载中…</option>
+                  )}
                   {(updaterInfo?.sources || []).map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
+                      {updaterInfo?.source === m.id ? ' ✓' : ''}
                     </option>
                   ))}
                 </select>

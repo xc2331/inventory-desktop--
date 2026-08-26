@@ -44,6 +44,7 @@ import {
   setSettings
 } from '../lib/api'
 import { compressImageToBase64 } from '../lib/imageCompress'
+import { parseTags } from '../lib/tags'
 import ConfirmDialog from './ConfirmDialog'
 import Toast from './Toast'
 import Lightbox from './Lightbox'
@@ -571,11 +572,9 @@ function MaterialLibraryInner({ onBack }) {
     const categoryCount = new Set(items.map((it) => it.type).filter(Boolean)).size
     const tagSet = new Set()
     items.forEach((it) => {
-      if (it.tags) {
-        it.tags.split(/[,，\s]+/).forEach((tag) => {
-          if (tag.trim()) tagSet.add(tag.trim())
-        })
-      }
+      parseTags(it.tags).forEach((tag) => {
+        if (tag) tagSet.add(tag)
+      })
     })
     const now = Date.now()
     const sevenDays = 7 * 24 * 60 * 60 * 1000
@@ -1285,7 +1284,7 @@ function FileGridView({ items, materialTypes, cardWidth, cardMode, selectedIds, 
 
 function MaterialCard({ item, materialTypes, keyword, selected, bulkMode, onToggleSelect, onEdit, onDelete, onOpenLightbox, onClick, onDoubleClick, index, lang }) {
   const [imgErr, setImgErr] = useState(false)
-  const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
+  const tags = parseTags(item.tags)
   const resource = item.photo || item.url || ''
   const resourceIsImage = isImageResource(resource)
   const photoSrc = resourceIsImage ? toPhotoSrc(resource) : ''
@@ -1479,7 +1478,7 @@ function CompactFileCard({ item, materialTypes, keyword, selected, bulkMode, onT
   const { t } = useI18n()
   const group = fileTypeIcon(getFileType(item))
   const Icon = group.icon
-  const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
+  const tags = parseTags(item.tags)
   const typeObj = materialTypes.find((t) => t.id === item.type)
 
   return (
@@ -1528,7 +1527,8 @@ function CompactFileCard({ item, materialTypes, keyword, selected, bulkMode, onT
 
 function DetailPanel({ item, materialTypes, onClose, onEdit, onDelete, lang }) {
   const { t } = useI18n()
-  const tags = item.tags ? item.tags.split(/[,，\s]+/).filter(Boolean) : []
+  const tags = parseTags(item.tags)
+  const eventDateRange = [item.event_start_date, item.event_end_date].filter(Boolean).join(' ~ ') || ''
   const group = fileTypeIcon(getFileType(item))
   const Icon = group.icon
 
@@ -1582,6 +1582,7 @@ function DetailPanel({ item, materialTypes, onClose, onEdit, onDelete, lang }) {
             '-'
           )}
         </DetailField>
+        {eventDateRange && <DetailField label={t('detail_eventDate')} value={eventDateRange} />}
         <DetailField label={t('detail_updated')} value={formatDate(item.updated_at)} />
         <DetailField label={t('detail_fileType')} value={t(fileTypeIcon(getFileType(item)).labelKey)} />
       </motion.div>
@@ -1674,8 +1675,10 @@ function MaterialForm({ initial, materialTypes, onSave, onClose }) {
     title: initial?.title || '',
     content: initial?.content || '',
     url: initial?.url || '',
-    tags: initial?.tags || '',
-    photo: initial?.photo || ''
+    tags: parseTags(initial?.tags).join(', '),
+    photo: initial?.photo || '',
+    event_start_date: initial?.event_start_date || '',
+    event_end_date: initial?.event_end_date || ''
   }))
   const [photoHint, setPhotoHint] = useState('')
   const [qrState, setQrState] = useState({ url: '', status: 'idle' })
@@ -1763,7 +1766,14 @@ function MaterialForm({ initial, materialTypes, onSave, onClose }) {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSave({ ...form, title: form.title.trim() })
+    const tags = parseTags(form.tags).join(', ')
+    onSave({
+      ...form,
+      title: form.title.trim(),
+      tags,
+      event_start_date: form.event_start_date || '',
+      event_end_date: form.event_end_date || ''
+    })
   }
 
   return (
@@ -1834,6 +1844,24 @@ function MaterialForm({ initial, materialTypes, onSave, onClose }) {
                 className="input"
                 placeholder={t('materials_tagsPlaceholder')}
               />
+            </Field>
+
+            <Field label={t('materials_eventDate')} className="col-span-2">
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  type="date"
+                  value={form.event_start_date}
+                  onChange={(e) => set('event_start_date', e.target.value)}
+                  className="input"
+                />
+                <input
+                  type="date"
+                  value={form.event_end_date}
+                  onChange={(e) => set('event_end_date', e.target.value)}
+                  className="input"
+                />
+              </div>
+              <p className="mt-1 text-xs text-text-tertiary">{t('materials_eventDateHint')}</p>
             </Field>
 
             <Field label={t('materials_source')} className="col-span-2">

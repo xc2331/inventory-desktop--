@@ -8,6 +8,35 @@ const {
   ensureCategoriesFromItems,
   ensureLocationsFromItems
 } = require('../data-utils')
+const { normalizeTags } = require('../tags')
+
+// 兼容多入口：data.tags 可能是 JSON 字符串、数组、undefined、null
+// 行为：undefined 视为"未提供"（caller 在 buildItemRow 已不传，updateItem 用 cur.tags 兜底）；
+//       null / '' / 非数组视为清空 → '[]'；
+//       数组 → normalizeTags；
+//       JSON 字符串 → 解析为数组再 normalize；
+//       纯字符串（旧值） → 包成单元素数组。
+function pickTags(data) {
+  if (data === undefined) return undefined // 不写库
+  if (data === null) return '[]'
+  if (Array.isArray(data)) return normalizeTags(data)
+  if (typeof data === 'string') {
+    const t = data.trim()
+    if (!t) return '[]'
+    try {
+      const parsed = JSON.parse(t)
+      if (Array.isArray(parsed)) return normalizeTags(parsed)
+      if (parsed && typeof parsed === 'object') {
+        return normalizeTags(Object.values(parsed))
+      }
+      return '[]'
+    } catch (_) {
+      // 旧库残留的纯字符串（如"发票"）也允许：转成 ["发票"]
+      return normalizeTags([t])
+    }
+  }
+  return '[]'
+}
 
 function nowMs() {
   return Date.now()
@@ -20,6 +49,7 @@ function buildItemRow(data, db, { keepTimestamps = false } = {}) {
   const categories = db ? db.prepare('SELECT * FROM categories').all() : []
   const rawItemNo = String(data.itemNo ?? data.item_no ?? '').trim()
   const itemNo = rawItemNo || (db ? generateItemNo(db) : '')
+  const tagsValue = pickTags(data.tags ?? data.tagsJson)
   return {
     id: data.id || crypto.randomUUID(),
     name: String(data.name || ''),
@@ -37,6 +67,8 @@ function buildItemRow(data, db, { keepTimestamps = false } = {}) {
     consume_unit: String(data.consume_unit || 'day'),
     consume_start_at: Number(data.consume_start_at) || 0,
     photo_meta: String(data.photo_meta ?? ''),
+    // tags 写入：undefined 表示"调用方没提供 tags 字段"，则用占位 '[]'，由 service 层负责覆盖
+    tags: tagsValue === undefined ? '[]' : tagsValue,
     created_at: keepTimestamps && Number(data.created_at) ? Number(data.created_at) : t,
     updated_at: keepTimestamps && Number(data.updated_at) ? Number(data.updated_at) : t
   }
@@ -50,9 +82,9 @@ function createItem(db, data) {
   const tx = db.transaction(() => {
     db.prepare(
       `INSERT INTO items (id, name, item_no, room, position, location, quantity, min_quantity, photo, category, expiry_date,
-        notes, consume_rate, consume_unit, consume_start_at, photo_meta, created_at, updated_at)
+        notes, consume_rate, consume_unit, consume_start_at, photo_meta, tags, created_at, updated_at)
        VALUES (@id, @name, @item_no, @room, @position, @location, @quantity, @min_quantity, @photo, @category, @expiry_date,
-        @notes, @consume_rate, @consume_unit, @consume_start_at, @photo_meta, @created_at, @updated_at)`
+        @notes, @consume_rate, @consume_unit, @consume_start_at, @photo_meta, @tags, @created_at, @updated_at)`
     ).run(row)
     createdCategories = ensureCategoriesFromItems(db, [row])
     createdLocations = ensureLocationsFromItems(db, [row])
@@ -67,6 +99,12 @@ function updateItem(db, id, patch) {
   if (!cur) return null
   const categories = db.prepare('SELECT * FROM categories').all()
   const data = patch || {}
+  // tags 单独处理：仅当 patch 显式提供 tags 字段（即使为 null/''/[]）才覆盖
+  let tagsValue = cur.tags || '[]'
+  if (data.tags !== undefined) {
+    const v = pickTags(data.tags)
+    tagsValue = v === undefined ? tagsValue : v
+  }
   const next = {
     ...cur,
     name: data.name !== undefined ? String(data.name) : cur.name,
@@ -87,6 +125,7 @@ function updateItem(db, id, patch) {
     consume_unit: data.consume_unit !== undefined ? String(data.consume_unit) : cur.consume_unit,
     consume_start_at: data.consume_start_at !== undefined ? Number(data.consume_start_at) || 0 : cur.consume_start_at,
     photo_meta: data.photo_meta !== undefined ? String(data.photo_meta) : cur.photo_meta,
+    tags: tagsValue,
     updated_at: nowMs()
   }
   let createdCategories = 0
@@ -96,7 +135,7 @@ function updateItem(db, id, patch) {
       `UPDATE items SET name=@name, item_no=@item_no, room=@room, position=@position, location=@location,
        quantity=@quantity, min_quantity=@min_quantity, photo=@photo, category=@category, expiry_date=@expiry_date,
        notes=@notes, consume_rate=@consume_rate, consume_unit=@consume_unit, consume_start_at=@consume_start_at,
-       photo_meta=@photo_meta, updated_at=@updated_at WHERE id=@id`
+       photo_meta=@photo_meta, tags=@tags, updated_at=@updated_at WHERE id=@id`
     ).run(next)
     createdCategories = ensureCategoriesFromItems(db, [next])
     createdLocations = ensureLocationsFromItems(db, [next])
@@ -117,4 +156,4 @@ function setOrder(db, ids) {
   return { ok: true, ordered: tx(ids) }
 }
 
-module.exports = { buildItemRow, createItem, updateItem, setOrder }
+module.exports = { buildItemRow, createItem, updateItem, setOrder, pickTags }

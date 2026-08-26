@@ -7,11 +7,13 @@ const os = require('os')
 const { normalizeCategoryKey, ensureCategoriesFromItems, ensureLocationsFromItems } = require('./data-utils')
 const { ApiServer } = require('./api-server')
 const { QRUploadServer } = require('./qr-upload')
+const { normalizeTags } = require('./tags')
 const { Updater } = require('./updater')
 const {
   testConnection,
   fetchModels,
   recognizeImage,
+  recognizeText,
   migrateAIConfig,
   getActiveProvider,
   sanitizeProvider
@@ -157,11 +159,13 @@ function backupDatabase() {
   const dbPath = resolveDbPath()
   const backupPath = getBackupPath(dbPath)
   try {
-    if (fs.existsSync(dbPath)) {
-      fs.copyFileSync(dbPath, backupPath)
-    }
+    if (!fs.existsSync(dbPath)) return
+    // 杀毒软件/旧进程可能短暂持有 .db.backup 句柄：先尝试 unlink（容忍 ENOENT），再 copy。
+    // 整个过程都用 try/catch 包裹，备份失败不影响后续数据库打开。
+    try { fs.unlinkSync(backupPath) } catch (_) { /* ignore */ }
+    fs.copyFileSync(dbPath, backupPath)
   } catch (e) {
-    console.error('[backup] 备份失败:', e)
+    console.error('[backup] 备份失败（已忽略，不影响启动）:', e?.message || e)
   }
 }
 
@@ -307,16 +311,19 @@ function recoverFromCorrupt(error, mainWindow) {
   }
 
   // 3. 重新初始化数据库（建表/索引/种子）
-  initDatabase(mainWindow, { recoveredFrom, corruptedPath })
+  initDatabaseAfterRecovery(mainWindow, { recoveredFrom, corruptedPath })
 }
 
-// 初始化数据库：建表、索引、种子数据
+// 数据库损坏后重新初始化：建表、索引、种子数据
 // opts.recoveredFrom / opts.corruptedPath 用于通知前端恢复来源
-function initDatabase(mainWindow, opts) {
+function initDatabaseAfterRecovery(mainWindow, opts) {
   const doInit = () => {
     db = new Database(resolveDbPath())
     db.pragma('journal_mode = WAL')
+    db.pragma('busy_timeout = 30000')
+    db.pragma('mmap_size = 0')
 
+    // 建表 + 索引（OCR 结果放在独立表，避免 ALTER 主表被杀软锁）
     db.exec(`
       CREATE TABLE IF NOT EXISTS items (
         id TEXT PRIMARY KEY,
@@ -341,6 +348,10 @@ function initDatabase(mainWindow, opts) {
       );
       CREATE INDEX IF NOT EXISTS idx_items_name ON items(name);
       CREATE INDEX IF NOT EXISTS idx_items_category ON items(category);
+      CREATE INDEX IF NOT EXISTS idx_items_room ON items(room);
+      CREATE INDEX IF NOT EXISTS idx_items_position ON items(position);
+      CREATE INDEX IF NOT EXISTS idx_items_expiry_date ON items(expiry_date);
+      CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at);
 
       CREATE TABLE IF NOT EXISTS materials (
         id TEXT PRIMARY KEY,
@@ -351,11 +362,16 @@ function initDatabase(mainWindow, opts) {
         tags TEXT DEFAULT '',
         photo TEXT DEFAULT '',
         meta TEXT DEFAULT '',
+        event_start_date TEXT DEFAULT '',
+        event_end_date TEXT DEFAULT '',
         created_at INTEGER NOT NULL DEFAULT 0,
         updated_at INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_materials_type ON materials(type);
       CREATE INDEX IF NOT EXISTS idx_materials_title ON materials(title);
+      CREATE INDEX IF NOT EXISTS idx_materials_event_start ON materials(event_start_date);
+      CREATE INDEX IF NOT EXISTS idx_materials_event_end ON materials(event_end_date);
+      CREATE INDEX IF NOT EXISTS idx_materials_updated_at ON materials(updated_at);
 
       CREATE TABLE IF NOT EXISTS categories (
         id TEXT PRIMARY KEY,
@@ -378,14 +394,189 @@ function initDatabase(mainWindow, opts) {
         updated_at INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
-      CREATE INDEX IF NOT EXISTS idx_items_room ON items(room);
-      CREATE INDEX IF NOT EXISTS idx_items_position ON items(position);
-      CREATE INDEX IF NOT EXISTS idx_items_expiry_date ON items(expiry_date);
-      CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at);
+
+      
+      -- 全文搜索 v1.8.0：FTS5 虚表 + 触发器自动同步（OCR 文本从 item_ocr/material_ocr 子查询投影）
+      CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+        id UNINDEXED,
+        name,
+        item_no,
+        room,
+        position,
+        location,
+        notes,
+        tags,
+        ocr_text,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+      CREATE VIRTUAL TABLE IF NOT EXISTS materials_fts USING fts5(
+        id UNINDEXED,
+        title,
+        content,
+        tags,
+        ocr_text,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+
+      -- items -> items_fts
+      CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
+        INSERT INTO items_fts(id, name, item_no, room, position, location, notes, tags, ocr_text)
+        VALUES (new.id, new.name, new.item_no, new.room, new.position, new.location, new.notes, new.tags,
+          COALESCE((SELECT ocr_text FROM item_ocr WHERE item_id = new.id), ''));
+      END;
+      CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
+        DELETE FROM items_fts WHERE id = old.id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
+        DELETE FROM items_fts WHERE id = old.id;
+        INSERT INTO items_fts(id, name, item_no, room, position, location, notes, tags, ocr_text)
+        VALUES (new.id, new.name, new.item_no, new.room, new.position, new.location, new.notes, new.tags,
+          COALESCE((SELECT ocr_text FROM item_ocr WHERE item_id = new.id), ''));
+      END;
+
+      -- item_ocr -> items_fts (OCR 文本写入时同步到虚表)
+      CREATE TRIGGER IF NOT EXISTS item_ocr_ai AFTER INSERT ON item_ocr BEGIN
+        UPDATE items_fts SET ocr_text = new.ocr_text WHERE id = new.item_id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS item_ocr_au AFTER UPDATE ON item_ocr BEGIN
+        UPDATE items_fts SET ocr_text = new.ocr_text WHERE id = new.item_id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS item_ocr_ad AFTER DELETE ON item_ocr BEGIN
+        UPDATE items_fts SET ocr_text = '' WHERE id = old.item_id;
+      END;
+
+      -- materials -> materials_fts
+      CREATE TRIGGER IF NOT EXISTS materials_ai AFTER INSERT ON materials BEGIN
+        INSERT INTO materials_fts(id, title, content, tags, ocr_text)
+        VALUES (new.id, new.title, new.content, new.tags,
+          COALESCE((SELECT ocr_text FROM material_ocr WHERE material_id = new.id), ''));
+      END;
+      CREATE TRIGGER IF NOT EXISTS materials_ad AFTER DELETE ON materials BEGIN
+        DELETE FROM materials_fts WHERE id = old.id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS materials_au AFTER UPDATE ON materials BEGIN
+        DELETE FROM materials_fts WHERE id = old.id;
+        INSERT INTO materials_fts(id, title, content, tags, ocr_text)
+        VALUES (new.id, new.title, new.content, new.tags,
+          COALESCE((SELECT ocr_text FROM material_ocr WHERE material_id = new.id), ''));
+      END;
+
+      -- material_ocr -> materials_fts
+      CREATE TRIGGER IF NOT EXISTS material_ocr_ai AFTER INSERT ON material_ocr BEGIN
+        UPDATE materials_fts SET ocr_text = new.ocr_text WHERE id = new.material_id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS material_ocr_au AFTER UPDATE ON material_ocr BEGIN
+        UPDATE materials_fts SET ocr_text = new.ocr_text WHERE id = new.material_id;
+      END;
+      CREATE TRIGGER IF NOT EXISTS material_ocr_ad AFTER DELETE ON material_ocr BEGIN
+        UPDATE materials_fts SET ocr_text = '' WHERE id = old.material_id;
+      END;
+
+      CREATE TABLE IF NOT EXISTS item_ocr (
+        item_id TEXT PRIMARY KEY,
+        ocr_text TEXT DEFAULT '',
+        ocr_at INTEGER DEFAULT 0,
+        updated_at INTEGER DEFAULT 0,
+        FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_item_ocr_text ON item_ocr(ocr_text);
+
+      CREATE TABLE IF NOT EXISTS material_ocr (
+        material_id TEXT PRIMARY KEY,
+        ocr_text TEXT DEFAULT '',
+        ocr_at INTEGER DEFAULT 0,
+        updated_at INTEGER DEFAULT 0,
+        FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_material_ocr_text ON material_ocr(ocr_text);
     `)
 
     ensureItemColumns(db)
+    ensureMaterialColumns(db)
     migrateIndexes(db)
+    // FTS5 v1.8.0：老库升级时把 items / materials 已有数据全量回填到 items_fts / materials_fts
+    // 幂等：每条 FTS5 记录的 id 是 UNINDEXED 主键，重复 insert 会被忽略
+    // FTS5 v1.8.0 修复：SQL 字符串外层换反引号（避免 JS 单引号字符串里写 '' 提前结束）
+    // FTS5 v1.8.2 增强：tx(rows) 失败时退避重试 3 次（间隔 200ms），规避杀软扫描瞬间持锁
+    // FTS5 v1.8.3 增强：backfill 完成后跑 INSERT INTO ..._fts(..._fts) VALUES('optimize') 整理碎片
+    function sleepSync(ms) {
+      const end = Date.now() + ms
+      while (Date.now() < end) { /* yield */ }
+    }
+    function runTxWithRetry(label, txFn) {
+      let lastErr = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          txFn()
+          if (attempt > 0) console.log('[fts5] ' + label + ' 第 ' + (attempt + 1) + ' 次重试成功')
+          return true
+        } catch (e) {
+          lastErr = e
+          console.error('[fts5] ' + label + ' 第 ' + (attempt + 1) + '/3 次失败: ' + (e && e.message))
+          if (attempt < 2) sleepSync(200)
+        }
+      }
+      console.error('[fts5] ' + label + ' 最终失败，已重试 3 次')
+      return false
+    }
+    function backfillFtsFromMainTables(database) {
+      try {
+        const itemsCount = database.prepare('SELECT COUNT(*) c FROM items').get().c
+        if (itemsCount > 0) {
+          const ftsCount = database.prepare('SELECT COUNT(*) c FROM items_fts').get().c
+          if (ftsCount === 0) {
+            const rows = database.prepare(`SELECT i.id, i.name, i.item_no, i.room, i.position, i.location, i.notes, i.tags, COALESCE(o.ocr_text, '') AS ocr_text FROM items i LEFT JOIN item_ocr o ON i.id = o.item_id`).all()
+            const ins = database.prepare('INSERT INTO items_fts(id, name, item_no, room, position, location, notes, tags, ocr_text) VALUES (?,?,?,?,?,?,?,?,?)')
+            const ok = runTxWithRetry('backfill items_fts', () => {
+              const tx = database.transaction((arr) => { for (const r of arr) ins.run(r.id, r.name, r.item_no, r.room, r.position, r.location, r.notes, r.tags, r.ocr_text) })
+              tx(rows)
+            })
+            if (ok) console.log('[fts5] backfilled items_fts rows=' + rows.length)
+          }
+        }
+        const matsCount = database.prepare('SELECT COUNT(*) c FROM materials').get().c
+        if (matsCount > 0) {
+          const ftsCount = database.prepare('SELECT COUNT(*) c FROM materials_fts').get().c
+          if (ftsCount === 0) {
+            const rows = database.prepare(`SELECT m.id, m.title, m.content, m.tags, COALESCE(o.ocr_text, '') AS ocr_text FROM materials m LEFT JOIN material_ocr o ON m.id = o.material_id`).all()
+            const ins = database.prepare('INSERT INTO materials_fts(id, title, content, tags, ocr_text) VALUES (?,?,?,?,?)')
+            const ok = runTxWithRetry('backfill materials_fts', () => {
+              const tx = database.transaction((arr) => { for (const r of arr) ins.run(r.id, r.title, r.content, r.tags, r.ocr_text) })
+              tx(rows)
+            })
+            if (ok) console.log('[fts5] backfilled materials_fts rows=' + rows.length)
+          }
+        }
+        // FTS5 v1.8.3：backfill 完成后跑一次 optimize，整理虚表倒排索引碎片
+        // 命令是 FTS5 内部 "INSERT INTO fts(fts) VALUES('optimize')"，无副作用
+        try {
+          database.prepare("INSERT INTO items_fts(items_fts) VALUES('optimize')").run()
+          database.prepare("INSERT INTO materials_fts(materials_fts) VALUES('optimize')").run()
+          console.log('[fts5] optimize done (items_fts, materials_fts)')
+        } catch (e) {
+          console.warn('[fts5] optimize failed (non-fatal):', e && e.message)
+        }
+      } catch (e) {
+        console.error('[fts5] backfill failed:', e && e.message)
+      }
+    }
+    backfillFtsFromMainTables(db)
+    // FTS5 v1.8.3：启动期跑 FTS5 内部 integrity-check 命令体检虚表内部结构
+    // 命令 "INSERT INTO fts(fts) VALUES('integrity-check')" 是无返回行控制命令，
+    // better-sqlite3 用 run() 验证不抛错即视为 OK；损坏时会抛 SQLITE_CORRUPT_VTAB
+    try {
+      db.prepare("INSERT INTO items_fts(items_fts) VALUES('integrity-check')").run()
+      db.prepare("INSERT INTO materials_fts(materials_fts) VALUES('integrity-check')").run()
+      console.log('[fts5] integrity-check ok (items_fts, materials_fts)')
+      global.__ftsHealth = { items_fts_check: 'ok', materials_fts_check: 'ok' }
+    } catch (e) {
+      console.warn('[fts5] integrity-check 异常（虚表内部结构损坏）:', e && e.message)
+      global.__ftsHealth = { items_fts_check: 'error', materials_fts_check: 'error' }
+    }
+
+
+    // 暴露给 IPC（renderer / Agent 用）
+    global.__dbHealthCheck = () => checkDatabaseHealth(db)
 
     const catCount = db.prepare('SELECT COUNT(*) c FROM categories').get().c
     if (catCount === 0) {
@@ -444,6 +635,8 @@ const DEFAULT_CATEGORIES = [
 ]
 
 // 兼容旧数据库：检查并添加 items 表新增字段
+// 关键：disk I/O 错误后 db 句柄可能不可用，reopen 失败会让 process 直接死
+// → 不在 ensureItemColumns 里 reopen db，也不自己重试；失败直接抛出让 initDatabase 大循环重试
 function ensureItemColumns(database) {
   const cols = database.prepare("PRAGMA table_info(items)").all()
   const existing = new Set(cols.map((c) => c.name))
@@ -453,137 +646,276 @@ function ensureItemColumns(database) {
     { name: 'consume_unit', def: "TEXT DEFAULT 'day'" },
     { name: 'consume_start_at', def: "INTEGER DEFAULT 0" },
     { name: 'photo_meta', def: "TEXT DEFAULT ''" },
+    // 标签：JSON 字符串数组，渲染端 parseTags/normalizeTags 处理
+    { name: 'tags', def: "TEXT DEFAULT '[]'" },
     // 手动排序：0 = 从未手动排序（按 updated_at 排在其后），>0 = 用户拖拽确定的顺序
     { name: 'sort_order', def: "INTEGER NOT NULL DEFAULT 0" }
   ]
+  const _migLog = (s) => { try { require('fs').appendFileSync(require('path').join(require('os').homedir(),'AppData','Roaming','family-inventory','startup-error.log'), `[migrate] ${s}\n`) } catch(_){} }
   for (const col of needed) {
     if (!existing.has(col.name)) {
-      try {
-        database.exec(`ALTER TABLE items ADD COLUMN ${col.name} ${col.def}`)
-        console.log(`[migrate] 已添加列 items.${col.name}`)
-      } catch (e) {
-        console.error(`[migrate] 添加列 items.${col.name} 失败:`, e.message)
-      }
+      database.exec(`ALTER TABLE items ADD COLUMN ${col.name} ${col.def}`)
+      _migLog(`已添加列 items.${col.name}`)
+    }
+  }
+}
+
+// 兼容旧数据库：检查并添加 materials 表新增字段
+// 失败直接抛出让 initDatabase 大循环重试
+function ensureMaterialColumns(database) {
+  const cols = database.prepare("PRAGMA table_info(materials)").all()
+  const existing = new Set(cols.map((c) => c.name))
+  const needed = [
+    { name: 'event_start_date', def: "TEXT DEFAULT ''" },
+    { name: 'event_end_date', def: "TEXT DEFAULT ''" }
+  ]
+  const _migLog = (s) => { try { require('fs').appendFileSync(require('path').join(require('os').homedir(),'AppData','Roaming','family-inventory','startup-error.log'), `[migrate] ${s}\n`) } catch(_){} }
+  for (const col of needed) {
+    if (!existing.has(col.name)) {
+      database.exec(`ALTER TABLE materials ADD COLUMN ${col.name} ${col.def}`)
+      _migLog(`已添加列 materials.${col.name}`)
     }
   }
 }
 
 // 兼容旧数据库：补齐缺失索引（幂等，CREATE INDEX IF NOT EXISTS 天然幂等）
 function migrateIndexes(database) {
+  // 先拿到实际列名，避免旧表没有 ocr_text/event_start_date/event_end_date 时 CREATE INDEX 失败
+  const itemCols = new Set(database.prepare("PRAGMA table_info(items)").all().map((c) => c.name))
+  const materialCols = new Set(database.prepare("PRAGMA table_info(materials)").all().map((c) => c.name))
+  const _migLog = (s) => { try { require('fs').appendFileSync(require('path').join(require('os').homedir(),'AppData','Roaming','family-inventory','startup-error.log'), `[migrate] ${s}\n`) } catch(_){} }
+
   try {
     database.exec(`
       CREATE INDEX IF NOT EXISTS idx_items_room ON items(room);
       CREATE INDEX IF NOT EXISTS idx_items_position ON items(position);
       CREATE INDEX IF NOT EXISTS idx_items_expiry_date ON items(expiry_date);
       CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at);
+      CREATE INDEX IF NOT EXISTS idx_items_name ON items(name);
+      CREATE INDEX IF NOT EXISTS idx_items_category ON items(category);
+      CREATE INDEX IF NOT EXISTS idx_materials_type ON materials(type);
+      CREATE INDEX IF NOT EXISTS idx_materials_title ON materials(title);
+      CREATE INDEX IF NOT EXISTS idx_materials_updated_at ON materials(updated_at);
       CREATE INDEX IF NOT EXISTS idx_categories_key ON categories(key);
+      CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
     `)
+
+    // 仅当列存在时才建索引（老库先由 ensureItemColumns/ensureMaterialColumns 加列）
+    if (materialCols.has('event_start_date')) {
+      database.exec(`CREATE INDEX IF NOT EXISTS idx_materials_event_start ON materials(event_start_date)`)
+    }
+    if (materialCols.has('event_end_date')) {
+      database.exec(`CREATE INDEX IF NOT EXISTS idx_materials_event_end ON materials(event_end_date)`)
+    }
+
     console.log('[migrate] 索引检查完成')
   } catch (e) {
+    _migLog(`索引迁移失败: ${e.message}`)
     console.error('[migrate] 索引迁移失败:', e.message)
+    throw e
   }
+}
+
+// 启动期数据库健康检查：损坏早暴露，不等到查询时才发现
+// 返回 { ok, integrity, items, materials, message }
+function checkDatabaseHealth(database) {
+  const result = {
+    ok: true,
+    integrity: 'ok',
+    items: 0,
+    materials: 0,
+    message: ''
+  }
+  try {
+    const rows = database.pragma('integrity_check', { simple: true })
+    if (rows !== 'ok') {
+      result.ok = false
+      result.integrity = String(rows).split('\n')[0] || 'unknown'
+      result.message = `数据库完整性异常: ${result.integrity}`
+    }
+    const itemsCount = database.prepare('SELECT COUNT(*) AS c FROM items').get()
+    const materialsCount = database.prepare('SELECT COUNT(*) AS c FROM materials').get()
+    result.items = itemsCount.c
+    result.materials = materialsCount.c
+    if (result.ok) {
+      result.message = `数据库健康（items=${result.items}, materials=${result.materials}）`
+    }
+  } catch (e) {
+    result.ok = false
+    result.message = `健康检查失败: ${e.message}`
+  }
+  return result
 }
 
 // 初始化数据库：建表、索引、种子数据
+// 杀软/索引服务扫描 .db 后可能短暂持锁 → open 重试 5 次（每次 sleep 5s）
 function initDatabase() {
   backupDatabase()
-  db = new Database(resolveDbPath())
-  db.pragma('journal_mode = WAL')
+  const dbPath = resolveDbPath()
+  const _migLog = (s) => { try { require('fs').appendFileSync(require('path').join(require('os').homedir(),'AppData','Roaming','family-inventory','startup-error.log'), `[migrate] ${s}\n`) } catch(_){} }
+  let lastErr = null
+  let dbReady = false
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS items (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL DEFAULT '',
-      item_no TEXT DEFAULT '',
-      room TEXT DEFAULT '',
-      position TEXT DEFAULT '',
-      location TEXT DEFAULT '',
-      quantity INTEGER NOT NULL DEFAULT 0,
-      min_quantity INTEGER NOT NULL DEFAULT 0,
-      photo TEXT DEFAULT '',
-      category TEXT DEFAULT '',
-      expiry_date INTEGER DEFAULT 0,
-      notes TEXT DEFAULT '',
-      consume_rate REAL DEFAULT 0,
-      consume_unit TEXT DEFAULT 'day',
-      consume_start_at INTEGER DEFAULT 0,
-      photo_meta TEXT DEFAULT '',
-      created_at INTEGER NOT NULL DEFAULT 0,
-      updated_at INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS idx_items_name ON items(name);
-    CREATE INDEX IF NOT EXISTS idx_items_category ON items(category);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    let attemptDb = null
+    try {
+      attemptDb = new Database(dbPath)
+      attemptDb.pragma('journal_mode = WAL')
+      attemptDb.pragma('busy_timeout = 30000')
+      attemptDb.pragma('mmap_size = 0')
 
-    CREATE TABLE IF NOT EXISTS materials (
-      id TEXT PRIMARY KEY,
-      type TEXT NOT NULL DEFAULT 'note',
-      title TEXT NOT NULL DEFAULT '',
-      content TEXT DEFAULT '',
-      url TEXT DEFAULT '',
-      tags TEXT DEFAULT '',
-      photo TEXT DEFAULT '',
-      meta TEXT DEFAULT '',
-      created_at INTEGER NOT NULL DEFAULT 0,
-      updated_at INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS idx_materials_type ON materials(type);
-    CREATE INDEX IF NOT EXISTS idx_materials_title ON materials(title);
+      // 建表 + 索引（OCR 结果放在独立表，避免 ALTER 主表被杀软锁）
+      attemptDb.exec(`
+        CREATE TABLE IF NOT EXISTS items (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL DEFAULT '',
+          item_no TEXT DEFAULT '',
+          room TEXT DEFAULT '',
+          position TEXT DEFAULT '',
+          location TEXT DEFAULT '',
+          quantity INTEGER NOT NULL DEFAULT 0,
+          min_quantity INTEGER NOT NULL DEFAULT 0,
+          photo TEXT DEFAULT '',
+          category TEXT DEFAULT '',
+          expiry_date INTEGER DEFAULT 0,
+          notes TEXT DEFAULT '',
+          consume_rate REAL DEFAULT 0,
+          consume_unit TEXT DEFAULT 'day',
+          consume_start_at INTEGER DEFAULT 0,
+          photo_meta TEXT DEFAULT '',
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_items_name ON items(name);
+        CREATE INDEX IF NOT EXISTS idx_items_category ON items(category);
+        CREATE INDEX IF NOT EXISTS idx_items_room ON items(room);
+        CREATE INDEX IF NOT EXISTS idx_items_position ON items(position);
+        CREATE INDEX IF NOT EXISTS idx_items_expiry_date ON items(expiry_date);
+        CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at);
 
-    CREATE TABLE IF NOT EXISTS categories (
-      id TEXT PRIMARY KEY,
-      key TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL DEFAULT '',
-      name_en TEXT DEFAULT '',
-      icon TEXT DEFAULT '',
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL DEFAULT 0,
-      updated_at INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS idx_categories_key ON categories(key);
+        CREATE TABLE IF NOT EXISTS materials (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL DEFAULT 'note',
+          title TEXT NOT NULL DEFAULT '',
+          content TEXT DEFAULT '',
+          url TEXT DEFAULT '',
+          tags TEXT DEFAULT '',
+          photo TEXT DEFAULT '',
+          meta TEXT DEFAULT '',
+          event_start_date TEXT DEFAULT '',
+          event_end_date TEXT DEFAULT '',
+          created_at INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_materials_type ON materials(type);
+        CREATE INDEX IF NOT EXISTS idx_materials_title ON materials(title);
+        CREATE INDEX IF NOT EXISTS idx_materials_event_start ON materials(event_start_date);
+        CREATE INDEX IF NOT EXISTS idx_materials_event_end ON materials(event_end_date);
+        CREATE INDEX IF NOT EXISTS idx_materials_updated_at ON materials(updated_at);
 
-    CREATE TABLE IF NOT EXISTS locations (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL DEFAULT '',
-      parent_id TEXT DEFAULT '',
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL DEFAULT 0,
-      updated_at INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
-    CREATE INDEX IF NOT EXISTS idx_items_room ON items(room);
-    CREATE INDEX IF NOT EXISTS idx_items_position ON items(position);
-    CREATE INDEX IF NOT EXISTS idx_items_expiry_date ON items(expiry_date);
-    CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at);
-  `)
+        CREATE TABLE IF NOT EXISTS categories (
+          id TEXT PRIMARY KEY,
+          key TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL DEFAULT '',
+          name_en TEXT DEFAULT '',
+          icon TEXT DEFAULT '',
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_categories_key ON categories(key);
 
-  // 兼容旧数据库：确保 items 表包含 v1.2.0 新增字段
-  ensureItemColumns(db)
+        CREATE TABLE IF NOT EXISTS locations (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL DEFAULT '',
+          parent_id TEXT DEFAULT '',
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
 
-  // 兼容旧数据库：补齐缺失索引（幂等）
-  migrateIndexes(db)
+        CREATE TABLE IF NOT EXISTS item_ocr (
+          item_id TEXT PRIMARY KEY,
+          ocr_text TEXT DEFAULT '',
+          ocr_at INTEGER DEFAULT 0,
+          updated_at INTEGER DEFAULT 0,
+          FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_item_ocr_text ON item_ocr(ocr_text);
 
-  // 种子默认分类（仅在表为空时）
-  const catCount = db.prepare('SELECT COUNT(*) c FROM categories').get().c
-  if (catCount === 0) {
-    const now = Date.now()
-    const ins = db.prepare(
-      'INSERT INTO categories (id,key,name,name_en,icon,sort_order,created_at,updated_at) VALUES (@id,@key,@name,@name_en,@icon,@sort_order,@created_at,@updated_at)'
-    )
-    DEFAULT_CATEGORIES.forEach((c, i) =>
-      ins.run({
-        id: crypto.randomUUID(),
-        key: c.key,
-        name: c.name,
-        name_en: c.name_en,
-        icon: c.icon,
-        sort_order: i,
-        created_at: now,
-        updated_at: now
-      })
-    )
+        CREATE TABLE IF NOT EXISTS material_ocr (
+          material_id TEXT PRIMARY KEY,
+          ocr_text TEXT DEFAULT '',
+          ocr_at INTEGER DEFAULT 0,
+          updated_at INTEGER DEFAULT 0,
+          FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_material_ocr_text ON material_ocr(ocr_text);
+      `)
+
+      // 兼容旧数据库：确保 items/materials 表包含 v1.2.0/v1.7.4 新增字段
+      ensureItemColumns(attemptDb)
+      ensureMaterialColumns(attemptDb)
+
+      // 补齐缺失索引（幂等）
+      migrateIndexes(attemptDb)
+
+      // 健康检查（只记日志，不 fatal）
+      const health = checkDatabaseHealth(attemptDb)
+      if (health.ok) {
+        console.log(`[health] ${health.message}`)
+      } else {
+        console.error(`[health] ❌ ${health.message}`)
+      }
+
+      // DEBUG: dump 实际列名
+      dumpSchema(attemptDb)
+
+      // 种子默认分类（仅在表为空时）
+      const catCount = attemptDb.prepare('SELECT COUNT(*) c FROM categories').get().c
+      if (catCount === 0) {
+        const now = Date.now()
+        const ins = attemptDb.prepare(
+          'INSERT INTO categories (id,key,name,name_en,icon,sort_order,created_at,updated_at) VALUES (@id,@key,@name,@name_en,@icon,@sort_order,@created_at,@updated_at)'
+        )
+        DEFAULT_CATEGORIES.forEach((c, i) =>
+          ins.run({
+            id: crypto.randomUUID(),
+            key: c.key,
+            name: c.name,
+            name_en: c.name_en,
+            icon: c.icon,
+            sort_order: i,
+            created_at: now,
+            updated_at: now
+          })
+        )
+      }
+
+      // 一切成功，赋值全局 db 并退出重试循环
+      db = attemptDb
+      dbReady = true
+      lastErr = null
+      _migLog(`数据库初始化成功（第 ${attempt + 1}/5 次）`)
+      break
+    } catch (e) {
+      lastErr = e
+      _migLog(`数据库初始化第 ${attempt + 1}/5 次失败: ${e.message}`)
+      console.error(`[startup] db init attempt ${attempt + 1} failed: ${e.message}`)
+      try { if (attemptDb) attemptDb.close() } catch (_) {}
+      if (attempt < 4) {
+        const end = Date.now() + 5000
+        while (Date.now() < end) { /* busy wait to yield to AV/indexer */ }
+      }
+    }
+  }
+
+  if (!dbReady) {
+    throw lastErr || new Error('db init failed after retries')
   }
 }
-
 // ===== 时间戳/格式转换：手机端用 ISO 字符串，数据库用毫秒时间戳 =====
 function toMs(v) {
   if (v === null || v === undefined || v === '') return 0
@@ -1105,6 +1437,52 @@ ipcMain.handle('ai:recognize', async (_event, { image }) => {
   return recognizeImage({ image, db, settings })
 })
 
+// ===== OCR：图片识别文字（v1.7.9+）=====
+// 与外部 Agent API 共用 recognizeText，结果写入 item_ocr / material_ocr 独立表
+ipcMain.handle('ai:ocrItem', async (_event, { id, image } = {}) => {
+  if (!id) return { ok: false, error: 'id is required' }
+  const row = db.prepare('SELECT id, photo FROM items WHERE id = ?').get(id)
+  if (!row) return { ok: false, error: 'item not found' }
+  const settings = readAppSettings()
+  const result = await recognizeText({ image: image || row.photo || '', settings })
+  if (!result.ok) return { ok: false, error: result.error }
+  const now = Date.now()
+  db.prepare(
+    `INSERT INTO item_ocr (item_id, ocr_text, ocr_at, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(item_id) DO UPDATE SET
+       ocr_text = excluded.ocr_text,
+       ocr_at = excluded.ocr_at,
+       updated_at = excluded.updated_at`
+  ).run(id, result.text, now, now)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('api:dataChanged', { type: 'items' })
+  }
+  return { ok: true, id, ocr_text: result.text, ocr_at: now }
+})
+
+ipcMain.handle('ai:ocrMaterial', async (_event, { id, image } = {}) => {
+  if (!id) return { ok: false, error: 'id is required' }
+  const row = db.prepare('SELECT id, photo FROM materials WHERE id = ?').get(id)
+  if (!row) return { ok: false, error: 'material not found' }
+  const settings = readAppSettings()
+  const result = await recognizeText({ image: image || row.photo || '', settings })
+  if (!result.ok) return { ok: false, error: result.error }
+  const now = Date.now()
+  db.prepare(
+    `INSERT INTO material_ocr (material_id, ocr_text, ocr_at, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(material_id) DO UPDATE SET
+       ocr_text = excluded.ocr_text,
+       ocr_at = excluded.ocr_at,
+       updated_at = excluded.updated_at`
+  ).run(id, result.text, now, now)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('api:dataChanged', { type: 'materials' })
+  }
+  return { ok: true, id, ocr_text: result.text, ocr_at: now }
+})
+
 ipcMain.handle('ai:testConnection', async (_event, { providerId } = {}) => {
   const settings = readAppSettings()
   migrateAIConfig(settings)
@@ -1305,20 +1683,31 @@ ipcMain.handle('materials:get', (_event, id) => {
   return db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
 })
 
+ipcMain.handle('system:health', () => {
+  const fn = global.__dbHealthCheck
+  if (typeof fn === 'function') {
+    const h = fn()
+    return { ...h, version: app.getVersion() }
+  }
+  return { ok: false, message: '健康检查未初始化', version: app.getVersion() }
+})
+
 ipcMain.handle('materials:create', (_event, data) => {
   const now = Date.now()
   const id = crypto.randomUUID()
   db.prepare(
-    'INSERT INTO materials (id,type,title,content,url,tags,photo,meta,created_at,updated_at) VALUES (@id,@type,@title,@content,@url,@tags,@photo,@meta,@created_at,@updated_at)'
+    'INSERT INTO materials (id,type,title,content,url,tags,photo,meta,event_start_date,event_end_date,created_at,updated_at) VALUES (@id,@type,@title,@content,@url,@tags,@photo,@meta,@event_start_date,@event_end_date,@created_at,@updated_at)'
   ).run({
     id,
     type: data.type || 'note',
     title: data.title || '',
     content: data.content || '',
     url: data.url || '',
-    tags: data.tags || '',
+    tags: normalizeTags(data.tags),
     photo: data.photo || '',
     meta: data.meta || '',
+    event_start_date: data.event_start_date || '',
+    event_end_date: data.event_end_date || '',
     created_at: now,
     updated_at: now
   })
@@ -1331,10 +1720,11 @@ ipcMain.handle('materials:update', (_event, { id, patch }) => {
   const next = {
     ...cur,
     ...patch,
+    tags: patch.tags !== undefined ? normalizeTags(patch.tags) : cur.tags,
     updated_at: Date.now()
   }
   db.prepare(
-    'UPDATE materials SET type=@type,title=@title,content=@content,url=@url,tags=@tags,photo=@photo,meta=@meta,updated_at=@updated_at WHERE id=@id'
+    'UPDATE materials SET type=@type,title=@title,content=@content,url=@url,tags=@tags,photo=@photo,meta=@meta,event_start_date=@event_start_date,event_end_date=@event_end_date,updated_at=@updated_at WHERE id=@id'
   ).run(next)
   return next
 })
@@ -1949,27 +2339,63 @@ ipcMain.handle('file:open', async (_event, { filters }) => {
 
 // ===== 应用生命周期 =====
 app.whenReady().then(() => {
-  // createWindow() 在 initDatabase 之后调用，因为 initDatabase 需要 mainWindow 来通知恢复
-  createWindow()
-  initDatabase(mainWindow)
-  migrateCategoryKeys()
-  deduplicateCategories()
-  // 初始化成功后写滚动备份（异步、WAL 一致性快照），供损坏恢复链使用
-  writeRollingBackup()
-  const settings = readAppSettings()
-  buildMenu(settings.language || 'zh')
-  createTray()
+  // 启动期错误日志写入文件，便于无 console 环境排查
+  const logPath = path.join(app.getPath('userData'), 'startup-error.log')
+  const log = (msg) => {
+    try {
+      fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`)
+    } catch (_) { /* ignore */ }
+  }
+  try {
+    log(`[startup] whenReady begin, version=${app.getVersion()}`)
+    // createWindow() 在 initDatabase 之后调用，因为 initDatabase 需要 mainWindow 来通知恢复
+    createWindow()
+    log('[startup] createWindow ok')
+    initDatabase(mainWindow)
+    log('[startup] initDatabase ok')
+    migrateCategoryKeys()
+    log('[startup] migrateCategoryKeys ok')
+    deduplicateCategories()
+    log('[startup] deduplicateCategories ok')
+    // 初始化成功后写滚动备份（异步、WAL 一致性快照），供损坏恢复链使用
+    writeRollingBackup()
+    const settings = readAppSettings()
+    buildMenu(settings.language || 'zh')
+    createTray()
+    log('[startup] tray/menu ok')
 
-  // 启动外部 Agent HTTP API（本地回环，带 Token 鉴权）
-  apiServer = new ApiServer({
-    db,
-    getSettings: readAppSettings,
-    writeAppSettings,
-    resolveDbPath,
-    app,
-    getMainWindow: () => mainWindow
-  })
-  apiServer.start()
+    // 启动外部 Agent HTTP API（本地回环，带 Token 鉴权）
+    apiServer = new ApiServer({
+      db,
+      getSettings: readAppSettings,
+      writeAppSettings,
+      resolveDbPath,
+      app,
+      getMainWindow: () => mainWindow
+    })
+    apiServer.start()
+    log('[startup] apiServer started')
+  } catch (e) {
+    log(`[startup] FATAL: ${e.stack || e.message || e}`)
+    console.error('[startup] FATAL:', e)
+    // 即使 db 初始化失败，也尝试启动 API（降级模式），方便诊断
+    if (!apiServer) {
+      try {
+        apiServer = new ApiServer({
+          db: null,
+          getSettings: readAppSettings,
+          writeAppSettings,
+          resolveDbPath,
+          app,
+          getMainWindow: () => mainWindow
+        })
+        apiServer.start()
+        log('[startup] apiServer started in degraded mode (no db)')
+      } catch (e2) {
+        log(`[startup] apiServer degraded start failed: ${e2.message}`)
+      }
+    }
+  }
 
   // 初始化软件内更新器，启动后延迟自动检查（避免影响启动速度）
   updater = new Updater(
@@ -1988,10 +2414,15 @@ app.whenReady().then(() => {
     }
   )
   // 启动后延迟自动检查更新（避免影响启动速度），复用上方已声明的 settings
-  if (settings.autoCheckUpdate !== false) {
-    setTimeout(() => {
-      updater.checkForUpdates(true)
-    }, 8000)
+  // 兼容：try 块里 db 初始化失败 → 跳进 catch → settings 未定义 → 这里用 try/catch + 默认值保护
+  try {
+    if (settings && settings.autoCheckUpdate !== false) {
+      setTimeout(() => {
+        try { updater.checkForUpdates(true) } catch (e) { /* ignore */ }
+      }, 8000)
+    }
+  } catch (e) {
+    /* settings 未定义时静默忽略，自动检查更新跳过即可 */
   }
 
   app.on('activate', () => {
@@ -2021,3 +2452,12 @@ app.on('before-quit', () => {
     /* ignore */
   }
 })
+
+// DEBUG SCHEMA DUMP
+function dumpSchema(database) {
+  const fs = require('fs');
+  const path = require('path');
+  const log = (s) => { try { fs.appendFileSync(path.join(require('os').homedir(),'AppData','Roaming','family-inventory','startup-error.log'), '[schema] '+s+'\n') } catch(_){} };
+  try { log('items: '+database.prepare('PRAGMA table_info(items)').all().map(c=>c.name).join(',')); } catch(e){log('items err: '+e.message);}
+  try { log('materials: '+database.prepare('PRAGMA table_info(materials)').all().map(c=>c.name).join(',')); } catch(e){log('materials err: '+e.message);}
+}

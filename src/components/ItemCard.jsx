@@ -622,7 +622,7 @@ export default function ItemCard({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.15, ease: EASE }}
-              className="z-[9999] min-w-[160px] rounded-xl border border-border bg-surface p-1.5 shadow-float"
+              className="z-30 min-w-[160px] rounded-xl border border-border bg-surface p-1.5 shadow-float"
               style={{
                 left: Math.min(menuOpen.x, window.innerWidth - 180),
                 top: Math.min(menuOpen.y, window.innerHeight - 220),

@@ -11,7 +11,7 @@ export default function PageHeader({ title, onBack, action }) {
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: EASE }}
-      className="glass drag-region sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border px-4"
+      className="glass drag-region sticky top-0 z-50 flex h-14 items-center gap-3 border-b border-border px-4"
     >
       <motion.button
         whileTap={{ scale: 0.92 }}
