@@ -314,6 +314,14 @@ inventory-desktop/
 
 ## 最近更新
 
+- **v1.8.1**：修复 v1.8.0 启动崩溃（`backfillFtsFromMainTables` SQL 字符串外层单引号撞 SQL 空串字面量，改反引号模板字符串）
+- **v1.8.0**：全文搜索 FTS5（`items_fts` / `materials_fts` + AI/AD/AU 触发器 + OCR 子表同步触发器 + 老库回填）；`listItems` / `listMaterials` 的 keyword 改为 FTS5 MATCH（多关键字 `term*` 前缀通配符，零命中回退 LIKE）
+- **v1.7.9j**：标签块 UI（`TagBlock` 组件 + 模糊搜索候选 + 自由新建标签 + 12 色 palette + Enter/Backspace 快捷键）
+- **v1.7.9i**：OCR 改存独立表（`item_ocr` / `material_ocr`），消除 `database is locked`；`initDatabase` 5 次重试 + busy_timeout + mmap_size
+- **v1.7.9**：图片 OCR 端点（`ai:ocrItem` / `ai:ocrMaterial`）存独立表；keyword 搜索通过 LEFT JOIN 命中照片文字
+- **v1.7.8**：列表分页（`page` / `pageSize`）
+- **v1.7.6**：搜索清空按钮 / 历史搜索弹窗层级 / 设置页版本号加载转圈 / health 字段修复
+- **v1.7.4**：6 标签块 UI（`TagBlock` 组件 + categories 复用 + 12 色 palette + Backspace/Enter 快捷键）
 - **v1.7.2**：SQL 通用通道改精确语句白名单（危险语句真正被拒 + 交叉验证测试）；生产环境恢复同源策略；UI 与 Agent 物品写入收敛到 `services/items` 单一事务实现（消除双写漂移，保存不再全表 rebuild）；拖拽排序持久化到 `items.sort_order` 列（替代 localStorage 绝对下标）；JSON 导入支持合并模式；Agent API 请求体上限 + Token 常量时间比较；传图服务 15MB 上限 + 二维码 10 分钟自动过期；更新器仅 https；拖拽把手支持方向键交换（可达性）；骨架屏纯 CSS 化；回滚未使用的 Zustand store
 - **v1.7.1**：修复 v1.7.0 启动崩溃（main.jsx useEffect 未导入，附全量 hook 导入扫描防再犯）；渲染进程启动信标便于冒烟验证；切换数据目录后同步 Agent API 数据库引用+失败回滚；数量增减负数保护；删除物品 5 秒内可「撤销」；步进器长按连击；密度切换改显式三段选择器；过期通知按物品 id 记忆；AI 识别分类归一化复用唯一实现
 - **v1.7.0**：图片显示链路根治（preload `app` 未定义 → `sendSync` 同步 dataDir）；数据库损坏恢复链接通（启动滚动备份 `backups/*.bak` 保留 7 份 + 旧版备份回退）；列表加载失败降级 toast 不再全屏报错；`photo:saveFile` 路径批准列表封堵任意文件外泄；拖拽排序加固（pointercancel/Esc/卸载清理 + 实时放置目标高亮）；「关闭动画」设置真正接管 framer-motion（MotionConfig reducedMotion）；过期预警页修复分类显示/圆点颜色 bug 并整页 i18n 化；暗色启动白闪根治（theme-boot.js 首帧前设置 dark 类）；通知轮询/统计预热/预警页改用轻量元数据查询（不再全量序列化 photo 大字段）；清理死代码
