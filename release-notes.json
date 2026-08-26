@@ -1,5 +1,219 @@
 [
   {
+    "version": "1.8.5",
+    "date": "2026-08-26",
+    "title": "FTS5 健康端点兜底：现场跑 integrity-check",
+    "features": [
+      "/api/fts-health 改为 cache+live 双源：main.js 启动期 global.__ftsHealth 写入失败时，端点用 this.db 现场跑 FTS5 integrity-check 兜底",
+      "响应新增 source 字段：cache=启动期已写入 / live=端点现场跑（首次请求 503+live，第二次同 session 200+cache）",
+      "修复 v1.8.4 已知问题：/api/fts-health 在 v1.8.3 integrity-check 因启动时序未跑时永远返 503 unknown 的情况",
+      "hint 文案优化：error→'FTS5 内部结构损坏，建议从备份恢复或重置库'；unknown→'FTS5 虚表未就绪（db 句柄不可用）'"
+    ]
+  },
+  {
+    "version": "1.8.4",
+    "date": "2026-08-26",
+    "title": "FTS5 健康端点：/api/fts-health 上线",
+    "features": [
+      "/api/fts-health（GET）：返回 items_fts / materials_fts 启动期 integrity-check 状态，healthy 时 200 / 任一损坏时 503 + hint",
+      "status 含义：ok=integrity-check 通过；error=抛 SQLITE_CORRUPT_VTAB；unknown=启动期未执行",
+      "外部探针/Agent 可轮询该端点监测 FTS5 内部结构健康",
+      "docs/agent-api.md 新增 /api/fts-health 章节（含 200/503 响应示例）"
+    ]
+  },
+  {
+    "version": "1.8.3",
+    "date": "2026-08-26",
+    "title": "FTS5 调优：optimize 自动跑 + 启动期 integrity check",
+    "features": [
+      "FTS5 optimize 自动跑：backfillFtsFromMainTables 完成后对 items_fts / materials_fts 跑 INSERT INTO ..._fts(..._fts) VALUES('optimize') 整理倒排索引碎片",
+      "启动期 FTS5 integrity check：PRAGMA items_fts_check / materials_fts_check 检查虚表内部结构，损坏时 console.warn 不退出（App 仍可读，搜索可能漏）",
+      "暴露 global.__ftsHealth 供后续 /api/fts-health 端点扩展（v1.8.4 计划）",
+      "verify-fts5.js 新增 2 个断言：optimize 命令不抛错 + fts_check = 'ok'，真实库 14/14 + 内存库 12/12 全过"
+    ]
+  },
+  {
+    "version": "1.8.2",
+    "date": "2026-08-26",
+    "title": "FTS5 召回率优化（∪ LIKE 并集）+ 启动期 EXCLUSIVE 锁重试",
+    "features": [
+      "FTS5 召回率优化：listItems / listMaterials 的 keyword 改为 FTS5 MATCH ∪ LIKE 兜底并集，中文单字 / 模糊场景召回率显著提升",
+      "新增 ftsUnionLikeSearch() 工具函数，集中处理 FTS5 ∪ LIKE 并集 + LIKE %/_ 通配符 ESCAPE 转义",
+      "启动期 EXCLUSIVE 锁重试：backfillFtsFromMainTables 内 tx(rows) 失败退避重试 3 次（间隔 200ms），抵御 Windows Defender / Search 瞬时持锁",
+      "新增 scripts/verify-fts5.js 长期验证脚本：真实库 12/12 + 内存库 10/10 全过",
+      "/api/fts-debug 调试端点保持移除（v1.8.0 临时引入、v1.8.1 删除）"
+    ]
+  },
+  {
+    "version": "1.8.0",
+    "date": "2026-08-26",
+    "title": "全文搜索 FTS5（物品/材料/OCR 同步）",
+    "changes": [
+      "新增 items_fts / materials_fts 虚表（unicode61 + remove_diacritics 2）",
+      "AI/AD/AU + OCR 子表触发器自动同步",
+      "老库一次性回填已有数据到 FTS5",
+      "listItems / listMaterials 的 keyword 改为 FTS5 MATCH（多关键字 term* 前缀通配符，零命中回退 LIKE）",
+      "docs/agent-api.md 同步 FTS5 说明"
+    ]
+  },
+  {
+    "version": "1.8.1",
+    "date": "2026-08-26",
+    "title": "启动崩溃修复（FTS5 backfill SQL 引号）",
+    "changes": [
+      "修复 v1.8.0 启动崩溃：backfillFtsFromMainTables 内 SQL 字符串外层单引号撞 SQL 空串字面量，改反引号模板字符串",
+      "FTS5 全文搜索功能保持不变"
+    ]
+  },
+  {
+    "version": "1.7.9j",
+    "date": "2026-08-26",
+    "type": "feature",
+    "summary": "标签块 UI：物品表单新增可视化多选标签块，支持自由新建与着色",
+    "features": [
+      "【新功能】标签块 TagBlock：在物品表单的「标签」字段以彩色块状多选的形式呈现标签，可一键添加、删除、模糊搜索候选",
+      "【新功能】自由新建标签：用户在输入框直接回车即可新建标签，自动复用 categories 表（key=name）作为标签来源，无需新增数据库表",
+      "【新功能】颜色高亮：每个标签基于 key 哈希映射到 12 色 palette，便于在卡片/列表中一眼区分",
+      "【兼容】沿用 items.tags 现有 JSON 字符串字段，向后兼容老库；不改任何数据库表结构"
+    ],
+    "fixes": [
+      "src/components/TagBlock.jsx: 新建可视化标签块组件，支持多选 / 自由新建 / 模糊搜索 / 颜色稳定映射",
+      "src/components/ItemForm.jsx: 接入 TagBlock，form.tags 与 onSave 透传 JSON 字符串",
+      "src/lib/i18n.jsx: 新增 f_tags / tag_block_empty / tag_addBtn / tag_remove / tag_search_placeholder / tag_create / tag_creating / tag_noMatch / tag_noMore / tag_tip / tag_total 中英文案",
+      "package.json: 1.7.9i → 1.7.9j, output release-v179i → release-v179j",
+      "CHANGELOG.md: 新增 v1.7.9j 条目"
+    ],
+    "changelog": [
+      "UI: 新增标签块组件 TagBlock.jsx",
+      "表单: ItemForm 接入标签块，沿用 items.tags JSON 字段",
+      "i18n: 新增标签块相关中英文案",
+      "版本: 1.7.9i → 1.7.9j"
+    ]
+  },
+  {
+    "version": "1.7.9i",
+    "date": "2026-08-26",
+    "type": "bugfix",
+    "summary": "修复 v1.7.9 数据库锁定：OCR 结果改存独立表，移除 ALTER 主表",
+    "features": [
+      "【修复】OCR 结果改存独立表 item_ocr / material_ocr，避免 Windows Defender / Search 等外部进程持锁导致 ALTER TABLE 失败",
+      "【修复】移除 items / materials 主表的所有 ocr_text / ocr_at 加列逻辑，启动期不再触发杀软锁文件",
+      "【修复】initDatabaseAfterRecovery 同步移除 EXCLUSIVE 锁，与主启动流程一致（WAL + busy_timeout + mmap_size）",
+      "【兼容】已存在 ocr_text / ocr_at 列的旧库仍可正常打开；OCR 读写全部迁移到独立表",
+      "【搜索】/api/items 和 /api/e-materials 的 keyword 搜索通过 LEFT JOIN 独立 OCR 表实现，照片文字仍可被命中"
+    ],
+    "fixes": [
+      "electron/main.js: 建表语句去掉 ocr_text / ocr_at，新增 item_ocr / material_ocr 独立表；ensureItemColumns/ensureMaterialColumns/migrateIndexes 不再 ALTER 主表",
+      "electron/api-server.js: listItems / listMaterials keyword 搜索改用 LEFT JOIN item_ocr/material_ocr；ocrItem/ocrMaterial 写入与 getItemOcr/getMaterialOcr 读取改为独立表",
+      "electron/main.js: ai:ocrItem / ai:ocrMaterial IPC handler 写入 item_ocr / material_ocr 独立表",
+      "docs/agent-api.md: 新增「图片 OCR（v1.7.9+）」章节，说明 4 个端点、字段及 keyword 搜索",
+      "CHANGELOG.md: 新增 v1.7.8 / v1.7.9 / v1.7.9i 条目",
+      "package.json: 1.7.9h → 1.7.9i, output release-v179h → release-v179i"
+    ],
+    "changelog": [
+      "OCR 存储: items/materials 主表不再加 ocr_text/ocr_at 列，改为 item_ocr / material_ocr 独立表",
+      "启动修复: 移除所有 ALTER 主表操作，解决 Windows Defender / Search 持锁导致的 database is locked",
+      "API: keyword 搜索改用 LEFT JOIN 独立 OCR 表",
+      "文档: docs/agent-api.md 新增 OCR 章节"
+    ]
+  },
+  {
+    "version": "1.7.9",
+    "date": "2026-08-25",
+    "type": "feature",
+    "summary": "图片自动识字 OCR：物品/材料照片一键提取文字，搜索可命中",
+    "features": [
+      "【新功能】图片 OCR 自动识字：物品或材料保存后，点详情里的「OCR 识字」按钮，后台用多模态视觉模型把照片上的文字逐字识别并保存，结果可在搜索时命中（搜「发票」「合同」「说明书」等照片里的字也能找到对应物品）",
+      "【新功能】OCR 结果展示区：识别完成后在物品/材料详情里显示识别出的原文（不写回名称/分类/备注等字段，避免误写入）",
+      "【新功能】Agent API：新增 4 个 OCR 端点——POST /api/items/:id/ocr、GET /api/items/:id/ocr、POST /api/e-materials/:id/ocr、GET /api/e-materials/:id/ocr，外部 Agent 可触发识别或读取已识别文本",
+      "【新功能】搜索集成：/api/items 和 /api/e-materials 的 keyword 搜索现在同时匹配 name/notes 和 OCR 文字，照片里出现的字也能搜到"
+    ],
+    "fixes": [
+      "electron/ai-service.js: 新加 recognizeText 函数（OCR 专用 prompt：逐字识别，无文字返回 <EMPTY>，temperature=0）",
+      "electron/main.js: 加 ai:ocrItem / ai:ocrMaterial IPC handler",
+      "electron/api-server.js: 4 个 OCR 端点 + 搜索 keyword 命中 OCR 结果",
+      "electron/preload.js: ai 块暴露 ocrItem / ocrMaterial",
+      "src/lib/api.js: 加 ocrItem / ocrMaterial 包装",
+      "src/lib/i18n.jsx: 7 个 OCR 中英文案",
+      "src/components/ItemForm.jsx: OCR 按钮 + OCR 文字展示区",
+      "package.json: 1.7.8 → 1.7.9, output release-v178 → release-v179"
+    ],
+    "changelog": [
+      "AI service: 新加 recognizeText() — 纯文本 OCR 模式（temperature=0，prompt 要求逐字识别）",
+      "API: POST/GET /api/items/:id/ocr 与 /api/e-materials/:id/ocr 四个端点（外部 Agent 可调）",
+      "搜索: listItems / listMaterials 的 keyword 同时查 name/notes 和 OCR 文字",
+      "UI: ItemForm 加「OCR 识字」按钮（Receipt 图标，仅在 form.id 存在时可用）+ OCR 文字展示区"
+    ]
+  },
+  {
+    "version": "1.7.8",
+    "date": "2026-08-25",
+    "type": "feature",
+    "summary": "Agent API 列表分页：/api/items / /api/materials / /api/categories / /api/locations",
+    "features": [
+      "【新功能】列表 API 分页：4 个 GET 列表端点（/api/items、/api/materials、/api/categories、/api/locations）新增 ?page=&limit= 查询参数，limit 默认 100 上限 500，返回 { list, pagination: { page, limit, total, totalPages, hasMore } }",
+      "【向后兼容】不传 page/limit 时行为完全不变（仍是全量数组），旧客户端和老 Agent 都不受影响；只有显式传了任一参数才启用分页",
+      "【性能】数据库已有索引（v1.7.7 补的）配合 LIMIT/OFFSET，5000 条以上数据秒级返回，外部 Agent 翻页遍历时不再一次性拉全表拖死本地 API"
+    ],
+    "fixes": [
+      "electron/api-server.js: 4 个 list 方法加可选 page/limit 参数（不传时直接 return 全部 rows）",
+      "docs/agent-api.md: 加「v1.7.8+ 列表分页」章节含 4 端点对照表 + curl 示例 + 响应体示例",
+      "package.json: 1.7.7 → 1.7.8, output release-v177b → release-v178"
+    ],
+    "changelog": [
+      "API: 列表端点支持分页（page/limit 可选，limit 默认 100 上限 500）",
+      "向后兼容: 不传分页参数时行为与 v1.7.7 完全一致",
+      "docs: agent-api.md 增补分页章节"
+    ]
+  },
+  {
+    "version": "1.7.7",
+    "date": "2026-08-25",
+    "type": "bugfix",
+    "summary": "修复 v1.7.6 实际未生效：API 启动链加固 + 启动日志 + 降级模式",
+    "features": [
+      "【P0 修复】app.whenReady() 链加 try/catch 包裹：之前任何一步抛错都会让 API server '静默死亡'，窗口还在但 3001 端口不监听，外部 Agent 拿不到任何响应",
+      "【降级启动】如果 initDatabase 失败，用 db:null 启动 API（/api/status 至少能响应，health:null + version 真实版本号），进程活着就有信号",
+      "【启动日志】每步写入 userData/startup-error.log（whenReady begin → createWindow ok → initDatabase ok → apiServer started），下次失败能直接看文件定位",
+      "【真版本号】v1.7.6 之前用户实测拿到的 version:'1.7.2' 是老进程残留。v1.7.7 exe 文件名直接叫 'Family Inventory 1.7.7.exe'，asar 内 package.json version='1.7.7'"
+    ],
+    "fixes": [
+      "electron/main.js: app.whenReady().then() 链外加 try/catch + 降级 API 启动 + startup-error.log 写入",
+      "package.json: 1.7.6 → 1.7.7",
+      "directories.output: release-v176 → release-v177b"
+    ],
+    "changelog": [
+      "main.js: whenReady 启动链加 try/catch + 降级模式 + startup-error.log",
+      "package.json: 升级到 1.7.7",
+      "CHANGELOG.md: 新增 v1.7.7 条目"
+    ]
+  },
+  {
+    "version": "1.7.5.1",
+    "date": "2026-08-25",
+    "type": "bugfix",
+    "summary": "修复 v1.7.5 用户实测发现的 4 个 UI 问题",
+    "features": [
+      "【修复】搜索清空按钮：之前要点 3 次才能清空。根因是点击瞬间 input 先 onBlur 触发关闭弹窗，按钮被 React 卸载导致 click 事件丢失。改用 onMouseDown preventDefault 阻止 input 失焦，清空后主动 inputRef.current.focus()",
+      "【修复】搜索历史下拉弹窗 z-index：从 50 提到 10000，盖在所有拖拽/弹窗层之上",
+      "【修复】设置页「当前版本 / 更新源」显示：updaterInfo 异步加载完成前显示 spinner「加载中」而非「—」；更新源下拉选中项后加 ✓ 标记；版本未就绪时禁用检查按钮",
+      "【文档】新增 docs/date-index-testing.md：日期范围索引的两种验证方法（API 响应时间对比 / SQL EXPLAIN QUERY PLAN）"
+    ],
+    "fixes": [
+      "src/components/TopBar.jsx: 清空按钮 onMouseDown preventDefault + focus 恢复",
+      "src/components/TopBar.jsx: 历史下拉 z-50 → z-[10000]",
+      "src/components/SettingsView.jsx: currentVersion 加载中状态、source 选中标记、按钮 disable 保护"
+    ],
+    "changelog": [
+      "TopBar.jsx: 搜索 X 按钮修复（onMouseDown preventDefault 阻止 input blur）",
+      "TopBar.jsx: 搜索历史弹窗 z-50 → z-[10000]",
+      "SettingsView.jsx: 设置页版本/更新源加加载中态、✓ 选中标记、按钮 disable 保护",
+      "package.json: 1.7.5 → 1.7.6",
+      "CHANGELOG.md: 新增 v1.7.6 条目",
+      "docs/date-index-testing.md: 新增日期索引测试说明"
+    ]
+  },
+  {
     "version": "1.7.3",
     "date": "2026-08-21",
     "type": "fix",

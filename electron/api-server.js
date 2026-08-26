@@ -2,7 +2,8 @@
 const http = require('http')
 const crypto = require('crypto')
 const itemsService = require('./services/items')
-const { recognizeImage } = require('./ai-service')
+const { recognizeImage, recognizeText } = require('./ai-service')
+const { parseTags, normalizeTags } = require('./tags')
 const {
   normalizeCategoryKey,
   ensureCategoriesFromItems,
@@ -95,9 +96,11 @@ function toPhoneMaterial(row) {
     title: '【电子材料】' + (row.title || ''),
     content: row.content || '',
     url: row.url || '',
-    tags: row.tags || '',
+    tags: parseTags(row.tags),
     hasPhoto: !!row.photo,
     meta: row.meta || '',
+    eventStartDate: row.event_start_date || '',
+    eventEndDate: row.event_end_date || '',
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
   }
@@ -107,6 +110,52 @@ function toPhoneMaterialFull(row) {
   const m = toPhoneMaterial(row)
   m.photo = row.photo || ''
   return m
+}
+
+// FTS5 v1.8.0：把 keyword 变成 FTS5 MATCH 表达式，返回命中的 id 列表。
+// 行为：
+//   1) trim + 去控制字符；
+//   2) 多关键字按空格分词，每个词加前缀通配符（term*）— 支持"发票 保单"等组合；
+//   3) FTS5 操作符错误捕获后返回空（让上层走 LIKE）；
+//   4) LIMIT 200 防爆。
+function ftsKeywordSearch(db, table, keyword) {
+  const cleaned = String(keyword || '').replace(/[\x00-\x1F]/g, ' ').trim()
+  if (!cleaned) return []
+  const terms = cleaned.split(/\s+/).filter(Boolean).map((t) => t.replace(/"/g, ''))
+  if (terms.length === 0) return []
+  const expr = terms.map((t) => '"' + t + '"*').join(' ')
+  try {
+    const rows = db.prepare('SELECT id FROM ' + table + ' WHERE ' + table + ' MATCH ? LIMIT 200').all(expr)
+    return rows.map((r) => r.id)
+  } catch (_) {
+    return []
+  }
+}
+
+// FTS5 v1.8.2：FTS5 命中 ∪ LIKE 命中 求并集（不是整段切换）。
+// 目的：unicode61 停用词（"菜"、"第" 等单字常见汉字被 tokenize 干掉）走 FTS5 是零命中，
+//       整段切换会让单字/含停用词的合法搜索变成"无结果"。并集保证两边都进结果。
+// 入参：
+//   db        - better-sqlite3 实例
+//   ftsTable  - 虚表名（items_fts / materials_fts）
+//   mainTable - 主表名（items / materials）
+//   ocrAlias  - OCR 子表别名（item_ocr/material_ocr 在主查询里的别名，如 "o"，无 OCR 时传 null）
+//   keyword   - 原始 keyword
+//   mainCols  - 主表 LIKE 命中列数组（items: name/item_no/room/position/location/notes，materials: title/content/tags）
+// 返回：去重后的 id 数组
+function ftsUnionLikeSearch(db, ftsTable, mainTable, ocrAlias, keyword, mainCols) {
+  const ftsIds = ftsKeywordSearch(db, ftsTable, keyword)
+  const like = '%' + String(keyword).replace(/[%_]/g, (m) => '\\' + m) + '%'
+  const likeParts = mainCols.map((c) => mainTable + '.' + c + ' LIKE ? ESCAPE \'\\\'')
+  if (ocrAlias) likeParts.push(ocrAlias + '.ocr_text LIKE ? ESCAPE \'\\\'')
+  const likeRows = db.prepare('SELECT DISTINCT ' + mainTable + '.id AS id FROM ' + mainTable +
+    (ocrAlias ? ' LEFT JOIN ' + (ocrAlias === 'o' && mainTable === 'items' ? 'item_ocr' : ocrAlias === 'o' ? 'material_ocr' : '') + ' ' + ocrAlias + ' ON ' + mainTable + '.id = ' + ocrAlias + '.' + (mainTable === 'items' ? 'item_id' : 'material_id') : '') +
+    ' WHERE ' + likeParts.join(' OR ')).all(...Array(likeParts.length).fill(like))
+  const likeIds = likeRows.map((r) => r.id)
+  const set = new Set()
+  for (const id of ftsIds) set.add(id)
+  for (const id of likeIds) set.add(id)
+  return Array.from(set)
 }
 
 // 根据 ?includePhoto=true 选择精简或完整映射
@@ -269,6 +318,31 @@ class ApiServer {
     }
   }
 
+  // 分页参数解析：page/limit 都没传时返回 null（保持原行为不破坏老客户端）
+  // 传了任一参数就启用分页，limit 默认 100、上限 500（防单请求爆内存）
+  _parsePagination(url) {
+    const pageRaw = url.searchParams.get('page')
+    const limitRaw = url.searchParams.get('limit')
+    if (pageRaw === null && limitRaw === null) return null
+    let page = parseInt(pageRaw || '1', 10)
+    let limit = parseInt(limitRaw || '100', 10)
+    if (!Number.isFinite(page) || page < 1) page = 1
+    if (!Number.isFinite(limit) || limit < 1) limit = 100
+    if (limit > 500) limit = 500
+    return { page, limit, offset: (page - 1) * limit }
+  }
+
+  _buildPagination(total, p) {
+    const totalPages = Math.max(1, Math.ceil(total / p.limit))
+    return {
+      page: p.page,
+      limit: p.limit,
+      total,
+      totalPages,
+      hasMore: p.page < totalPages
+    }
+  }
+
   handle(req, res) {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
@@ -298,6 +372,10 @@ class ApiServer {
         this.createItem(req, res)
       } else if (path.startsWith('/api/items/') && path.endsWith('/photo') && req.method === 'GET') {
         this.getItemPhoto(req, res, path)
+      } else if (path.startsWith('/api/items/') && path.endsWith('/ocr') && req.method === 'POST') {
+        this.ocrItem(req, res, path)
+      } else if (path.startsWith('/api/items/') && path.endsWith('/ocr') && req.method === 'GET') {
+        this.getItemOcr(req, res, path)
       } else if (path.startsWith('/api/items/') && req.method === 'GET') {
         this.getItem(req, res, path, url)
       } else if (path.startsWith('/api/items/') && req.method === 'PATCH') {
@@ -334,6 +412,10 @@ class ApiServer {
         this.createMaterial(req, res)
       } else if (path.startsWith('/api/e-materials/') && path.endsWith('/photo') && req.method === 'GET') {
         this.getMaterialPhoto(req, res, path)
+      } else if (path.startsWith('/api/e-materials/') && path.endsWith('/ocr') && req.method === 'POST') {
+        this.ocrMaterial(req, res, path)
+      } else if (path.startsWith('/api/e-materials/') && path.endsWith('/ocr') && req.method === 'GET') {
+        this.getMaterialOcr(req, res, path)
       } else if (path.startsWith('/api/e-materials/') && req.method === 'GET') {
         this.getMaterial(req, res, path, url)
       } else if (path.startsWith('/api/e-materials/') && req.method === 'PATCH') {
@@ -344,6 +426,8 @@ class ApiServer {
         this.getSettingsEndpoint(req, res)
       } else if (path === '/api/ai/recognize' && req.method === 'POST') {
         this.recognize(req, res)
+      } else if (path === '/api/fts-health' && req.method === 'GET') {
+        this.ftsHealth(req, res)
       } else {
         json(res, 404, { error: 'Not found', path })
       }
@@ -425,40 +509,96 @@ class ApiServer {
 
   getStatus(req, res) {
     const settings = this.getSettingsObj()
+    let health = { ok: false, message: 'unknown' }
+    try {
+      if (this.db) {
+        // 直接基于 this.db 计算健康状态，不依赖 main.js 设置的 global
+        const raw = this.db.pragma('integrity_check')
+        // better-sqlite3 pragma('integrity_check') 返回 [{integrity_check: 'ok'}] 数组
+        let integrity = 'unknown'
+        if (Array.isArray(raw) && raw.length > 0 && raw[0]) {
+          integrity = String(raw[0].integrity_check || 'unknown')
+        } else if (typeof raw === 'string') {
+          integrity = raw
+        }
+        const itemsCount = this.db.prepare('SELECT COUNT(*) AS c FROM items').get().c
+        const materialsCount = this.db.prepare('SELECT COUNT(*) AS c FROM materials').get().c
+        const locationsCount = this.db.prepare('SELECT COUNT(*) AS c FROM locations').get().c
+        const categoriesCount = this.db.prepare('SELECT COUNT(*) AS c FROM categories').get().c
+        // 列出所有建好的索引（按表+名），用于排查日期范围索引是否真的建了
+        const indexes = this.db.prepare(
+          "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).all().map(r => r.name)
+        const ok = integrity === 'ok'
+        health = {
+          ok,
+          integrity,
+          items: itemsCount,
+          materials: materialsCount,
+          locations: locationsCount,
+          categories: categoriesCount,
+          indexes,
+          message: ok ? `数据库健康（items=${itemsCount}, materials=${materialsCount}, locations=${locationsCount}, categories=${categoriesCount}）` : `数据库完整性异常: ${integrity}`
+        }
+      } else {
+        health = { ok: false, message: 'db not ready' }
+      }
+    } catch (e) {
+      health = { ok: false, message: e.message }
+    }
     json(res, 200, {
       app: 'Family Inventory Agent API',
       version: pkg.version,
       dbPath: this.resolveDbPath(),
       dataDir: settings.dataDir || this.app.getPath('userData'),
-      timestamp: nowMs()
+      timestamp: nowMs(),
+      health
     })
   }
 
   listItems(req, res, url) {
     const keyword = (url.searchParams.get('keyword') || '').trim()
     const category = (url.searchParams.get('category') || '').trim()
-    let rows
-    if (keyword) {
-      const like = `%${keyword}%`
-      if (category) {
-        rows = this.db
-          .prepare(
-            `SELECT * FROM items WHERE category = ? AND (name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ?) ORDER BY updated_at DESC`
-          )
-          .all(category, like, like, like, like, like)
-      } else {
-        rows = this.db
-          .prepare(
-            `SELECT * FROM items WHERE name LIKE ? OR item_no LIKE ? OR room LIKE ? OR position LIKE ? OR location LIKE ? ORDER BY updated_at DESC`
-          )
-          .all(like, like, like, like, like)
-      }
-    } else if (category) {
-      rows = this.db.prepare('SELECT * FROM items WHERE category = ? ORDER BY updated_at DESC').all(category)
-    } else {
-      rows = this.db.prepare('SELECT * FROM items ORDER BY updated_at DESC').all()
+    const page = this._parsePagination(url)
+    // 构造 WHERE 子句（LEFT JOIN item_ocr，keyword 也能命中照片文字）
+    const where = []
+    const params = []
+    if (category) {
+      where.push('i.category = ?')
+      params.push(category)
     }
-    json(res, 200, { items: rows.map(itemMapper(url)) })
+    if (keyword) {
+      // FTS5 v1.8.2：FTS5 命中 ∪ LIKE 命中 并集（含 OCR 子表）
+      // 旧版（v1.8.0/v1.8.1）：FTS5 零命中整段切换到 LIKE，unicode61 停用词单字搜索体验差
+      const unionIds = ftsUnionLikeSearch(this.db, 'items_fts', 'items', 'o', keyword,
+        ['name', 'item_no', 'room', 'position', 'location', 'notes'])
+      if (unionIds.length > 0) {
+        where.push('i.id IN (' + unionIds.map(() => '?').join(',') + ')')
+        params.push(...unionIds)
+      } else {
+        // 极小概率：FTS5/LIKE 双零命中（keyword 全是 %/_ 转义后的怪字符），兜底单 LIKE
+        where.push('(i.name LIKE ? OR i.item_no LIKE ? OR i.room LIKE ? OR i.position LIKE ? OR i.location LIKE ? OR i.notes LIKE ? OR o.ocr_text LIKE ?)')
+        const like = `%${keyword}%`
+        params.push(like, like, like, like, like, like, like)
+      }
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+    const joinSql = 'LEFT JOIN item_ocr o ON i.id = o.item_id'
+    const fromSql = `items i ${joinSql}`
+    // 分页时先取总数（去重，避免 JOIN 后重复计数）
+    if (page) {
+      const total = this.db.prepare(`SELECT COUNT(DISTINCT i.id) AS c FROM ${fromSql} ${whereSql}`).get(...params).c
+      const rows = this.db
+        .prepare(`SELECT i.* FROM ${fromSql} ${whereSql} ORDER BY i.updated_at DESC LIMIT ? OFFSET ?`)
+        .all(...params, page.limit, page.offset)
+      json(res, 200, {
+        items: rows.map(itemMapper(url)),
+        pagination: this._buildPagination(total, page)
+      })
+    } else {
+      const rows = this.db.prepare(`SELECT i.* FROM ${fromSql} ${whereSql} ORDER BY i.updated_at DESC`).all(...params)
+      json(res, 200, { items: rows.map(itemMapper(url)) })
+    }
   }
 
   async createItem(req, res) {
@@ -528,13 +668,33 @@ class ApiServer {
   }
 
   listCategories(req, res) {
-    const rows = this.db.prepare('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC').all()
-    json(res, 200, { categories: rows })
+    const url = new URL(req.url, `http://localhost:${this.port}`)
+    const page = this._parsePagination(url)
+    if (page) {
+      const total = this.db.prepare('SELECT COUNT(*) AS c FROM categories').get().c
+      const rows = this.db
+        .prepare('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC LIMIT ? OFFSET ?')
+        .all(page.limit, page.offset)
+      json(res, 200, { categories: rows, pagination: this._buildPagination(total, page) })
+    } else {
+      const rows = this.db.prepare('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC').all()
+      json(res, 200, { categories: rows })
+    }
   }
 
   listLocations(req, res) {
-    const rows = this.db.prepare('SELECT * FROM locations ORDER BY sort_order ASC, created_at ASC').all()
-    json(res, 200, { locations: rows })
+    const url = new URL(req.url, `http://localhost:${this.port}`)
+    const page = this._parsePagination(url)
+    if (page) {
+      const total = this.db.prepare('SELECT COUNT(*) AS c FROM locations').get().c
+      const rows = this.db
+        .prepare('SELECT * FROM locations ORDER BY sort_order ASC, created_at ASC LIMIT ? OFFSET ?')
+        .all(page.limit, page.offset)
+      json(res, 200, { locations: rows, pagination: this._buildPagination(total, page) })
+    } else {
+      const rows = this.db.prepare('SELECT * FROM locations ORDER BY sort_order ASC, created_at ASC').all()
+      json(res, 200, { locations: rows })
+    }
   }
 
   // ===== 分类 CRUD（Agent 可调用，修改时同步物品 category）=====
@@ -770,20 +930,61 @@ class ApiServer {
   listMaterials(req, res, url) {
     const type = (url.searchParams.get('type') || '').trim()
     const keyword = (url.searchParams.get('keyword') || '').trim()
-    let sql = 'SELECT * FROM materials WHERE 1=1'
+    const startDate = (url.searchParams.get('startDate') || url.searchParams.get('start_date') || '').trim()
+    const endDate = (url.searchParams.get('endDate') || url.searchParams.get('end_date') || '').trim()
+    const tag = (url.searchParams.get('tag') || '').trim()
+    const page = this._parsePagination(url)
+    // 构造 WHERE 子句（LEFT JOIN material_ocr，keyword 也能命中照片文字）
+    const where = ['1=1']
     const params = []
     if (type) {
-      sql += ' AND type = ?'
+      where.push('m.type = ?')
       params.push(type)
     }
     if (keyword) {
-      sql += ' AND (title LIKE ? OR content LIKE ? OR tags LIKE ?)'
-      const like = `%${keyword}%`
-      params.push(like, like, like)
+      // FTS5 v1.8.2：FTS5 命中 ∪ LIKE 命中 并集（含 OCR 子表）
+      const unionIds = ftsUnionLikeSearch(this.db, 'materials_fts', 'materials', 'o', keyword,
+        ['title', 'content', 'tags'])
+      if (unionIds.length > 0) {
+        where.push('m.id IN (' + unionIds.map(() => '?').join(',') + ')')
+        params.push(...unionIds)
+      } else {
+        // 极小概率：FTS5/LIKE 双零命中，兜底单 LIKE
+        where.push('(m.title LIKE ? OR m.content LIKE ? OR m.tags LIKE ? OR o.ocr_text LIKE ?)')
+        const like = `%${keyword}%`
+        params.push(like, like, like, like)
+      }
     }
-    sql += ' ORDER BY updated_at DESC'
-    const rows = this.db.prepare(sql).all(...params)
-    json(res, 200, { materials: rows.map(materialMapper(url)) })
+    if (startDate) {
+      where.push('m.event_start_date >= ?')
+      params.push(startDate)
+    }
+    if (endDate) {
+      where.push('m.event_end_date <= ?')
+      params.push(endDate)
+    }
+    if (tag) {
+      where.push('m.tags LIKE ?')
+      params.push(`%${tag}%`)
+    }
+    const whereSql = `WHERE ${where.join(' AND ')}`
+    const joinSql = 'LEFT JOIN material_ocr o ON m.id = o.material_id'
+    const fromSql = `materials m ${joinSql}`
+    if (page) {
+      const total = this.db.prepare(`SELECT COUNT(DISTINCT m.id) AS c FROM ${fromSql} ${whereSql}`).get(...params).c
+      const rows = this.db
+        .prepare(`SELECT m.* FROM ${fromSql} ${whereSql} ORDER BY m.updated_at DESC LIMIT ? OFFSET ?`)
+        .all(...params, page.limit, page.offset)
+      json(res, 200, {
+        materials: rows.map(materialMapper(url)),
+        pagination: this._buildPagination(total, page)
+      })
+    } else {
+      const rows = this.db
+        .prepare(`SELECT m.* FROM ${fromSql} ${whereSql} ORDER BY m.updated_at DESC`)
+        .all(...params)
+      json(res, 200, { materials: rows.map(materialMapper(url)) })
+    }
   }
 
   // ===== 电子材料类型管理 =====
@@ -825,10 +1026,6 @@ class ApiServer {
     }
     const now = nowMs()
     const id = crypto.randomUUID()
-    const normalizeTags = (tags) => {
-      if (Array.isArray(tags)) return tags.join(',')
-      return String(tags || '')
-    }
     const row = {
       id,
       type: data.type || 'note',
@@ -838,11 +1035,13 @@ class ApiServer {
       tags: normalizeTags(data.tags),
       photo: data.photo || '',
       meta: data.meta || '',
+      event_start_date: data.eventStartDate || data.event_start_date || '',
+      event_end_date: data.eventEndDate || data.event_end_date || '',
       created_at: now,
       updated_at: now
     }
     this.db.prepare(
-      'INSERT INTO materials (id,type,title,content,url,tags,photo,meta,created_at,updated_at) VALUES (@id,@type,@title,@content,@url,@tags,@photo,@meta,@created_at,@updated_at)'
+      'INSERT INTO materials (id,type,title,content,url,tags,photo,meta,event_start_date,event_end_date,created_at,updated_at) VALUES (@id,@type,@title,@content,@url,@tags,@photo,@meta,@event_start_date,@event_end_date,@created_at,@updated_at)'
     ).run(row)
     const created = this.db.prepare('SELECT * FROM materials WHERE id = ?').get(id)
     this.notifyRenderer('materials')
@@ -857,10 +1056,6 @@ class ApiServer {
       return
     }
     const data = await readBody(req)
-    const normalizeTags = (tags) => {
-      if (Array.isArray(tags)) return tags.join(',')
-      return String(tags || '')
-    }
     const next = {
       ...cur,
       type: data.type !== undefined ? data.type : cur.type,
@@ -870,10 +1065,12 @@ class ApiServer {
       tags: data.tags !== undefined ? normalizeTags(data.tags) : cur.tags,
       photo: data.photo !== undefined ? data.photo : cur.photo,
       meta: data.meta !== undefined ? data.meta : cur.meta,
+      event_start_date: data.eventStartDate !== undefined ? (data.eventStartDate || '') : (data.event_start_date !== undefined ? (data.event_start_date || '') : cur.event_start_date),
+      event_end_date: data.eventEndDate !== undefined ? (data.eventEndDate || '') : (data.event_end_date !== undefined ? (data.event_end_date || '') : cur.event_end_date),
       updated_at: nowMs()
     }
     this.db.prepare(
-      'UPDATE materials SET type=@type,title=@title,content=@content,url=@url,tags=@tags,photo=@photo,meta=@meta,updated_at=@updated_at WHERE id=@id'
+      'UPDATE materials SET type=@type,title=@title,content=@content,url=@url,tags=@tags,photo=@photo,meta=@meta,event_start_date=@event_start_date,event_end_date=@event_end_date,updated_at=@updated_at WHERE id=@id'
     ).run(next)
     this.notifyRenderer('materials')
     json(res, 200, { material: toPhoneMaterial(next) })
@@ -913,6 +1110,103 @@ class ApiServer {
     }
   }
 
+  /**
+   * 物品 OCR：识别物品照片中所有文字，存到 item_ocr 独立表
+   * POST /api/items/:id/ocr
+   * body: { image?: string }  // 可选；不传则用 items.photo 已存的照片
+   */
+  async ocrItem(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/items/'.length, -'/ocr'.length))
+    const row = this.db.prepare('SELECT id, photo FROM items WHERE id = ?').get(id)
+    if (!row) {
+      json(res, 404, { error: 'Not found', id })
+      return
+    }
+    const data = await readBody(req).catch(() => ({}))
+    const image = data.image || row.photo || ''
+    if (!image) {
+      json(res, 400, { error: 'Bad request', message: '该物品没有照片，且请求未提供 image' })
+      return
+    }
+    const settings = this.getSettingsObj()
+    const result = await recognizeText({ image, settings })
+    if (!result.ok) {
+      json(res, 502, { error: 'OCR failed', message: result.error })
+      return
+    }
+    const now = Date.now()
+    this.db
+      .prepare(
+        `INSERT INTO item_ocr (item_id, ocr_text, ocr_at, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(item_id) DO UPDATE SET
+           ocr_text = excluded.ocr_text,
+           ocr_at = excluded.ocr_at,
+           updated_at = excluded.updated_at`
+      )
+      .run(id, result.text, now, now)
+    this.notifyRenderer('items')
+    json(res, 200, { id, ocr_text: result.text, ocr_at: now })
+  }
+
+  getItemOcr(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/items/'.length, -'/ocr'.length))
+    const row = this.db.prepare('SELECT item_id, ocr_text, ocr_at FROM item_ocr WHERE item_id = ?').get(id)
+    if (!row) {
+      json(res, 200, { id, ocr_text: '', ocr_at: 0 })
+      return
+    }
+    json(res, 200, { id: row.item_id, ocr_text: row.ocr_text || '', ocr_at: row.ocr_at || 0 })
+  }
+
+  /**
+   * 材料 OCR：识别材料照片中所有文字，存到 material_ocr 独立表
+   * POST /api/e-materials/:id/ocr
+   */
+  async ocrMaterial(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/e-materials/'.length, -'/ocr'.length))
+    const row = this.db.prepare('SELECT id, photo FROM materials WHERE id = ?').get(id)
+    if (!row) {
+      json(res, 404, { error: 'Not found', id })
+      return
+    }
+    const data = await readBody(req).catch(() => ({}))
+    const image = data.image || row.photo || ''
+    if (!image) {
+      json(res, 400, { error: 'Bad request', message: '该材料没有照片，且请求未提供 image' })
+      return
+    }
+    const settings = this.getSettingsObj()
+    const result = await recognizeText({ image, settings })
+    if (!result.ok) {
+      json(res, 502, { error: 'OCR failed', message: result.error })
+      return
+    }
+    const now = Date.now()
+    this.db
+      .prepare(
+        `INSERT INTO material_ocr (material_id, ocr_text, ocr_at, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(material_id) DO UPDATE SET
+           ocr_text = excluded.ocr_text,
+           ocr_at = excluded.ocr_at,
+           updated_at = excluded.updated_at`
+      )
+      .run(id, result.text, now, now)
+    this.notifyRenderer('materials')
+    json(res, 200, { id, ocr_text: result.text, ocr_at: now })
+  }
+
+  getMaterialOcr(req, res, path) {
+    const id = decodeURIComponent(path.slice('/api/e-materials/'.length, -'/ocr'.length))
+    const row = this.db.prepare('SELECT material_id, ocr_text, ocr_at FROM material_ocr WHERE material_id = ?').get(id)
+    if (!row) {
+      json(res, 200, { id, ocr_text: '', ocr_at: 0 })
+      return
+    }
+    json(res, 200, { id: row.material_id, ocr_text: row.ocr_text || '', ocr_at: row.ocr_at || 0 })
+  }
+
   getSettingsEndpoint(req, res) {
     const settings = this.getSettingsObj()
     json(res, 200, {
@@ -949,6 +1243,54 @@ class ApiServer {
   restart() {
     this.stop()
     this.start()
+  }
+
+  // FTS5 健康端点：返回 items_fts / materials_fts 内部体检结果
+  // 1) 优先用 main.js 启动期写入的 global.__ftsHealth 缓存
+  // 2) 缓存缺失时现场跑一次 FTS5 integrity-check，把结果回写缓存并返回
+  // 两者都为 'ok' → 200 healthy；任一为 'error' → 503 unhealthy
+  ftsHealth(req, res) {
+    let h = global.__ftsHealth
+    let source = 'cache'
+    if (!h || (h.items_fts_check == null && h.materials_fts_check == null)) {
+      // 兜底：主动跑一次 FTS5 integrity-check（无返回行命令，run() 不抛即 OK）
+      const result = { items_fts_check: 'unknown', materials_fts_check: 'unknown' }
+      try {
+        if (this.db) {
+          this.db.prepare("INSERT INTO items_fts(items_fts) VALUES('integrity-check')").run()
+          result.items_fts_check = 'ok'
+        }
+      } catch (e) {
+        result.items_fts_check = 'error'
+      }
+      try {
+        if (this.db) {
+          this.db.prepare("INSERT INTO materials_fts(materials_fts) VALUES('integrity-check')").run()
+          result.materials_fts_check = 'ok'
+        }
+      } catch (e) {
+        result.materials_fts_check = 'error'
+      }
+      global.__ftsHealth = result
+      h = result
+      source = 'live'
+    }
+    const items = h.items_fts_check
+    const materials = h.materials_fts_check
+    const itemsOk = items === 'ok'
+    const materialsOk = materials === 'ok'
+    const healthy = itemsOk && materialsOk
+    json(res, healthy ? 200 : 503, {
+      healthy,
+      source,
+      items_fts: { status: items || 'unknown', ok: itemsOk },
+      materials_fts: { status: materials || 'unknown', ok: materialsOk },
+      hint: healthy
+        ? 'FTS5 内部结构正常'
+        : (!items || !materials) && (items === 'error' || materials === 'error')
+          ? 'FTS5 内部结构损坏，建议从备份恢复或重置库'
+          : 'FTS5 虚表未就绪（db 句柄不可用）'
+    })
   }
 }
 
