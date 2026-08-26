@@ -231,6 +231,80 @@ async function fetchModels({ settings, provider } = {}) {
   }
 }
 
+/**
+ * OCR 识别图片中的所有文字（票据/保单/说明书/保质期等）
+ * 复用多模态视觉大模型，但换 prompt 让它返回纯文本（不解析 JSON）
+ * @param {Object} options
+ * @param {string} options.image 图片 data URL / URL / 本地路径
+ * @param {object} options.settings 应用设置对象
+ * @param {object} [options.provider] 指定供应商
+ * @returns {Promise<{ok:boolean, text?:string, error?:string}>}
+ */
+async function recognizeText({ image, settings, provider }) {
+  const cfg = provider || getActiveProvider(settings)
+  if (!cfg) return { ok: false, error: '未配置 AI 供应商' }
+
+  const baseUrl = cfg.baseUrl
+  const key = cfg.key
+  const model = cfg.model || 'gpt-4o-mini'
+
+  if (!baseUrl) return { ok: false, error: '未配置 AI 接口地址（Base URL）' }
+  if (!key) return { ok: false, error: '未配置 AI 接口密钥（API Key）' }
+  if (!image) return { ok: false, error: '缺少图片' }
+
+  const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`
+
+  // OCR 专用 prompt：要求逐字识别保留原始排版，不要解释，不要补全
+  const body = {
+    model,
+    temperature: 0,
+    messages: [
+      {
+        role: 'system',
+        content:
+          '你是一名高精度 OCR 引擎。请逐字识别图片中的所有文字（包括印刷体与清晰手写体），' +
+          '保留原始换行和段落结构，不要解释、不要补全、不要翻译、不要总结。' +
+          '如果图片中没有任何可识别的文字，仅返回 <EMPTY>。'
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '请识别这张图片里的所有文字，按原样输出。' },
+          { type: 'image_url', image_url: { url: ensureImageUrl(image) } }
+        ]
+      }
+    ]
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`
+      },
+      body: JSON.stringify(body)
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return { ok: false, error: `AI 接口返回 ${res.status}: ${text.slice(0, 200)}` }
+    }
+
+    const data = await res.json()
+    const content = (data.choices?.[0]?.message?.content || '').trim()
+
+    if (!content || content === '<EMPTY>') {
+      return { ok: true, text: '' }
+    }
+
+    return { ok: true, text: content }
+  } catch (e) {
+    console.error('[ai-service] recognizeText error:', e)
+    return { ok: false, error: e.message || 'OCR 识别请求失败' }
+  }
+}
+
 async function testConnection({ settings, provider } = {}) {
   const cfg = provider || getActiveProvider(settings)
   if (!cfg) {
@@ -261,6 +335,7 @@ async function testConnection({ settings, provider } = {}) {
 
 module.exports = {
   recognizeImage,
+  recognizeText,
   fetchModels,
   testConnection,
   migrateAIConfig,

@@ -1,6 +1,11 @@
 # 家庭物资管家 · 中文友好版（Inv-Manage + UTF-8 REST Client）
 
-> 当前文档对应版本：**v1.7.2**（2026-08-22）。相对 v1.2.18 的变化：图片已从列表/详情响应分离（默认 `hasPhoto`，独立取图端点）；物品创建/更新与 UI 共用同一服务实现——`quantity`/`minQuantity` 负数自动截断为 0、支持 `notes` 与 `consume_*` 字段、传入 `createdAt` 会被保留；POST/PATCH 请求体上限 25MB；DELETE 返回 `200 {deleted: n}`（并非 204）。
+> 当前文档对应版本：**v1.8.1**（2026-08-26）。相对 v1.7.2 的变化：
+
+- **v1.8.0 FTS5 全文搜索**：`/api/items` 与 `/api/e-materials` 的 `keyword` 改为 SQLite FTS5 MATCH，多关键字按空格分词为 `term*` 前缀通配符组合（如 `发票 保单` 等价于 `发票* AND 保单*`）；命中即返回结果集，零命中或 syntax error 回退 LIKE。FTS5 虚表与触发器在 `initDatabase` 自动建立，老库一次性回填已有数据。
+- **v1.7.9i OCR 独立表**：图片 OCR 文字存到 `item_ocr` / `material_ocr` 独立表（不再 ALTER 主表），keyword 自动可命中照片里的文字（票据/保单/说明书/保质期/合同等）。
+- **v1.7.8 列表分页**：`/api/items` 与 `/api/e-materials` 新增 `page` / `pageSize` 参数，返回 `pagination` 字段（`total` / `page` / `pageSize` / `totalPages` / `hasNext` / `hasPrev`）。
+- 之前的 v1.7.6 设置页版本号加载 / health 字段 / 搜索清空 / 历史搜索弹窗层级等修复保留。
 
 ## Overview
 
