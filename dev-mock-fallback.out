@@ -1,0 +1,2 @@
+fallback mock provider listening on http://127.0.0.1:19998
+前 2 次 /chat/completions → 400；第 3 次起 → 200

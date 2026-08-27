@@ -3,6 +3,9 @@
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
+const https = require('https')
+const http = require('http')
+const { URL } = require('url')
 // 分类归一化统一复用 data-utils（主进程唯一实现，避免与 main/api-server 行为漂移）：
 // 未命中时保留原始输入（可能是自定义分类名），由 ensureCategoriesFromItems 决定是否新建
 const { normalizeCategoryKey } = require('./data-utils')
@@ -69,6 +72,55 @@ function findPhotoFallback(relOrAbsPath) {
   return null
 }
 
+// v1.9.4: 不再依赖 settings.dataDir 传参，直接问 Electron 拿到 userData 目录
+// 用户日志显示 baseDir=undefined 始终是 undefined，说明 api-server
+// 透传 settings 时漏了 dataDir；用 app.getPath('userData') 绕过这条链路
+function tryAppGetPath() {
+  try {
+    const { app } = require('electron')
+    if (app && typeof app.getPath === 'function') {
+      const p = app.getPath('userData')
+      if (p) return p
+    }
+  } catch (_) { /* 可能在非 Electron 上下文跑（如脚本 require） */ }
+  return null
+}
+
+// v1.9.4: 下载远程 URL 图片转 data URL。5 秒超时，30KB 头限制保护
+// 之前 URL 直接 passthrough 给 opencode zen，opencode zen 不收 URL → 1214
+// 现在本地先下载成 buffer，再走 data: URL 流程
+function downloadUrlToDataUrl(urlStr, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let parsed
+    try { parsed = new URL(urlStr) } catch (_) { resolve(null); return }
+    const lib = parsed.protocol === 'https:' ? https : http
+    const req = lib.get(urlStr, { timeout: timeoutMs }, (resp) => {
+      if (resp.statusCode && resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+        // 跟随一次重定向
+        resolve(downloadUrlToDataUrl(resp.headers.location, timeoutMs))
+        return
+      }
+      if (resp.statusCode !== 200) { resolve(null); return }
+      const chunks = []
+      let total = 0
+      const max = 8 * 1024 * 1024 // 8MB 上限，避免巨图把内存吃光
+      resp.on('data', (c) => {
+        total += c.length
+        if (total > max) { req.destroy(); resolve(null); return }
+        chunks.push(c)
+      })
+      resp.on('end', () => {
+        const buf = Buffer.concat(chunks)
+        const ct = String(resp.headers['content-type'] || '').split(';')[0].trim() || 'image/jpeg'
+        resolve(`data:${ct};base64,${buf.toString('base64')}`)
+      })
+      resp.on('error', () => resolve(null))
+    })
+    req.on('timeout', () => { req.destroy(); resolve(null) })
+    req.on('error', () => resolve(null))
+  })
+}
+
 function _logResolveDecision(input, resolved, baseDir, extra) {
   // v1.9.3 诊断日志：写到 userData/ai-image-resolve.log
   // 用户跑一次后把这段贴回来，定位是 baseDir 没拿到，还是 file:// 解析错，还是真的缺文件
@@ -90,9 +142,18 @@ function resolveImageInput(image, baseDir) {
   if (!image) return ''
   const s = String(image).trim()
   if (!s) return ''
-  // 已经是 data URL 或 http(s) URL — 原样返回
+  // v1.9.4: baseDir 拿不到时主动用 Electron userData 兜底
+  // 用户日志显示 baseDir 始终 undefined，是 api-server 透传 settings 时漏了字段
+  // 这里直接绕过 settings 链路
+  if (!baseDir) {
+    const userData = tryAppGetPath()
+    if (userData) baseDir = userData
+  }
+  // 已经是 data URL — 原样返回
   if (/^data:/i.test(s)) { _logResolveDecision(s, s, baseDir); return s }
-  if (/^https?:/i.test(s)) { _logResolveDecision(s, s, baseDir); return s }
+  // v1.9.4: http(s) URL — 主进程先下载转 data URL；下载失败再原样返回
+  // 标记：先放个 PASSTHROUGH 占位，真正走异步在调用方处理
+  if (/^https?:/i.test(s)) { _logResolveDecision(s, s, baseDir, { urlPassthrough: true }); return s }
   // file:// URL — 还原成磁盘路径
   let absPath = null
   if (/^file:\/\//i.test(s)) {
@@ -364,7 +425,18 @@ async function recognizeImage({ image, db, settings, provider }) {
   if (!settings || !settings.dataDir) {
     _logResolveDecision(image, image, settings && settings.dataDir, { noDataDir: true })
   }
-  const dataUrl = resolveImageInput(image, settings?.dataDir)
+  let dataUrl = resolveImageInput(image, settings?.dataDir)
+  // v1.9.4: 远程 URL 在 resolveImageInput 里走 passthrough（保持函数同步），
+  // 这里在主进程先下载成 buffer 再拼 data URL；下载失败才用原始 URL
+  if (dataUrl && /^https?:/i.test(dataUrl)) {
+    const downloaded = await downloadUrlToDataUrl(dataUrl)
+    if (downloaded) {
+      _logResolveDecision(dataUrl, downloaded, settings && settings.dataDir, { urlDownloaded: true })
+      dataUrl = downloaded
+    } else {
+      _logResolveDecision(dataUrl, dataUrl, settings && settings.dataDir, { urlDownloadFailed: true })
+    }
+  }
   // v1.9.3: 硬校验 — 不是 data URL 开头就拒绝，宁可报错也不发残缺 URL 出去触发 1214
   if (!dataUrl) {
     return { ok: false, error: `图片解析失败：输入不是 data URL 也未匹配到本地文件（${String(image).slice(0, 80)}）` }
@@ -522,7 +594,17 @@ async function recognizeText({ image, settings, provider }) {
   if (!settings || !settings.dataDir) {
     _logResolveDecision(image, image, settings && settings.dataDir, { noDataDir: true })
   }
-  const dataUrl = resolveImageInput(image, settings?.dataDir)
+  let dataUrl = resolveImageInput(image, settings?.dataDir)
+  // v1.9.4: 远程 URL 主进程先下载转 data URL
+  if (dataUrl && /^https?:/i.test(dataUrl)) {
+    const downloaded = await downloadUrlToDataUrl(dataUrl)
+    if (downloaded) {
+      _logResolveDecision(dataUrl, downloaded, settings && settings.dataDir, { urlDownloaded: true })
+      dataUrl = downloaded
+    } else {
+      _logResolveDecision(dataUrl, dataUrl, settings && settings.dataDir, { urlDownloadFailed: true })
+    }
+  }
   if (!dataUrl) {
     return { ok: false, error: `图片解析失败：输入不是 data URL 也未匹配到本地文件（${String(image).slice(0, 80)}）` }
   }
