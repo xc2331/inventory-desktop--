@@ -14,13 +14,47 @@ const { normalizeCategoryKey } = require('./data-utils')
 // 残缺 URL，opencode zen / OpenAI 不认，导致 messages[1].content[1].type 1214。
 // 修法：所有非 data: / http(s): 的输入都先在主进程读文件转 data URL，
 // 保证 image_url.url 永远是一个合法的 base64 data URL。
+// v1.9.2 兜底候选：没拿到 baseDir 时，从这几个常见目录找照片
+function findPhotoFallback(relOrAbsPath) {
+  const candidates = []
+  if (process.env.INVENTORY_DATA_DIR) {
+    candidates.push(path.join(process.env.INVENTORY_DATA_DIR, 'photos'))
+  }
+  if (process.env.APPDATA) {
+    candidates.push(path.join(process.env.APPDATA, 'family-inventory', 'photos'))
+  }
+  if (process.env.APPDATA) {
+    candidates.push(path.join(process.env.APPDATA, 'inventory-desktop', 'photos'))
+  }
+  candidates.push(path.join(process.cwd(), 'photos'))
+  for (const dir of candidates) {
+    const full = path.isAbsolute(relOrAbsPath) ? relOrAbsPath : path.join(dir, relOrAbsPath)
+    if (fs.existsSync(full)) return full
+  }
+  return null
+}
+
+function _logResolveDecision(input, resolved, baseDir) {
+  // v1.9.2 诊断日志：写到 userData/ai-image-resolve.log
+  // 用户跑一次后把这段贴回来，定位是 baseDir 没拿到，还是 file:// 解析错，还是真的缺文件
+  try {
+    const logPath = path.join(process.env.APPDATA || process.cwd(), 'family-inventory', 'ai-image-resolve.log')
+    fs.mkdirSync(path.dirname(logPath), { recursive: true })
+    const tag = resolved.startsWith('data:')
+      ? 'OK_DATA_URL'
+      : (resolved === input ? 'PASSTHROUGH' : 'OTHER')
+    const line = `[${new Date().toISOString()}] ${tag} baseDir=${JSON.stringify(baseDir)} input=${JSON.stringify(input).slice(0, 200)} -> ${JSON.stringify(resolved).slice(0, 120)}\n`
+    fs.appendFileSync(logPath, line)
+  } catch (_) { /* 日志失败不影响主流程 */ }
+}
+
 function resolveImageInput(image, baseDir) {
   if (!image) return ''
   const s = String(image).trim()
   if (!s) return ''
   // 已经是 data URL 或 http(s) URL — 原样返回
-  if (/^data:/i.test(s)) return s
-  if (/^https?:/i.test(s)) return s
+  if (/^data:/i.test(s)) { _logResolveDecision(s, s, baseDir); return s }
+  if (/^https?:/i.test(s)) { _logResolveDecision(s, s, baseDir); return s }
   // file:// URL — 还原成磁盘路径
   let absPath = null
   if (/^file:\/\//i.test(s)) {
@@ -35,11 +69,27 @@ function resolveImageInput(image, baseDir) {
     // 相对路径：相对 dataDir 解析（photo.save 的产物存的就是相对路径）
     absPath = path.resolve(baseDir, s)
   } else {
-    // 没 baseDir 也没别的线索 — 没法解析，跳过
-    return s
+    // v1.9.2 兜底：没 baseDir 时尝试常见候选目录
+    const guessed = findPhotoFallback(s)
+    if (guessed) {
+      absPath = guessed
+    } else {
+      // 实在找不到 — 写日志并 passthrough（让上游 1214 错误暴露，方便定位）
+      _logResolveDecision(s, s, baseDir)
+      return s
+    }
   }
   try {
-    if (!fs.existsSync(absPath)) return s
+    if (!fs.existsSync(absPath)) {
+      // 文件不存在 — 兜底再试一次（处理 dataDir 实际是 photos 父目录或子目录的情况）
+      const guessed = findPhotoFallback(s)
+      if (guessed && fs.existsSync(guessed)) {
+        absPath = guessed
+      } else {
+        _logResolveDecision(s, s, baseDir)
+        return s
+      }
+    }
     const buf = fs.readFileSync(absPath)
     const ext = path.extname(absPath).toLowerCase()
     const mimeMap = {
@@ -51,8 +101,11 @@ function resolveImageInput(image, baseDir) {
       '.bmp': 'image/bmp'
     }
     const mime = mimeMap[ext] || 'image/jpeg'
-    return `data:${mime};base64,${buf.toString('base64')}`
+    const out = `data:${mime};base64,${buf.toString('base64')}`
+    _logResolveDecision(s, out, baseDir)
+    return out
   } catch (e) {
+    _logResolveDecision(s, s, baseDir)
     return s
   }
 }

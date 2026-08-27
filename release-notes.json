@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.9.2",
+    "date": "2026-08-27",
+    "title": "AI 识别 1214 加固：兜底候选目录 + 诊断日志",
+    "features": [
+      "【P0 修复】v1.9.1 仍可能在某些调用栈上 1214：如果 settings.dataDir 是 undefined/空串，原 resolveImageInput 直接 passthrough 相对路径，image_url.url 变成 '2024-01/abc.webp' 字符串，opencode zen 拒收",
+      "【关键】resolveImageInput 新增 findPhotoFallback 兜底：baseDir 拿不到时，主动从 INVENTORY_DATA_DIR / %APPDATA%/family-inventory/photos / %APPDATA%/inventory-desktop/photos / cwd/photos 这 4 个候选目录找照片",
+      "【关键】文件不存在时再触发一次兜底（处理 dataDir 实际是 photos 父目录或子目录的情况）",
+      "【诊断】每次调 resolveImageInput 都写一行日志到 %APPDATA%\\family-inventory\\ai-image-resolve.log，标记 OK_DATA_URL / PASSTHROUGH / OTHER，跑一次把日志贴回来可精确定位是 baseDir 没传、还是 file:// 解析错、还是 photo 文件真不在候选位置",
+      "【版本】1.9.1 → 1.9.2"
+    ]
+  },
+  {
     "version": "1.9.1",
     "date": "2026-08-27",
     "title": "AI 识别 1214 根因修复：photo 相对路径归一化为 data URL",
