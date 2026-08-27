@@ -55,10 +55,22 @@ try {
   console.warn('[release] 读取 release-notes.json 失败，使用默认更新说明')
 }
 
+// GitHub Release 会把 asset 文件名中的空格自动转成 '.'（硬限制，无法 PATCH 改回）。
+// Gitee 保留原空格 + %20 编码。为了让 update-info.json 里的 downloadUrl 真实可访问，
+// GitHub 端用兼容形式（空格 -> '.'），filename 仍保留人类可读的原名（仅用于展示）。
+const ghOwner = 'xc2331'
+const ghRepo = 'inventory-desktop--'
+const ghUrlName = filename.replace(/ /g, '.')
+const giteeOwner = 'xc2331'
+const giteeRepo = 'inventory-desktop'
+const githubUrl = `https://github.com/${ghOwner}/${ghRepo}/releases/download/v${version}/${encodeURIComponent(ghUrlName)}`
+const giteeUrl = `https://gitee.com/${giteeOwner}/${giteeRepo}/releases/download/v${version}/${encodeURIComponent(filename)}`
+
 const info = {
   version,
   releaseDate: new Date().toISOString(),
-  downloadUrl: `https://github.com/xc2331/inventory-desktop--/releases/download/v${version}/${encodeURIComponent(filename)}`,
+  downloadUrl: githubUrl,
+  fallbackUrl: giteeUrl,
   filename,
   size,
   sha512,
