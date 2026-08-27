@@ -24,24 +24,50 @@ function extractJson(text) {
 
 // 把图片按 provider 配置的 imageFormat 拼成多模态消息 part
 // imageFormat:
-//   'auto'         — data URL（OpenAI 默认，向后兼容）
-//   'data_url'     — data URL
+//   'auto'         — 根据 baseUrl 启发式（推荐；默认）
+//   'data_url'     — data URL（OpenAI 兼容）
 //   'image_url'    — OpenAI 风格但只发裸 base64（剥掉 data: 前缀）
-//   'image_base64' — Qwen/GLM 风格 { type: 'image', image: 'XXX' }
-function buildImagePart(image, imageFormat) {
+//   'image_base64' — Qwen/DashScope 风格 { type: 'image', image: 'XXX' }
+//   'image_field'  — 部分 GLM 变体 { type: 'image_base64', image_base64: 'XXX' }
+function buildImagePart(image, imageFormat, provider) {
   const raw = ensureImageUrl(image)
   if (!raw) return { type: 'image_url', image_url: { url: '' } }
   const fmt = (imageFormat || 'auto').toLowerCase()
-  if (fmt === 'image_base64') {
+  const effective = fmt === 'auto' ? guessImageFormat(provider) : fmt
+  if (effective === 'image_base64') {
     const b64 = raw.replace(/^data:[^;]+;base64,/, '')
     return { type: 'image', image: b64 }
   }
-  if (fmt === 'image_url') {
+  if (effective === 'image_field') {
+    const b64 = raw.replace(/^data:[^;]+;base64,/, '')
+    return { type: 'image_base64', image_base64: b64 }
+  }
+  if (effective === 'image_url') {
     const b64 = raw.replace(/^data:[^;]+;base64,/, '')
     return { type: 'image_url', image_url: { url: b64 } }
   }
-  // 'auto' / 'data_url' — 默认
+  // 'data_url' / 默认 — 完整 data: 前缀
   return { type: 'image_url', image_url: { url: raw } }
+}
+
+// 根据 provider 元信息自动选图片格式（auto 模式）
+// 规则：
+//   - baseUrl 含 dashscope / bailian / aliyun / qwen  → image_base64
+//   - baseUrl 含 bigmodel / zhipu / glm                 → image_base64
+//   - baseUrl 含 volcengine / ark / doubao              → data_url (OpenAI 兼容)
+//   - baseUrl 含 moonshot / kimi                        → data_url
+//   - 其他（含 openai、自建代理）                       → data_url
+function guessImageFormat(provider) {
+  const url = String(provider?.baseUrl || '').toLowerCase()
+  if (!url) return 'data_url'
+  if (/dashscope|bailian|aliyun|qwen|tongyi/.test(url)) return 'image_base64'
+  if (/bigmodel|zhipu|glm/.test(url)) return 'image_base64'
+  if (/volcengine|ark\.|doubao/.test(url)) return 'data_url'
+  if (/moonshot|kimi/.test(url)) return 'data_url'
+  if (/openai|openrouter|oneapi|newapi|proxy/.test(url)) return 'data_url'
+  // 兜底：国内常见 1210 错误多为 data URL 不被解析
+  if (/cn$|com\.cn|\.cn/.test(url)) return 'image_url'
+  return 'data_url'
 }
 
 function ensureImageUrl(image) {
@@ -175,7 +201,7 @@ async function recognizeImage({ image, db, settings, provider }) {
         role: 'user',
         content: [
           { type: 'text', text: '请识别这张照片中的物品，并返回 JSON 建议。' },
-          buildImagePart(image, cfg.imageFormat)
+          buildImagePart(image, cfg.imageFormat, cfg)
         ]
       }
     ]
@@ -292,7 +318,7 @@ async function recognizeText({ image, settings, provider }) {
         role: 'user',
         content: [
           { type: 'text', text: '请识别这张图片里的所有文字，按原样输出。' },
-          buildImagePart(image, cfg.imageFormat)
+          buildImagePart(image, cfg.imageFormat, cfg)
         ]
       }
     ]
