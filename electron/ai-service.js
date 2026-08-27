@@ -1,9 +1,61 @@
 // AI 视觉识别服务：调用用户配置的 OpenAI 兼容多模态大模型，识别图片中的物品信息
 // v1.2.15 起支持多供应商配置：settings.aiProviders[] + settings.aiSelectedId
 const crypto = require('crypto')
+const fs = require('fs')
+const path = require('path')
 // 分类归一化统一复用 data-utils（主进程唯一实现，避免与 main/api-server 行为漂移）：
 // 未命中时保留原始输入（可能是自定义分类名），由 ensureCategoriesFromItems 决定是否新建
 const { normalizeCategoryKey } = require('./data-utils')
+
+// 把任意形态的 image 输入归一化为 data URL
+// 背景：v1.5+ 起 items.photo 改为存相对路径（dataDir/photos/xxx.webp），但
+// v1.7.2 之前的 recognizeText 直接把 ensureImageUrl(image) 喂给 image_url.url
+// 当 image 是相对路径时 ensureImageUrl 会拼成 'file:///2024-01/xxx.webp' 这种
+// 残缺 URL，opencode zen / OpenAI 不认，导致 messages[1].content[1].type 1214。
+// 修法：所有非 data: / http(s): 的输入都先在主进程读文件转 data URL，
+// 保证 image_url.url 永远是一个合法的 base64 data URL。
+function resolveImageInput(image, baseDir) {
+  if (!image) return ''
+  const s = String(image).trim()
+  if (!s) return ''
+  // 已经是 data URL 或 http(s) URL — 原样返回
+  if (/^data:/i.test(s)) return s
+  if (/^https?:/i.test(s)) return s
+  // file:// URL — 还原成磁盘路径
+  let absPath = null
+  if (/^file:\/\//i.test(s)) {
+    absPath = s.replace(/^file:\/\/\/?/, '')
+    // Windows 盘符：file:///C:/foo → C:/foo
+    if (/^[a-z]:/i.test(absPath)) absPath = absPath
+    else absPath = '/' + absPath
+    absPath = path.normalize(absPath)
+  } else if (path.isAbsolute(s)) {
+    absPath = s
+  } else if (baseDir) {
+    // 相对路径：相对 dataDir 解析（photo.save 的产物存的就是相对路径）
+    absPath = path.resolve(baseDir, s)
+  } else {
+    // 没 baseDir 也没别的线索 — 没法解析，跳过
+    return s
+  }
+  try {
+    if (!fs.existsSync(absPath)) return s
+    const buf = fs.readFileSync(absPath)
+    const ext = path.extname(absPath).toLowerCase()
+    const mimeMap = {
+      '.webp': 'image/webp',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.bmp': 'image/bmp'
+    }
+    const mime = mimeMap[ext] || 'image/jpeg'
+    return `data:${mime};base64,${buf.toString('base64')}`
+  } catch (e) {
+    return s
+  }
+}
 
 function extractJson(text) {
   if (!text) return null
@@ -24,30 +76,37 @@ function extractJson(text) {
 
 // 把图片按 provider 配置的 imageFormat 拼成多模态消息 part
 // imageFormat:
-//   'auto'         — 根据 baseUrl 启发式（推荐；默认）
-//   'data_url'     — data URL（OpenAI 兼容）
-//   'image_url'    — OpenAI 风格但只发裸 base64（剥掉 data: 前缀）
-//   'image_base64' — Qwen/DashScope 风格 { type: 'image', image: 'XXX' }
-//   'image_field'  — 部分 GLM 变体 { type: 'image_base64', image_base64: 'XXX' }
+//   'auto'         — OpenAI 标准：{ type: 'image_url', image_url: { url: <data URL> } }（v1.7.2 行为，opencode zen / OpenAI / 自建代理全部 OK）
+//   'data_url'     — 等同 auto：完整 data URL（带 data:image/...;base64, 前缀）
+//   'image_url'    — 兼容旧名：行为同 data_url（不再剥前缀，因 opencode zen 会 1214）
+//   'image_base64' — Qwen/DashScope 风格 { type: 'image', image: '<base64>' }
+//   'image_field'  — 部分 GLM 变体 { type: 'image_base64', image_base64: '<base64>' }
 function buildImagePart(image, imageFormat, provider) {
   const raw = ensureImageUrl(image)
   if (!raw) return { type: 'image_url', image_url: { url: '' } }
   const fmt = (imageFormat || 'auto').toLowerCase()
-  const effective = fmt === 'auto' ? guessImageFormat(provider) : fmt
-  if (effective === 'image_base64') {
+  // 'auto' / 'data_url' — OpenAI 标准：完整 data URL（绝大多数 provider 默认走这个）
+  // 这覆盖了 opencode zen / openrouter / oneapi / 自建代理 / moonshot / volcengine / ark / doubao
+  if (fmt === 'image_base64') {
     const b64 = raw.replace(/^data:[^;]+;base64,/, '')
     return { type: 'image', image: b64 }
   }
-  if (effective === 'image_field') {
+  if (fmt === 'image_field') {
     const b64 = raw.replace(/^data:[^;]+;base64,/, '')
     return { type: 'image_base64', image_base64: b64 }
   }
-  if (effective === 'image_url') {
+  if (fmt === 'image_url') {
+    // 裸 base64（不带 data: 前缀）— 部分 OpenAI 兼容 provider 接受这种形态
     const b64 = raw.replace(/^data:[^;]+;base64,/, '')
     return { type: 'image_url', image_url: { url: b64 } }
   }
-  // 'data_url' / 默认 — 完整 data: 前缀
+  // 'auto' / 'data_url' / 其它任何值 — 完整 data URL，OpenAI 标准
   return { type: 'image_url', image_url: { url: raw } }
+}
+
+// 显式指定 format（不走 guess），用于 400 自动重试场景
+function buildImagePartWithFormat(image, fmt) {
+  return buildImagePart(image, fmt, null)
 }
 
 // 根据 provider 元信息自动选图片格式（auto 模式）
@@ -68,6 +127,26 @@ function guessImageFormat(provider) {
   // 兜底：国内常见 1210 错误多为 data URL 不被解析
   if (/cn$|com\.cn|\.cn/.test(url)) return 'image_url'
   return 'data_url'
+}
+
+// 返回该 provider 允许的 fallback 顺序
+// OpenAI 兼容（绝大多数代理、opencode zen、openrouter、oneapi 等）只认 type='image_url'，
+// 发 type='image' 或 type='image_base64' 会被 schema 校验直接打回 400/1214。
+// 只有非 OpenAI schema（DashScope/Qwen/GLM 等）才把 image_base64 / image_field 列入候选。
+function getFallbackOrder(provider) {
+  const url = String(provider?.baseUrl || '').toLowerCase()
+  // 非 OpenAI schema：保留四种
+  if (/dashscope|bailian|aliyun|qwen|tongyi|bigmodel|zhipu|glm/.test(url)) {
+    return ['data_url', 'image_url', 'image_base64', 'image_field']
+  }
+  // OpenAI 兼容（包括 opencode zen / openrouter / oneapi / volcengine / moonshot / 自建代理）
+  // 只允许 image_url 系两种：data_url（带 data: 前缀）和 image_url（裸 base64）
+  return ['data_url', 'image_url']
+}
+
+// 白名单校验：fmt 是否对当前 provider 合法。用于自学习写回前检查
+function isValidFmtForProvider(fmt, provider) {
+  return getFallbackOrder(provider).includes(fmt)
 }
 
 function ensureImageUrl(image) {
@@ -189,55 +268,91 @@ async function recognizeImage({ image, db, settings, provider }) {
   if (!key) return { ok: false, error: '未配置 AI 接口密钥（API Key）' }
   if (!image) return { ok: false, error: '缺少图片' }
 
+  // 相对路径 / file:// / 绝对路径 → 统一转 data URL（opencode zen / OpenAI 拒收 file:// 残缺 URL，会 1214）
+  const dataUrl = resolveImageInput(image, settings?.dataDir)
+  if (!dataUrl) return { ok: false, error: '图片解析失败（路径或数据无效）' }
+
   const categories = db ? db.prepare('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC').all() : []
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`
 
-  const body = {
-    model,
-    temperature: 0.3,
-    messages: [
-      { role: 'system', content: buildPrompt(categories) },
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: '请识别这张照片中的物品，并返回 JSON 建议。' },
-          buildImagePart(image, cfg.imageFormat, cfg)
-        ]
+  // 第一次按用户/auto 选择的格式；若 400 则按该 provider 允许的顺序自动重试
+  // 关键：只把 isValidFmtForProvider(f, cfg) 为 true 的 fmt 加进 orderedFmts，
+  // 避免 cfg.imageFormat 是旧值（如 image_base64）污染首次请求导致 schema 1214
+  const tried = new Set()
+  const orderedFmts = []
+  const initial = (cfg.imageFormat || 'auto').toLowerCase()
+  const initialResolved = initial === 'auto' ? guessImageFormat(cfg) : initial
+  if (isValidFmtForProvider(initialResolved, cfg)) {
+    orderedFmts.push(initialResolved)
+  }
+  for (const f of getFallbackOrder(cfg)) {
+    if (!orderedFmts.includes(f)) orderedFmts.push(f)
+  }
+
+  let lastErr = ''
+  for (const fmt of orderedFmts) {
+    if (tried.has(fmt)) continue
+    tried.add(fmt)
+    const body = {
+      model,
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: buildPrompt(categories) },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: '请识别这张照片中的物品，并返回 JSON 建议。' },
+            buildImagePartWithFormat(dataUrl, fmt)
+          ]
+        }
+      ]
+    }
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`
+        },
+        body: JSON.stringify(body)
+      })
+      if (res.ok) {
+        const data = await res.json().catch(() => null)
+        if (!data) {
+          lastErr = `AI 接口返回 ${res.status}: 响应非 JSON`
+          continue
+        }
+        const content = data.choices?.[0]?.message?.content || ''
+        const parsed = extractJson(content)
+        if (!parsed) {
+          lastErr = 'AI 返回无法解析为 JSON'
+          continue
+        }
+        const rawItems = Array.isArray(parsed.items) ? parsed.items : Array.isArray(parsed) ? parsed : []
+        const items = rawItems.map((it) => sanitizeSuggestion(it, categories))
+        // 成功 — 把这个 fmt 写回 cfg，供下次直接命中
+        // 但要确认这个 fmt 对当前 provider 合法（避免 OpenAI 兼容 schema 错误地记下 image_base64）
+        if (cfg && cfg.imageFormat !== fmt && isValidFmtForProvider(fmt, cfg)) {
+          cfg.imageFormat = fmt
+          cfg.__learnedFormat = true
+        }
+        return { ok: true, items, imageFormat: fmt }
       }
-    ]
-  }
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${key}`
-      },
-      body: JSON.stringify(body)
-    })
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      return { ok: false, error: `AI 接口返回 ${res.status}: ${text.slice(0, 200)}` }
+      // 4xx 时记录错误并继续尝试下一种 imageFormat（1210 等图片格式错误就靠这个重试）
+        if (res.status >= 400 && res.status < 500) {
+          const text = await res.text().catch(() => '')
+          lastErr = `AI 接口返回 ${res.status}: ${text.slice(0, 200)}`
+          // 不 return — 继续 for 循环试下一种 fmt
+          continue
+        }
+        // 5xx 也继续
+        const text = await res.text().catch(() => '')
+      lastErr = `AI 接口返回 ${res.status}: ${text.slice(0, 200)}`
+    } catch (e) {
+      lastErr = e.message || 'AI 识别请求失败'
     }
-
-    const data = await res.json()
-    const content = data.choices?.[0]?.message?.content || ''
-    const parsed = extractJson(content)
-
-    if (!parsed) {
-      return { ok: false, error: 'AI 返回无法解析为 JSON', raw: content }
-    }
-
-    const rawItems = Array.isArray(parsed.items) ? parsed.items : Array.isArray(parsed) ? parsed : []
-    const items = rawItems.map((it) => sanitizeSuggestion(it, categories))
-
-    return { ok: true, items }
-  } catch (e) {
-    console.error('[ai-service] recognize error:', e)
-    return { ok: false, error: e.message || 'AI 识别请求失败' }
   }
+  return { ok: false, error: lastErr || 'AI 识别全部格式失败' }
 }
 
 async function fetchModels({ settings, provider } = {}) {
@@ -300,57 +415,88 @@ async function recognizeText({ image, settings, provider }) {
   if (!key) return { ok: false, error: '未配置 AI 接口密钥（API Key）' }
   if (!image) return { ok: false, error: '缺少图片' }
 
+  // 把相对路径 / file:// URL / 绝对路径都归一为 data URL，
+  // 否则 opencode zen / OpenAI 不认 file:// 或残缺路径，触发 1214 schema 错误
+  const dataUrl = resolveImageInput(image, settings?.dataDir)
+  if (!dataUrl) return { ok: false, error: '图片解析失败（路径或数据无效）' }
+
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`
 
-  // OCR 专用 prompt：要求逐字识别保留原始排版，不要解释，不要补全
-  const body = {
-    model,
-    temperature: 0,
-    messages: [
-      {
-        role: 'system',
-        content:
-          '你是一名高精度 OCR 引擎。请逐字识别图片中的所有文字（包括印刷体与清晰手写体），' +
-          '保留原始换行和段落结构，不要解释、不要补全、不要翻译、不要总结。' +
-          '如果图片中没有任何可识别的文字，仅返回 <EMPTY>。'
-      },
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: '请识别这张图片里的所有文字，按原样输出。' },
-          buildImagePart(image, cfg.imageFormat, cfg)
-        ]
+  // 第一次按 cfg/auto；失败按该 provider 允许的顺序重试（OpenAI 兼容只到 image_url）
+  const tried = new Set()
+  const orderedFmts = []
+  const initial = (cfg.imageFormat || 'auto').toLowerCase()
+  const initialResolved = initial === 'auto' ? guessImageFormat(cfg) : initial
+  if (isValidFmtForProvider(initialResolved, cfg)) {
+    orderedFmts.push(initialResolved)
+  }
+  for (const f of getFallbackOrder(cfg)) {
+    if (!orderedFmts.includes(f)) orderedFmts.push(f)
+  }
+
+  let lastErr = ''
+  for (const fmt of orderedFmts) {
+    if (tried.has(fmt)) continue
+    tried.add(fmt)
+    // OCR 专用 prompt：要求逐字识别保留原始排版，不要解释，不要补全
+    const body = {
+      model,
+      temperature: 0,
+      messages: [
+        {
+          role: 'system',
+          content:
+            '你是一名高精度 OCR 引擎。请逐字识别图片中的所有文字（包括印刷体与清晰手写体），' +
+            '保留原始换行和段落结构，不要解释、不要补全、不要翻译、不要总结。' +
+            '如果图片中没有任何可识别的文字，仅返回 <EMPTY>。'
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: '请识别这张图片里的所有文字，按原样输出。' },
+            buildImagePartWithFormat(dataUrl, fmt)
+          ]
+        }
+      ]
+    }
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`
+        },
+        body: JSON.stringify(body)
+      })
+      if (res.ok) {
+        const data = await res.json().catch(() => null)
+        if (!data) {
+          lastErr = `AI 接口返回 ${res.status}: 响应非 JSON`
+          continue
+        }
+        const content = (data.choices?.[0]?.message?.content || '').trim()
+        if (cfg && cfg.imageFormat !== fmt && isValidFmtForProvider(fmt, cfg)) {
+          cfg.imageFormat = fmt
+          cfg.__learnedFormat = true
+        }
+        if (!content || content === '<EMPTY>') {
+          return { ok: true, text: '', imageFormat: fmt }
+        }
+        return { ok: true, text: content, imageFormat: fmt }
       }
-    ]
-  }
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${key}`
-      },
-      body: JSON.stringify(body)
-    })
-
-    if (!res.ok) {
+      if (res.status >= 400 && res.status < 500) {
+        const text = await res.text().catch(() => '')
+        lastErr = `AI 接口返回 ${res.status}: ${text.slice(0, 200)}`
+        // 继续尝试下一种 imageFormat
+        continue
+      }
       const text = await res.text().catch(() => '')
-      return { ok: false, error: `AI 接口返回 ${res.status}: ${text.slice(0, 200)}` }
+      lastErr = `AI 接口返回 ${res.status}: ${text.slice(0, 200)}`
+    } catch (e) {
+      lastErr = e.message || 'OCR 识别请求失败'
     }
-
-    const data = await res.json()
-    const content = (data.choices?.[0]?.message?.content || '').trim()
-
-    if (!content || content === '<EMPTY>') {
-      return { ok: true, text: '' }
-    }
-
-    return { ok: true, text: content }
-  } catch (e) {
-    console.error('[ai-service] recognizeText error:', e)
-    return { ok: false, error: e.message || 'OCR 识别请求失败' }
   }
+  return { ok: false, error: lastErr || 'OCR 全部格式失败' }
 }
 
 /**
@@ -487,5 +633,13 @@ module.exports = {
   testConnection,
   migrateAIConfig,
   getActiveProvider,
-  sanitizeProvider
+  sanitizeProvider,
+  // v1.8.9 内部 helper（单测覆盖用）
+  guessImageFormat,
+  getFallbackOrder,
+  isValidFmtForProvider,
+  buildImagePart,
+  buildImagePartWithFormat,
+  // v1.9.1 内部 helper（把任意图片输入归一化为 data URL）
+  resolveImageInput
 }

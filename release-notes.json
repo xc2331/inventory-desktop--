@@ -1,5 +1,58 @@
 [
   {
+    "version": "1.9.1",
+    "date": "2026-08-27",
+    "title": "AI 识别 1214 根因修复：photo 相对路径归一化为 data URL",
+    "features": [
+      "【P0 修复】v1.8.7~v1.9.0 持续报 1214 'messages[1].content[1].type 类型错误' 的真正根因：v1.3.18 起 items.photo 改为存 dataDir 下的相对路径（如 '2024-01/abc.webp'），但 ai-service.recognizeImage/recognizeText 直接把 ensureImageUrl(image) 喂给 image_url.url —— 当 image 是相对路径时 ensureImageUrl 拼出 'file:///2024-01/abc.webp'（**盘符缺失**），opencode zen / OpenAI / 自建代理全部拒收，schema 校验打回 1214。1.4.0 之前 photo 存的是绝对路径，ensureImageUrl 拼出的 file:// 是合法的，所以旧版本能用",
+      "【关键】新增 resolveImageInput(image, baseDir) 工具函数：data URL / http URL 原样返回；file:// URL 还原成磁盘路径；相对路径 + baseDir 解析为绝对路径；统一读文件转 'data:<mime>;base64,...'。任何非 data:/http(s): 输入都在主进程先归一化，image_url.url 永远是合法的完整 data URL",
+      "【关键】recognizeImage / recognizeText 入口都加 const dataUrl = resolveImageInput(image, settings?.dataDir) + 空校验，循环里 buildImagePartWithFormat 改用 dataUrl 喂入",
+      "【修复】buildImagePart 默认行为回退到 v1.7.2 风格：auto / data_url 走 OpenAI 标准 { type:'image_url', image_url:{ url: <完整 data URL> } }；image_url 走 { type:'image_url', image_url:{ url: <裸 base64> } }（**真正区分于 data_url**，剥 data: 前缀）；只有显式选 image_base64 / image_field 才发非标准分支",
+      "【修复】fallback 顺序 [data_url, image_url] 现在真的有两种不同形态：第一次发完整 data URL，400 后第二次发裸 base64，schema 救不回来的 schema 错误也能跨 fmt 救活",
+      "【新测试】scripts/verify-resolve-image.js：13 个用例覆盖 data URL / http URL / 相对路径（无 baseDir + 有 baseDir）/ 绝对路径 / file:// / 空值 / 文件不存在 / .webp/.jpg/.jpeg/.png/.bin 扩展 / 子目录相对路径（核心回归用例）—— 16/16 全过",
+      "【回归】verify-fallback-e2e 重跑：A 场景（clean cfg）序列 [data_url, image_url] 正确，B 场景（脏 cfg image_base64）自动纠正为 [data_url, image_url] —— 全部通过",
+      "【回归】verify-image-format-guess / verify-fallback-order / verify-image-format 单测无任何回归",
+      "【版本】1.9.0 → 1.9.1"
+    ]
+  },
+  {
+    "version": "1.9.0",
+    "date": "2026-08-27",
+    "title": "AI 识别脏 cfg 修正：避免 v1.8.7 留下的 image_base64 污染首次请求",
+    "features": [
+      "【修复】v1.8.10 仍报 1214 的真因：用户 settings.json 的 cfg.imageFormat 是 v1.8.7 时代留下的 image_base64，getFallbackOrder 给 opencode zen 返回 [data_url, image_url] 但 orderedFmts 把 image_base64 放在首位，**第一次请求就发 type=image → schema 1214**",
+      "【关键】orderedFmts 构造时加 isValidFmtForProvider 校验：脏 fmt（对当前 provider 非法）直接被丢弃，从 provider 允许的 fallback 列表起始",
+      "【关键】recognizeImage 和 recognizeText 都加这层校验",
+      "【新测试】verify-fallback-e2e 场景 B：cfg.imageFormat='image_base64' + baseUrl 是 opencode zen → 序列必须是 [data_url, image_url]，永远不出现 type=image / type=image_base64",
+      "【版本】1.8.10 → 1.9.0（满 9 进 1）"
+    ]
+  },
+  {
+    "version": "1.8.10",
+    "date": "2026-08-27",
+    "title": "AI 识别 schema 校验修正：避免 1214 'type 字段类型错误'",
+    "features": [
+      "【修复】v1.8.9 仍报 1214 'messages[1].content[1].type 类型错误'：fallback 列表无脑把 image_base64/image_field 也加进去，OpenAI 兼容 provider（opencode zen / openrouter / oneapi / 自建代理）只认 type=image_url，type=image / type=image_base64 直接被 schema 校验打回",
+      "【新功能】getFallbackOrder(provider)：按 baseUrl 决定 fallback 列表 — OpenAI 兼容只允许 [data_url, image_url]；DashScope/Qwen/GLM 才把 [image_base64, image_field] 加进来",
+      "【新功能】isValidFmtForProvider(fmt, provider)：fmt 白名单校验，自学习写回 cfg.imageFormat 之前先检查是否对当前 provider 合法，避免污染",
+      "【新功能】5 个 helper 全部 export：guessImageFormat / getFallbackOrder / isValidFmtForProvider / buildImagePart / buildImagePartWithFormat，方便单测",
+      "【测试】verify-fallback-order.js：12 个 provider × 4 种 fmt 单元覆盖（opencode zen / openai / openrouter / oneapi / volcengine / doubao / moonshot / dashscope / qwen / glm / zhipu / 空 baseUrl）— 全部通过",
+      "【测试】verify-fallback-e2e.js 场景 A 重构：用 /__reset + /__prime endpoint 精准控制 mock 行为，验证 1) 错配 2 次请求后命中 2) 不发 type=image 3) 自学习写回 4) 第 2 次 1 次命中 — 6/6 通过"
+    ]
+  },
+  {
+    "version": "1.8.9",
+    "date": "2026-08-27",
+    "title": "AI 识别 4xx 自动 fallback 重试：多 provider 自适应 100% 命中",
+    "features": [
+      "【修复】v1.8.8 仍报 400/1210：opencode zen / 自建代理等小众 provider 不在 guess 规则里，首次猜错 imageFormat 后直接 return 不再尝试",
+      "【新功能】recognizeImage + recognizeText 加 fallback 循环：首次按 cfg/auto 试，4xx 时按 data_url → image_url → image_base64 → image_field 顺序重试，直到成功",
+      "【新功能】自学习写回：成功后的 imageFormat 自动写回 cfg.imageFormat，第二次直接命中不再重试（OpenCode Zen / GLM / Qwen / 自建代理等任何 provider 都能自动适配）",
+      "【修复】recognizeText 之前 4xx 时直接 return 阻断 fallback，已改为 continue 让循环继续试下一种格式",
+      "【测试】scripts/run-fallback-e2e.js 一键跑 4 步端到端：mock provider 前 2 次返 400 / 第 3 次返 200，验证 ai-service 自动找到正确格式并自学习（4/4 通过）"
+    ]
+  },
+  {
     "version": "1.8.8",
     "date": "2026-08-27",
     "title": "AI 视觉识别：auto 模式按 provider 自动选图片格式（无需手动配置）",
