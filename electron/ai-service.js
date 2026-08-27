@@ -305,6 +305,103 @@ async function recognizeText({ image, settings, provider }) {
   }
 }
 
+/**
+ * 批量并发限流工具：限制同时执行的最大 Promise 数
+ * @template T
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, idx: number) => Promise<any>} worker
+ * @param {(opts: {done: number, total: number, current: T, result: any, error: any}) => void} [onProgress]
+ * @returns {Promise<Array<{ok: boolean, value?: any, error?: string}>>}
+ */
+async function runLimited(items, limit, worker, onProgress) {
+  const results = new Array(items.length)
+  let cursor = 0
+  let done = 0
+  const total = items.length
+  const isCanceled = { flag: false }
+  const cancel = () => { isCanceled.flag = true }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (!isCanceled.flag) {
+      const idx = cursor++
+      if (idx >= total) return
+      const item = items[idx]
+      try {
+        const value = await worker(item, idx)
+        results[idx] = { ok: true, value }
+      } catch (e) {
+        results[idx] = { ok: false, error: e?.message || String(e) }
+      }
+      done++
+      if (onProgress) {
+        try { onProgress({ done, total, current: item, result: results[idx] }) } catch { /* swallow */ }
+      }
+    }
+  })
+  await Promise.all(workers)
+  return { results, cancel }
+}
+
+/**
+ * 批量识别多张图片：每张独立调 recognizeImage，结果合并返回
+ * 限流默认 3 路并发（可调），单张失败不影响其他张
+ * @param {Object} options
+ * @param {string[]} options.images 图片 data URL 数组
+ * @param {object} options.db 数据库实例
+ * @param {object} options.settings 应用设置
+ * @param {object} [options.provider] 指定供应商
+ * @param {number} [options.concurrency=3] 并发数
+ * @param {(p: {done: number, total: number, current: string, result: any}) => void} [options.onProgress] 进度回调
+ * @returns {Promise<{ok: boolean, items?: object[], errors?: Array<{index: number, error: string}>, canceled?: boolean, total: number, done: number}>}
+ */
+async function recognizeBatch({ images, db, settings, provider, concurrency = 3, onProgress } = {}) {
+  if (!Array.isArray(images) || images.length === 0) {
+    return { ok: false, error: 'images 必须是非空数组', total: 0, done: 0 }
+  }
+  const allItems = []
+  const errors = []
+  let canceled = false
+  const cancel = () => { canceled = true }
+
+  const { results } = await runLimited(
+    images,
+    concurrency,
+    async (img, idx) => {
+      if (canceled) throw new Error('canceled')
+      const r = await recognizeImage({ image: img, db, settings, provider })
+      if (!r.ok) throw new Error(r.error || '识别失败')
+      return r
+    },
+    (p) => {
+      if (onProgress) onProgress(p)
+    }
+  )
+
+  let doneCount = 0
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]
+    if (r.ok && r.value?.ok) {
+      if (Array.isArray(r.value.items)) {
+        for (const it of r.value.items) allItems.push({ ...it, _source: i })
+      }
+      doneCount++
+    } else if (r.error === 'canceled') {
+      canceled = true
+    } else {
+      errors.push({ index: i, error: r.error || 'unknown' })
+    }
+  }
+
+  return {
+    ok: errors.length === 0 && !canceled,
+    items: allItems,
+    errors: errors.length ? errors : undefined,
+    canceled,
+    total: images.length,
+    done: doneCount
+  }
+}
+
 async function testConnection({ settings, provider } = {}) {
   const cfg = provider || getActiveProvider(settings)
   if (!cfg) {
@@ -336,6 +433,8 @@ async function testConnection({ settings, provider } = {}) {
 module.exports = {
   recognizeImage,
   recognizeText,
+  recognizeBatch,
+  runLimited,
   fetchModels,
   testConnection,
   migrateAIConfig,

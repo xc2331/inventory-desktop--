@@ -489,6 +489,11 @@ export async function pickImage() {
   return api.dialog.pickImage()
 }
 
+// v1.8.6: 多选图片（用于 OCR 批量识别）
+export async function pickImages() {
+  return api.dialog.pickImages()
+}
+
 export async function pickFile() {
   return api.dialog.pickFile()
 }
@@ -567,6 +572,17 @@ export async function setAIConfig(patch) {
 
 export async function recognizeImageWithAI(image) {
   return api.ai.recognize(image)
+}
+
+// 批量识别多张图片：并发限流，进度回调
+// 返回 { ok, suggestions, errors?, canceled?, total, done, elapsedMs, concurrency }
+export async function recognizeBatchWithAI(images, options = {}) {
+  return api.ai.recognizeBatch(images, options || {}) || {
+    ok: false,
+    suggestions: [],
+    total: 0,
+    done: 0
+  }
 }
 
 // OCR：识别图片中所有文字，写入 item_ocr / material_ocr 独立表

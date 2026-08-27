@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen, Smartphone, Sparkles, Receipt, Boxes, Wand2, Loader2, AlertTriangle, Check } from 'lucide-react'
+import { X, Folder, ChevronRight, MapPin, Image as ImageIcon, Upload, FolderOpen, Smartphone, Sparkles, Receipt, Boxes, Wand2, Loader2, AlertTriangle, Check, Images } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
-import { categoryDisplayName, buildLocationTree, locationParts, pickImage, startQRUpload, stopQRUpload, onQRUploadImage, recognizeImageWithAI, getAIConfig, ocrItem } from '../lib/api'
+import { categoryDisplayName, buildLocationTree, locationParts, pickImage, pickImages, startQRUpload, stopQRUpload, onQRUploadImage, recognizeImageWithAI, recognizeBatchWithAI, getAIConfig, ocrItem } from '../lib/api'
 import { compressImageToBase64 } from '../lib/imageCompress'
-import { savePhoto } from '../lib/imageStore'
+import { savePhoto, savePhotoFromPath } from '../lib/imageStore'
 import { getCategoryIcon } from '../lib/categoryIcons'
 import { tsToDateInput, dateInputToTs } from '../lib/utils'
 import { EASE, EASE_SPRING } from '../lib/motion'
@@ -133,7 +133,16 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
   const qrUnsubscribe = useRef(null)
 
   // AI 识别建议
-  const [aiState, setAiState] = useState({ status: 'idle', suggestions: [], error: '' })
+  // 扩展字段：total/done/photoCount/elapsedMs — v1.8.6 批量识别进度
+  const [aiState, setAiState] = useState({
+    status: 'idle',
+    suggestions: [],
+    error: '',
+    total: 0,
+    done: 0,
+    photoCount: 0,
+    elapsedMs: 0
+  })
   // OCR 状态：识别物品照片中的所有文字，存到 item_ocr 独立表
   // text 保存最近一次成功结果；error 存错误；at 是时间戳
   const [ocrState, setOcrState] = useState({ status: 'idle', text: '', error: '', at: 0 })
@@ -334,6 +343,46 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       ? `${t('photo_saved')} 1 张`
       : `${t('photo_saved')} ${paths.length} 张`
     )
+    // v1.8.6: 多张时自动触发批量识别（OCR 异步化）
+    if (paths.length > 1) {
+      handleRecognizeBatch(paths)
+    }
+  }
+
+  // v1.8.6: 浏览多张图片并批量识别
+  const handleBrowseMulti = async () => {
+    try {
+      setPhotoHint('')
+      resetSingleProgress()
+      const res = await pickImages()
+      if (res.canceled || !res.files || res.files.length === 0) return
+      const paths = []
+      let lastExt = 'png'
+      for (const f of res.files) {
+        const ext = f.path.match(/\.(\w+)$/)?.[1] || 'png'
+        lastExt = ext
+        try {
+          const relPath = await savePhotoFromPath(f.path, ext)
+          paths.push(relPath)
+        } catch {
+          // 兜底：原文件无法复制时回退为绝对路径
+          paths.push(f.path)
+        }
+      }
+      if (paths.length === 0) return
+      setPhotoPreview('file://' + res.files[0].path.replace(/\\/g, '/'))
+      setPhotoMeta({ size: res.files[0].size || 0, type: '' })
+      const combined = (form.photo.trim() ? form.photo.trim() + '\n' : '') + paths.join('\n')
+      set('photo', combined)
+      setPhotoHint(paths.length === 1
+        ? `${t('photo_saved')} 1 张`
+        : `${t('photo_saved')} ${paths.length} 张`
+      )
+      // 多张时自动批量识别
+      handleRecognizeBatch(paths)
+    } catch (e) {
+      setPhotoHint(e.message || '多选图片失败')
+    }
   }
 
   // 手机扫码传图
@@ -413,18 +462,128 @@ export default function ItemForm({ initial, categories, locations, lang, onSave,
       setAiState({ status: 'error', suggestions: [], error: t('ai_recognize_configFirst') })
       return
     }
-    setAiState({ status: 'loading', suggestions: [], error: '' })
+    // v1.8.6: 单图也走批量接口（1 张即 1 个并发），UI 进度条统一
+    const images = [form.photo]
+    setAiState({
+      status: 'loading',
+      suggestions: [],
+      error: '',
+      total: 1,
+      done: 0,
+      photoCount: 1,
+      elapsedMs: 0
+    })
+    const startedAt = Date.now()
     try {
-      const result = await recognizeImageWithAI(form.photo)
-      if (result.ok && Array.isArray(result.items) && result.items.length > 0) {
-        setAiState({ status: 'done', suggestions: result.items, error: '' })
-      } else if (result.ok) {
-        setAiState({ status: 'done', suggestions: [], error: t('ai_recognize_noResult') })
+      const result = await recognizeBatchWithAI(images, { concurrency: 1 })
+      const elapsed = Date.now() - startedAt
+      if (result && Array.isArray(result.suggestions) && result.suggestions.length > 0) {
+        setAiState({
+          status: 'done',
+          suggestions: result.suggestions,
+          error: '',
+          total: result.total || 1,
+          done: result.done || 1,
+          photoCount: 1,
+          elapsedMs: elapsed
+        })
+      } else if (result && result.canceled) {
+        setAiState({
+          status: 'idle',
+          suggestions: [],
+          error: t('ai_recognize_canceled') || '已取消',
+          total: result.total || 1,
+          done: result.done || 0,
+          photoCount: 1,
+          elapsedMs: elapsed
+        })
       } else {
-        setAiState({ status: 'error', suggestions: [], error: result.error || t('ai_recognize_error', { msg: 'unknown' }) })
+        setAiState({
+          status: 'done',
+          suggestions: [],
+          error: (result && result.errors && result.errors[0]?.error) || t('ai_recognize_noResult'),
+          total: result?.total || 1,
+          done: result?.done || 0,
+          photoCount: 1,
+          elapsedMs: elapsed
+        })
       }
     } catch (e) {
-      setAiState({ status: 'error', suggestions: [], error: e.message || t('ai_recognize_error', { msg: 'unknown' }) })
+      setAiState({
+        status: 'error',
+        suggestions: [],
+        error: e.message || t('ai_recognize_error', { msg: 'unknown' }),
+        total: 1,
+        done: 0,
+        photoCount: 1,
+        elapsedMs: Date.now() - startedAt
+      })
+    }
+  }
+
+  // v1.8.6: 批量识别多张图（多文件上传时调）
+  const handleRecognizeBatch = async (images) => {
+    if (!Array.isArray(images) || images.length === 0) return
+    const cfg = aiConfig || (await getAIConfig().catch(() => ({})))
+    const provider = getActiveProviderFromConfig(cfg)
+    if (!provider?.baseUrl || !provider?.key) {
+      setAiState({ status: 'error', suggestions: [], error: t('ai_recognize_configFirst'), total: 0, done: 0, photoCount: 0, elapsedMs: 0 })
+      return
+    }
+    setAiState({
+      status: 'loading',
+      suggestions: [],
+      error: '',
+      total: images.length,
+      done: 0,
+      photoCount: images.length,
+      elapsedMs: 0
+    })
+    const startedAt = Date.now()
+    try {
+      const result = await recognizeBatchWithAI(images, { concurrency: 3 })
+      const elapsed = Date.now() - startedAt
+      if (result && Array.isArray(result.suggestions) && result.suggestions.length > 0) {
+        setAiState({
+          status: 'done',
+          suggestions: result.suggestions,
+          error: '',
+          total: result.total,
+          done: result.done,
+          photoCount: images.length,
+          elapsedMs: elapsed
+        })
+      } else if (result && result.canceled) {
+        setAiState({
+          status: 'idle',
+          suggestions: [],
+          error: t('ai_recognize_canceled') || '已取消',
+          total: result.total,
+          done: result.done,
+          photoCount: images.length,
+          elapsedMs: elapsed
+        })
+      } else {
+        setAiState({
+          status: 'done',
+          suggestions: [],
+          error: (result && result.errors && result.errors[0]?.error) || t('ai_recognize_noResult'),
+          total: result?.total || images.length,
+          done: result?.done || 0,
+          photoCount: images.length,
+          elapsedMs: elapsed
+        })
+      }
+    } catch (e) {
+      setAiState({
+        status: 'error',
+        suggestions: [],
+        error: e.message || t('ai_recognize_error', { msg: 'unknown' }),
+        total: images.length,
+        done: 0,
+        photoCount: images.length,
+        elapsedMs: Date.now() - startedAt
+      })
     }
   }
 

@@ -21,7 +21,7 @@ export function AIRecognitionPanel({
 }) {
   const { t } = useI18n()
 
-  if (aiState.status !== 'done' && aiState.status !== 'error') {
+  if (aiState.status !== 'done' && aiState.status !== 'error' && aiState.status !== 'loading') {
     return null
   }
 
@@ -49,11 +49,38 @@ export function AIRecognitionPanel({
         </button>
       </div>
 
-      {/* 加载态 */}
+      {/* 加载态 — v1.8.6: 批量识别显示 spinner + 最终统计（无 SSE，结果一次性返回）*/}
       {aiState.status === 'loading' && (
-        <div className="flex flex-col items-center gap-3 rounded-xl bg-surface p-6">
-          <Loader2 size={28} className="animate-spin text-primary" />
-          <p className="text-sm font-medium text-text-secondary">{t('ai_recognize_loading')}</p>
+        <div className="flex flex-col gap-3 rounded-xl bg-surface p-5">
+          <div className="flex items-center gap-2">
+            <Loader2 size={18} className="animate-spin text-primary" />
+            <p className="text-sm font-medium text-text-secondary">
+              {t('ai_recognize_loading')}
+              {aiState.photoCount > 1 && (
+                <span className="ml-2 rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-primary">
+                  {aiState.photoCount} 张
+                </span>
+              )}
+            </p>
+          </div>
+          {/* 进度条 — 当前接口一次性返回，显示最终 done/total；如未来加 SSE，可逐张递增 done */}
+          {aiState.photoCount > 0 && (
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-hover">
+              <motion.div
+                className="h-full bg-primary"
+                initial={{ width: 0 }}
+                animate={{ width: aiState.total > 0
+                  ? `${Math.min(100, Math.round(((aiState.done || 0) / aiState.total) * 100))}%`
+                  : '0%' }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
+              />
+            </div>
+          )}
+          {aiState.photoCount > 1 && aiState.total > 0 && (
+            <p className="text-[11px] text-text-tertiary">
+              完成 {aiState.done || 0}/{aiState.total} · 并发 {aiState.concurrency || 3} · 用时 {(aiState.elapsedMs / 1000).toFixed(1)}s
+            </p>
+          )}
         </div>
       )}
 

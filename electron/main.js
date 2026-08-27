@@ -1568,6 +1568,24 @@ ipcMain.handle('dialog:pickImage', async () => {
   return { canceled: false, path, size }
 })
 
+// v1.8.6: 多选图片（用于 OCR 批量识别）
+ipcMain.handle('dialog:pickImages', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: '选择多张图片',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: '图片', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg', 'ico'] }]
+  })
+  if (res.canceled || res.filePaths.length === 0) return { canceled: true, files: [] }
+  const files = []
+  for (const p of res.filePaths) {
+    approvePickPath(p)
+    let size = 0
+    try { size = fs.statSync(p).size } catch { /* ignore */ }
+    files.push({ path: p, size })
+  }
+  return { canceled: false, files }
+})
+
 // 选择任意文件对话框（用于电子材料库附加文档/链接等）
 ipcMain.handle('dialog:pickFile', async () => {
   const res = await dialog.showOpenDialog(mainWindow, {

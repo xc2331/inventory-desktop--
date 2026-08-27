@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('lingguang', {
   dialog: {
     pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
     pickImage: () => ipcRenderer.invoke('dialog:pickImage'),
+    pickImages: () => ipcRenderer.invoke('dialog:pickImages'),
     pickFile: () => ipcRenderer.invoke('dialog:pickFile')
   },
   items: {

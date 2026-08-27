@@ -2,7 +2,7 @@
 const http = require('http')
 const crypto = require('crypto')
 const itemsService = require('./services/items')
-const { recognizeImage, recognizeText } = require('./ai-service')
+const { recognizeImage, recognizeText, recognizeBatch } = require('./ai-service')
 const { parseTags, normalizeTags } = require('./tags')
 const {
   normalizeCategoryKey,
@@ -426,6 +426,8 @@ class ApiServer {
         this.getSettingsEndpoint(req, res)
       } else if (path === '/api/ai/recognize' && req.method === 'POST') {
         this.recognize(req, res)
+      } else if (path === '/api/ai/recognize-batch' && req.method === 'POST') {
+        this.recognizeBatch(req, res)
       } else if (path === '/api/fts-health' && req.method === 'GET') {
         this.ftsHealth(req, res)
       } else {
@@ -1108,6 +1110,48 @@ class ApiServer {
     } else {
       json(res, 502, { error: 'AI recognition failed', message: result.error, raw: result.raw })
     }
+  }
+
+  /**
+   * 批量识别：并发处理多张图片，返回合并的物品建议
+   * POST /api/ai/recognize-batch
+   * body: { images: string[], concurrency?: number }
+   * - images: 图片 data URL 数组
+   * - concurrency: 并发数（默认 3，最大 10）
+   * 响应：{ ok, suggestions: [...], errors?, total, done, canceled }
+   */
+  async recognizeBatch(req, res) {
+    const data = await readBody(req)
+    const images = Array.isArray(data.images) ? data.images : []
+    if (images.length === 0) {
+      json(res, 400, { error: 'Bad request', message: 'images 必须是非空数组' })
+      return
+    }
+    if (images.length > 50) {
+      json(res, 400, { error: 'Bad request', message: '单次最多 50 张图片' })
+      return
+    }
+    const rawConcurrency = Number(data.concurrency) || 3
+    const concurrency = Math.max(1, Math.min(10, Math.floor(rawConcurrency)))
+    const settings = this.getSettingsObj()
+    const startedAt = Date.now()
+    const result = await recognizeBatch({
+      images,
+      db: this.db,
+      settings,
+      concurrency
+    })
+    const elapsed = Date.now() - startedAt
+    json(res, 200, {
+      ok: result.ok,
+      suggestions: result.items || [],
+      errors: result.errors,
+      canceled: result.canceled || false,
+      total: result.total,
+      done: result.done,
+      elapsedMs: elapsed,
+      concurrency
+    })
   }
 
   /**

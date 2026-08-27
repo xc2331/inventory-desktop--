@@ -1,5 +1,21 @@
 [
   {
+    "version": "1.8.6",
+    "date": "2026-08-27",
+    "title": "OCR 异步化：批量 AI 识别（多选 + 并发限流）",
+    "features": [
+      "【新功能】AI 视觉识别支持批量多张图片：物品表单新增「多张识别」按钮（Images 图标），弹原生多选对话框，选 N 张图片后自动批量识别（默认并发 3，可调 1-10）",
+      "【新功能】ai-service 新增通用并发限流工具 runLimited(items, limit, worker, onProgress)：支持取消、进度回调、单条失败隔离",
+      "【新功能】ai-service 新增 recognizeBatch({ images, db, settings, provider, concurrency, onProgress })：批量识别多张图，结果合并 + 错误聚合 + 用时统计（elapsedMs）",
+      "【新功能】API: POST /api/ai/recognize-batch（最多 50 张，concurrency 1-10 校验），返回 { ok, suggestions, errors, canceled, total, done, elapsedMs, concurrency }",
+      "【新功能】拖拽多张图片到物品表单时，自动触发批量识别（之前只保存不识别）",
+      "【新功能】单图 AI 识别也走批量接口（concurrency=1），UI 进度条 / 错误展示统一为一套逻辑",
+      "【新功能】AIRecognitionPanel 加载态增加进度条 + 用时 / 完成度统计（done/total + elapsedMs），多张场景下显示「完成 X/Y · 并发 N · 用时 Ts」",
+      "【架构】单图也走 batch 通道：未来加 SSE 流式进度时只需扩展 recognizeBatch 的 onProgress，前端 UI 已预留逐张递增 done 的渲染分支",
+      "【测试】新增 scripts/verify-ai-batch.js：runLimited 并发数限制、失败隔离、limit 边界、空数组、recognizeBatch 错误聚合 5 大类共 11 项全过"
+    ]
+  },
+  {
     "version": "1.8.5",
     "date": "2026-08-26",
     "title": "FTS5 健康端点兜底：现场跑 integrity-check",
