@@ -718,16 +718,21 @@ async function recognizeText({ image, settings, provider }) {
      } catch (_e) { /* ignore */ }
      // ===== /v1.9.5d =====
     // OCR 专用 prompt：要求逐字识别保留原始排版，不要解释，不要补全
+    // v1.9.7: system content 必须 array 化（glm-4.6v-flash / 智谱 / 部分国产
+    // 多模态模型不接受 system.content 是裸字符串，会直接 1214 "type类型错误"）。
+    // 验证依据：v1.9.6 HTTP_ERROR dump 显示 sentContentTypes[0]=["string"] 时
+    // respBody 报 "messages[1].content[1].type类型错误"。
+    const _systemText =
+      '你是一名高精度 OCR 引擎。请逐字识别图片中的所有文字（包括印刷体与清晰手写体），' +
+      '保留原始换行和段落结构，不要解释、不要补全、不要翻译、不要总结。' +
+      '如果图片中没有任何可识别的文字，仅返回 <EMPTY>。'
     const body = {
       model,
       temperature: 0,
       messages: [
         {
           role: 'system',
-          content:
-            '你是一名高精度 OCR 引擎。请逐字识别图片中的所有文字（包括印刷体与清晰手写体），' +
-            '保留原始换行和段落结构，不要解释、不要补全、不要翻译、不要总结。' +
-            '如果图片中没有任何可识别的文字，仅返回 <EMPTY>。'
+          content: [{ type: 'text', text: _systemText }]
         },
         {
           role: 'user',
