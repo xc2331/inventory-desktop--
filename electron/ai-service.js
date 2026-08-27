@@ -464,9 +464,49 @@ async function recognizeImage({ image, db, settings, provider }) {
   }
 
   let lastErr = ''
+  // ===== v1.9.5b: 循环入口 dump — 如果 orderedFmts 为空就解释为啥没进 fetch =====
+  try {
+    const _dumpPath = path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log')
+    fs.appendFileSync(_dumpPath, JSON.stringify({
+      ts: new Date().toISOString(),
+      tag: 'LOOP_ENTRY',
+      orderedFmts,
+      initial,
+      initialResolved,
+      cfgImageFormat: cfg.imageFormat,
+      cfgId: cfg.id || cfg.name,
+      baseUrl,
+      model,
+      dataUrlLen: dataUrl ? dataUrl.length : 0
+    }) + '\n')
+  } catch (_e) { /* ignore */ }
+  // ===== /v1.9.5b =====
   for (const fmt of orderedFmts) {
     if (tried.has(fmt)) continue
     tried.add(fmt)
+    // ===== v1.9.5: 1214 真实触发点 dump =====
+    // 把每个 fmt 分支真正要发出去的 part 完整 JSON 写到日志，
+    // 让用户跑一次后贴回来即可锁定 schema 形态问题
+    try {
+      const _probePart = buildImagePartWithFormat(dataUrl, fmt)
+      const _dumpPath = path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log')
+      const _dumpLine = JSON.stringify({
+        ts: new Date().toISOString(),
+        tag: 'REQUEST_DUMP',
+        fmt,
+        model,
+        baseUrl: cfg?.baseUrl,
+        provider: cfg?.id || cfg?.name,
+        dataUrlLen: dataUrl.length,
+        dataUrlHead: dataUrl.slice(0, 60),
+        dataUrlTail: dataUrl.slice(-30),
+        partType: _probePart && _probePart.type,
+        partKeys: _probePart ? Object.keys(_probePart) : null,
+        partJson: _probePart
+      })
+      fs.appendFileSync(_dumpPath, _dumpLine + '\n')
+    } catch (_e) { /* 忽略 dump 自身的错误，不能影响主流程 */ }
+    // ===== /v1.9.5 =====
     const body = {
       model,
       temperature: 0.3,
@@ -628,9 +668,55 @@ async function recognizeText({ image, settings, provider }) {
   }
 
   let lastErr = ''
+  // ===== v1.9.5b: recognizeText 循环入口 dump =====
+  try {
+    const _dumpPath = path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log')
+    fs.appendFileSync(_dumpPath, JSON.stringify({
+      ts: new Date().toISOString(),
+      tag: 'TEXT_LOOP_ENTRY',
+      orderedFmts,
+      initial,
+      initialResolved,
+      cfgImageFormat: cfg.imageFormat,
+      cfgId: cfg.id || cfg.name,
+      baseUrl,
+      model,
+      dataUrlLen: dataUrl ? dataUrl.length : 0
+    }) + '\n')
+  } catch (_e) { /* ignore */ }
+  // ===== /v1.9.5b =====
   for (const fmt of orderedFmts) {
     if (tried.has(fmt)) continue
     tried.add(fmt)
+    // ===== v1.9.5d: recognizeText fetch 之前 dump 真实 part（多路径 + console）=====
+     try {
+       const _probePart = buildImagePartWithFormat(dataUrl, fmt)
+       const _line = JSON.stringify({
+         ts: new Date().toISOString(),
+         tag: 'TEXT_REQUEST_DUMP',
+         fmt,
+         model,
+         baseUrl,
+         provider: cfg.id || cfg.name,
+         dataUrlLen: dataUrl.length,
+         dataUrlHead: dataUrl.slice(0, 60),
+         dataUrlTail: dataUrl.slice(-30),
+         partType: _probePart && _probePart.type,
+         partKeys: _probePart ? Object.keys(_probePart) : null,
+         partJson: _probePart
+       })
+       const _paths = [
+         path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log'),
+         path.join(process.env.APPDATA || '', 'family-inventory', 'ai-image-resolve.log'),
+         path.join(process.env.APPDATA || '', 'inventory-desktop', 'ai-image-resolve.log'),
+         path.join(process.env.TEMP || process.env.TMP || process.cwd(), 'fi-debug.log')
+       ]
+       for (const _p of _paths) {
+         try { if (_p) fs.appendFileSync(_p, _line + '\n') } catch (_e) { /* ignore */ }
+       }
+       try { console.log('[v1.9.5d]', _line) } catch (_e) { /* ignore */ }
+     } catch (_e) { /* ignore */ }
+     // ===== /v1.9.5d =====
     // OCR 专用 prompt：要求逐字识别保留原始排版，不要解释，不要补全
     const body = {
       model,
@@ -679,6 +765,40 @@ async function recognizeText({ image, settings, provider }) {
       }
       if (res.status >= 400 && res.status < 500) {
         const text = await res.text().catch(() => '')
+        // v1.9.6: 服务端真实错误 dump —— 1214 错误体里通常带 expected type / field name，
+        // 这是定位 glm-4.6v-flash 期望 schema 的最直接信号。
+        try {
+          const dump = {
+            tag: 'HTTP_ERROR',
+            ts: new Date().toISOString(),
+            fmt,
+            model,
+            baseUrl,
+            providerId: cfg?.id,
+            requestUrl: url,
+            status: res.status,
+            statusText: res.statusText,
+            respHeaders: Object.fromEntries(res.headers.entries ? res.headers.entries() : []),
+            respBody: text.slice(0, 1500),
+            sentContentTypes: body.messages.map(m =>
+              Array.isArray(m.content) ? m.content.map(c => c.type) : [typeof m.content]
+            ),
+            sentUserContentLen: Array.isArray(body.messages?.[1]?.content)
+              ? body.messages[1].content.length
+              : -1
+          }
+          const dumpLine = `[${dump.ts}] ${JSON.stringify(dump)}\n`
+          const outPaths = [
+            path.join(tryAppGetPath(), 'fi-debug.log'),
+            path.join(process.env.APPDATA || '', 'family-inventory', 'fi-debug.log'),
+            path.join(process.env.APPDATA || '', 'inventory-desktop', 'fi-debug.log'),
+            path.join(require('os').tmpdir(), 'fi-debug.log')
+          ]
+          for (const p of outPaths) {
+            try { fs.appendFileSync(p, dumpLine) } catch { /* 路径不可写就跳过 */ }
+          }
+          console.error('[HTTP_ERROR]', dumpLine.trim())
+        } catch { /* dump 自身不能影响主流程 */ }
         lastErr = `AI 接口返回 ${res.status}: ${text.slice(0, 200)}`
         // 继续尝试下一种 imageFormat
         continue
