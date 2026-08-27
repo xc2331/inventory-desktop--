@@ -22,6 +22,28 @@ function extractJson(text) {
   return null
 }
 
+// 把图片按 provider 配置的 imageFormat 拼成多模态消息 part
+// imageFormat:
+//   'auto'         — data URL（OpenAI 默认，向后兼容）
+//   'data_url'     — data URL
+//   'image_url'    — OpenAI 风格但只发裸 base64（剥掉 data: 前缀）
+//   'image_base64' — Qwen/GLM 风格 { type: 'image', image: 'XXX' }
+function buildImagePart(image, imageFormat) {
+  const raw = ensureImageUrl(image)
+  if (!raw) return { type: 'image_url', image_url: { url: '' } }
+  const fmt = (imageFormat || 'auto').toLowerCase()
+  if (fmt === 'image_base64') {
+    const b64 = raw.replace(/^data:[^;]+;base64,/, '')
+    return { type: 'image', image: b64 }
+  }
+  if (fmt === 'image_url') {
+    const b64 = raw.replace(/^data:[^;]+;base64,/, '')
+    return { type: 'image_url', image_url: { url: b64 } }
+  }
+  // 'auto' / 'data_url' — 默认
+  return { type: 'image_url', image_url: { url: raw } }
+}
+
 function ensureImageUrl(image) {
   if (!image) return ''
   const s = String(image).trim()
@@ -153,7 +175,7 @@ async function recognizeImage({ image, db, settings, provider }) {
         role: 'user',
         content: [
           { type: 'text', text: '请识别这张照片中的物品，并返回 JSON 建议。' },
-          { type: 'image_url', image_url: { url: ensureImageUrl(image) } }
+          buildImagePart(image, cfg.imageFormat)
         ]
       }
     ]
@@ -270,7 +292,7 @@ async function recognizeText({ image, settings, provider }) {
         role: 'user',
         content: [
           { type: 'text', text: '请识别这张图片里的所有文字，按原样输出。' },
-          { type: 'image_url', image_url: { url: ensureImageUrl(image) } }
+          buildImagePart(image, cfg.imageFormat)
         ]
       }
     ]

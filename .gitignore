@@ -22,6 +22,7 @@ release-v12-*/
 release-v*/
 release-temp/
 *.log
+dev-mock-provider.*
 .DS_Store
 .env
 .env.local

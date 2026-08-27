@@ -747,6 +747,22 @@ export default function SettingsView({
                           {fetching ? t('ai_fetchModels_loading') : t('ai_fetchModels')}
                         </motion.button>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <label className="w-16 shrink-0 text-[10px] text-text-tertiary">
+                          {t('settings_aiVision_imageFormat', { defaultValue: '图片格式' })}
+                        </label>
+                        <select
+                          value={p.imageFormat || 'auto'}
+                          onChange={(e) => updateProvider(p.id, { imageFormat: e.target.value })}
+                          className="input h-8 flex-1 text-xs"
+                          title="auto=OpenAI data URL; data_url=同auto; image_url=裸base64; image_base64=Qwen/GLM {type:'image',image:'XXX'}"
+                        >
+                          <option value="auto">auto (OpenAI data URL 默认)</option>
+                          <option value="data_url">data_url (data:image/...;base64,XXX)</option>
+                          <option value="image_url">image_url (裸 base64，无前缀)</option>
+                          <option value="image_base64">image_base64 (Qwen/GLM 风格)</option>
+                        </select>
+                      </div>
                       {models.length > 0 && (
                         <select
                           value={p.model}
