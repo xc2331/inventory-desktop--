@@ -14,36 +14,74 @@ const { normalizeCategoryKey } = require('./data-utils')
 // 残缺 URL，opencode zen / OpenAI 不认，导致 messages[1].content[1].type 1214。
 // 修法：所有非 data: / http(s): 的输入都先在主进程读文件转 data URL，
 // 保证 image_url.url 永远是一个合法的 base64 data URL。
-// v1.9.2 兜底候选：没拿到 baseDir 时，从这几个常见目录找照片
+// v1.9.3 兜底候选：扫盘符 + 常见位置找 dataDir/photos
+// 背景：用户的数据可能在 D:/family-inventory 或 E:/family-inventory，
+// 而 %APPDATA% 默认是 C:/Users/.../AppData/Roaming，找不到。
 function findPhotoFallback(relOrAbsPath) {
   const candidates = []
+  // 1. 显式 env 优先
   if (process.env.INVENTORY_DATA_DIR) {
     candidates.push(path.join(process.env.INVENTORY_DATA_DIR, 'photos'))
   }
+  // 2. APPDATA 下两个 app 目录
   if (process.env.APPDATA) {
     candidates.push(path.join(process.env.APPDATA, 'family-inventory', 'photos'))
-  }
-  if (process.env.APPDATA) {
     candidates.push(path.join(process.env.APPDATA, 'inventory-desktop', 'photos'))
   }
+  // 3. 盘符根目录的常见数据目录（用户最常用 D:/E:）
+  for (const drive of ['D', 'E', 'F', 'G']) {
+    candidates.push(`${drive}:\\family-inventory\\photos`)
+    candidates.push(`${drive}:\\inventory-desktop\\photos`)
+    candidates.push(`${drive}:\\家庭物资管家\\photos`)
+  }
+  // 4. 用户主目录下的常见位置
+  if (process.env.USERPROFILE) {
+    candidates.push(path.join(process.env.USERPROFILE, 'family-inventory', 'photos'))
+    candidates.push(path.join(process.env.USERPROFILE, 'Documents', 'family-inventory', 'photos'))
+    candidates.push(path.join(process.env.USERPROFILE, 'Desktop', 'family-inventory', 'photos'))
+  }
+  // 5. cwd
   candidates.push(path.join(process.cwd(), 'photos'))
+
   for (const dir of candidates) {
     const full = path.isAbsolute(relOrAbsPath) ? relOrAbsPath : path.join(dir, relOrAbsPath)
     if (fs.existsSync(full)) return full
   }
+  // v1.9.3: 最后兜底 — 扫所有候选 dir 看 photos 子目录里有没有同名/相似文件
+  for (const dir of candidates) {
+    try {
+      if (!fs.existsSync(dir)) continue
+      const photoDir = dir
+      const basename = path.basename(relOrAbsPath)
+      // 先尝试同名
+      const sameName = path.join(photoDir, basename)
+      if (fs.existsSync(sameName)) return sameName
+      // 再尝试扫所有子目录
+      const subs = fs.readdirSync(photoDir, { withFileTypes: true })
+      for (const s of subs) {
+        if (s.isDirectory()) {
+          const try1 = path.join(photoDir, s.name, basename)
+          if (fs.existsSync(try1)) return try1
+        }
+      }
+    } catch (_) { /* 单个目录失败继续 */ }
+  }
   return null
 }
 
-function _logResolveDecision(input, resolved, baseDir) {
-  // v1.9.2 诊断日志：写到 userData/ai-image-resolve.log
+function _logResolveDecision(input, resolved, baseDir, extra) {
+  // v1.9.3 诊断日志：写到 userData/ai-image-resolve.log
   // 用户跑一次后把这段贴回来，定位是 baseDir 没拿到，还是 file:// 解析错，还是真的缺文件
   try {
     const logPath = path.join(process.env.APPDATA || process.cwd(), 'family-inventory', 'ai-image-resolve.log')
     fs.mkdirSync(path.dirname(logPath), { recursive: true })
-    const tag = resolved.startsWith('data:')
-      ? 'OK_DATA_URL'
-      : (resolved === input ? 'PASSTHROUGH' : 'OTHER')
-    const line = `[${new Date().toISOString()}] ${tag} baseDir=${JSON.stringify(baseDir)} input=${JSON.stringify(input).slice(0, 200)} -> ${JSON.stringify(resolved).slice(0, 120)}\n`
+    let tag
+    if (extra && extra.noDataDir) tag = 'NO_DATA_DIR'
+    else if (resolved.startsWith('data:')) tag = 'OK_DATA_URL'
+    else if (resolved === input) tag = 'PASSTHROUGH'
+    else tag = 'OTHER'
+    const ex = extra ? ` extra=${JSON.stringify(extra)}` : ''
+    const line = `[${new Date().toISOString()}] ${tag} baseDir=${JSON.stringify(baseDir)} input=${JSON.stringify(input).slice(0, 200)} -> ${JSON.stringify(resolved).slice(0, 120)}${ex}\n`
     fs.appendFileSync(logPath, line)
   } catch (_) { /* 日志失败不影响主流程 */ }
 }
@@ -322,8 +360,19 @@ async function recognizeImage({ image, db, settings, provider }) {
   if (!image) return { ok: false, error: '缺少图片' }
 
   // 相对路径 / file:// / 绝对路径 → 统一转 data URL（opencode zen / OpenAI 拒收 file:// 残缺 URL，会 1214）
+  // v1.9.3: 同时把 baseDir 拿不到这件事写到日志，方便定位
+  if (!settings || !settings.dataDir) {
+    _logResolveDecision(image, image, settings && settings.dataDir, { noDataDir: true })
+  }
   const dataUrl = resolveImageInput(image, settings?.dataDir)
-  if (!dataUrl) return { ok: false, error: '图片解析失败（路径或数据无效）' }
+  // v1.9.3: 硬校验 — 不是 data URL 开头就拒绝，宁可报错也不发残缺 URL 出去触发 1214
+  if (!dataUrl) {
+    return { ok: false, error: `图片解析失败：输入不是 data URL 也未匹配到本地文件（${String(image).slice(0, 80)}）` }
+  }
+  if (!dataUrl.startsWith('data:')) {
+    _logResolveDecision(image, dataUrl, settings && settings.dataDir, { rejectNonDataUrl: true })
+    return { ok: false, error: `图片路径无法解析为 data URL（${String(image).slice(0, 80)}）` }
+  }
 
   const categories = db ? db.prepare('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC').all() : []
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`
@@ -470,8 +519,17 @@ async function recognizeText({ image, settings, provider }) {
 
   // 把相对路径 / file:// URL / 绝对路径都归一为 data URL，
   // 否则 opencode zen / OpenAI 不认 file:// 或残缺路径，触发 1214 schema 错误
+  if (!settings || !settings.dataDir) {
+    _logResolveDecision(image, image, settings && settings.dataDir, { noDataDir: true })
+  }
   const dataUrl = resolveImageInput(image, settings?.dataDir)
-  if (!dataUrl) return { ok: false, error: '图片解析失败（路径或数据无效）' }
+  if (!dataUrl) {
+    return { ok: false, error: `图片解析失败：输入不是 data URL 也未匹配到本地文件（${String(image).slice(0, 80)}）` }
+  }
+  if (!dataUrl.startsWith('data:')) {
+    _logResolveDecision(image, dataUrl, settings && settings.dataDir, { rejectNonDataUrl: true })
+    return { ok: false, error: `图片路径无法解析为 data URL（${String(image).slice(0, 80)}）` }
+  }
 
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`
 
