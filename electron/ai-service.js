@@ -655,163 +655,127 @@ async function recognizeText({ image, settings, provider }) {
 
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`
 
-  // 第一次按 cfg/auto；失败按该 provider 允许的顺序重试（OpenAI 兼容只到 image_url）
-  const tried = new Set()
-  const orderedFmts = []
-  const initial = (cfg.imageFormat || 'auto').toLowerCase()
-  const initialResolved = initial === 'auto' ? guessImageFormat(cfg) : initial
-  if (isValidFmtForProvider(initialResolved, cfg)) {
-    orderedFmts.push(initialResolved)
+  // v1.9.8: 不再赌 schema 顺序，暴力枚举 4 种 image part × 2 种 system 布局 = 8 种组合
+  // 直到拿 200。背景：v1.9.7 仍 1214；dump 没看到，无法精准定位 glm 期望 schema。
+  // 8 种组合：
+  //   image part: data_url / image / image_field / image_url
+  //   system:     array[{type:'text',text}] / 无 system
+  // 同时去掉 temperature 字段（部分模型只支持 0.5/1.0，0 会 400）。
+  const _imgFmts = ['data_url', 'image', 'image_field', 'image_url']
+  const _sysModes = ['array', 'none']
+  const _userText = '请识别这张图片里的所有文字，按原样输出。'
+  const _systemText =
+    '你是一名高精度 OCR 引擎。请逐字识别图片中的所有文字（包括印刷体与清晰手写体），' +
+    '保留原始换行和段落结构，不要解释、不要补全、不要翻译、不要总结。' +
+    '如果图片中没有任何可识别的文字，仅返回 <EMPTY>。'
+
+  // 把每种 fmt 转成对应的 part（image / image_base64 / image_field 是
+  // buildImagePartWithFormat 已知分支；data_url / image_url 也走同一函数）
+  const _partByFmt = {}
+  for (const f of _imgFmts) _partByFmt[f] = buildImagePartWithFormat(dataUrl, f)
+
+  // 写盘：把 8 种组合的 sent content types 一次性 dump 出来（用户从日志看更直观）
+  let _dumpPath = ''
+  try {
+    _dumpPath = path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log')
+  } catch (_) { _dumpPath = '' }
+  const _dumpCombos = (label) => {
+    if (!_dumpPath) return
+    try {
+      const lines = []
+      lines.push(`[${new Date().toISOString()}] ${label}  baseUrl=${baseUrl}  model=${model}  provider=${cfg?.id || cfg?.name || ''}`)
+      for (const f of _imgFmts) {
+        for (const s of _sysModes) {
+          const p = _partByFmt[f]
+          const sample = { f, s, part: p }
+          lines.push(JSON.stringify(sample))
+        }
+      }
+      fs.appendFileSync(_dumpPath, lines.join('\n') + '\n')
+    } catch (_) { /* ignore */ }
   }
-  for (const f of getFallbackOrder(cfg)) {
-    if (!orderedFmts.includes(f)) orderedFmts.push(f)
+  _dumpCombos('V198_COMBOS')
+
+  const _tryOne = async (fmt, sysMode) => {
+    const imgPart = _partByFmt[fmt]
+    const messages = []
+    if (sysMode === 'array') {
+      messages.push({ role: 'system', content: [{ type: 'text', text: _systemText }] })
+    }
+    messages.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: _userText },
+        imgPart
+      ]
+    })
+    const body = { model, messages }  // 不带 temperature
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`
+      },
+      body: JSON.stringify(body)
+    })
+    return { res, body, fmt, sysMode }
   }
 
   let lastErr = ''
-  // ===== v1.9.5b: recognizeText 循环入口 dump =====
-  try {
-    const _dumpPath = path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log')
-    fs.appendFileSync(_dumpPath, JSON.stringify({
-      ts: new Date().toISOString(),
-      tag: 'TEXT_LOOP_ENTRY',
-      orderedFmts,
-      initial,
-      initialResolved,
-      cfgImageFormat: cfg.imageFormat,
-      cfgId: cfg.id || cfg.name,
-      baseUrl,
-      model,
-      dataUrlLen: dataUrl ? dataUrl.length : 0
-    }) + '\n')
-  } catch (_e) { /* ignore */ }
-  // ===== /v1.9.5b =====
-  for (const fmt of orderedFmts) {
-    if (tried.has(fmt)) continue
-    tried.add(fmt)
-    // ===== v1.9.5d: recognizeText fetch 之前 dump 真实 part（多路径 + console）=====
-     try {
-       const _probePart = buildImagePartWithFormat(dataUrl, fmt)
-       const _line = JSON.stringify({
-         ts: new Date().toISOString(),
-         tag: 'TEXT_REQUEST_DUMP',
-         fmt,
-         model,
-         baseUrl,
-         provider: cfg.id || cfg.name,
-         dataUrlLen: dataUrl.length,
-         dataUrlHead: dataUrl.slice(0, 60),
-         dataUrlTail: dataUrl.slice(-30),
-         partType: _probePart && _probePart.type,
-         partKeys: _probePart ? Object.keys(_probePart) : null,
-         partJson: _probePart
-       })
-       const _paths = [
-         path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log'),
-         path.join(process.env.APPDATA || '', 'family-inventory', 'ai-image-resolve.log'),
-         path.join(process.env.APPDATA || '', 'inventory-desktop', 'ai-image-resolve.log'),
-         path.join(process.env.TEMP || process.env.TMP || process.cwd(), 'fi-debug.log')
-       ]
-       for (const _p of _paths) {
-         try { if (_p) fs.appendFileSync(_p, _line + '\n') } catch (_e) { /* ignore */ }
-       }
-       try { console.log('[v1.9.5d]', _line) } catch (_e) { /* ignore */ }
-     } catch (_e) { /* ignore */ }
-     // ===== /v1.9.5d =====
-    // OCR 专用 prompt：要求逐字识别保留原始排版，不要解释，不要补全
-    // v1.9.7: system content 必须 array 化（glm-4.6v-flash / 智谱 / 部分国产
-    // 多模态模型不接受 system.content 是裸字符串，会直接 1214 "type类型错误"）。
-    // 验证依据：v1.9.6 HTTP_ERROR dump 显示 sentContentTypes[0]=["string"] 时
-    // respBody 报 "messages[1].content[1].type类型错误"。
-    const _systemText =
-      '你是一名高精度 OCR 引擎。请逐字识别图片中的所有文字（包括印刷体与清晰手写体），' +
-      '保留原始换行和段落结构，不要解释、不要补全、不要翻译、不要总结。' +
-      '如果图片中没有任何可识别的文字，仅返回 <EMPTY>。'
-    const body = {
-      model,
-      temperature: 0,
-      messages: [
-        {
-          role: 'system',
-          content: [{ type: 'text', text: _systemText }]
-        },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: '请识别这张图片里的所有文字，按原样输出。' },
-            buildImagePartWithFormat(dataUrl, fmt)
-          ]
-        }
-      ]
-    }
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${key}`
-        },
-        body: JSON.stringify(body)
-      })
-      if (res.ok) {
-        const data = await res.json().catch(() => null)
-        if (!data) {
-          lastErr = `AI 接口返回 ${res.status}: 响应非 JSON`
-          continue
-        }
-        const content = (data.choices?.[0]?.message?.content || '').trim()
-        if (cfg && cfg.imageFormat !== fmt && isValidFmtForProvider(fmt, cfg)) {
-          cfg.imageFormat = fmt
-          cfg.__learnedFormat = true
-        }
-        if (!content || content === '<EMPTY>') {
-          return { ok: true, text: '', imageFormat: fmt }
-        }
-        return { ok: true, text: content, imageFormat: fmt }
-      }
-      if (res.status >= 400 && res.status < 500) {
-        const text = await res.text().catch(() => '')
-        // v1.9.6: 服务端真实错误 dump —— 1214 错误体里通常带 expected type / field name，
-        // 这是定位 glm-4.6v-flash 期望 schema 的最直接信号。
-        try {
-          const dump = {
-            tag: 'HTTP_ERROR',
-            ts: new Date().toISOString(),
-            fmt,
-            model,
-            baseUrl,
-            providerId: cfg?.id,
-            requestUrl: url,
-            status: res.status,
-            statusText: res.statusText,
-            respHeaders: Object.fromEntries(res.headers.entries ? res.headers.entries() : []),
-            respBody: text.slice(0, 1500),
-            sentContentTypes: body.messages.map(m =>
-              Array.isArray(m.content) ? m.content.map(c => c.type) : [typeof m.content]
-            ),
-            sentUserContentLen: Array.isArray(body.messages?.[1]?.content)
-              ? body.messages[1].content.length
-              : -1
-          }
-          const dumpLine = `[${dump.ts}] ${JSON.stringify(dump)}\n`
-          const outPaths = [
-            path.join(tryAppGetPath(), 'fi-debug.log'),
-            path.join(process.env.APPDATA || '', 'family-inventory', 'fi-debug.log'),
-            path.join(process.env.APPDATA || '', 'inventory-desktop', 'fi-debug.log'),
-            path.join(require('os').tmpdir(), 'fi-debug.log')
-          ]
-          for (const p of outPaths) {
-            try { fs.appendFileSync(p, dumpLine) } catch { /* 路径不可写就跳过 */ }
-          }
-          console.error('[HTTP_ERROR]', dumpLine.trim())
-        } catch { /* dump 自身不能影响主流程 */ }
-        lastErr = `AI 接口返回 ${res.status}: ${text.slice(0, 200)}`
-        // 继续尝试下一种 imageFormat
+  for (const sysMode of _sysModes) {
+    for (const fmt of _imgFmts) {
+      let res, body
+      try {
+        ;({ res, body, fmt, sysMode } = await _tryOne(fmt, sysMode))
+      } catch (e) {
+        lastErr = e.message || 'OCR 识别请求失败'
         continue
       }
+      if (res.ok) {
+        const data = await res.json().catch(() => null)
+        if (!data) { lastErr = `AI 接口返回 ${res.status}: 响应非 JSON`; continue }
+        const content = (data.choices?.[0]?.message?.content || '').trim()
+        // 成功后把成功 schema 记到 cfg，供下次首选
+        try {
+          cfg.__learnedFormat = fmt
+          cfg.__learnedSysMode = sysMode
+        } catch (_) {}
+        if (!content || content === '<EMPTY>') return { ok: true, text: '', imageFormat: fmt }
+        return { ok: true, text: content, imageFormat: fmt }
+      }
+      // 失败：把 status + body 写到 dump，下一次循环还能继续试
       const text = await res.text().catch(() => '')
+      try {
+        const dump = {
+          tag: 'HTTP_ERROR',
+          ts: new Date().toISOString(),
+          fmt, sysMode,
+          model, baseUrl,
+          providerId: cfg?.id,
+          requestUrl: url,
+          status: res.status,
+          statusText: res.statusText,
+          respHeaders: Object.fromEntries(res.headers.entries ? res.headers.entries() : []),
+          respBody: text.slice(0, 1500),
+          sentContentTypes: body.messages.map(m =>
+            Array.isArray(m.content) ? m.content.map(c => c.type) : [typeof m.content]
+          )
+        }
+        const line = `[${dump.ts}] ${JSON.stringify(dump)}\n`
+        const paths = [
+          path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log'),
+          path.join(process.env.APPDATA || '', 'family-inventory', 'ai-image-resolve.log'),
+          path.join(process.env.APPDATA || '', 'inventory-desktop', 'ai-image-resolve.log'),
+          path.join(require('os').tmpdir(), 'fi-debug.log'),
+          path.join(process.cwd(), 'fi-debug.log')
+        ]
+        for (const p of paths) {
+          try { if (p) fs.appendFileSync(p, line) } catch (_) {}
+        }
+        console.error('[HTTP_ERROR]', line.trim())
+      } catch (_) {}
       lastErr = `AI 接口返回 ${res.status}: ${text.slice(0, 200)}`
-    } catch (e) {
-      lastErr = e.message || 'OCR 识别请求失败'
+      // 继续下一种组合
     }
   }
   return { ok: false, error: lastErr || 'OCR 全部格式失败' }
