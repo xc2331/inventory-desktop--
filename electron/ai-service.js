@@ -726,7 +726,10 @@ async function recognizeText({ image, settings, provider }) {
     for (const fmt of _imgFmts) {
       let res, body
       try {
-        ;({ res, body, fmt, sysMode } = await _tryOne(fmt, sysMode))
+        // 注意：_tryOne 返回的 fmt/sysMode 是入参本身，不是新值；这里不需要回写
+        const _r = await _tryOne(fmt, sysMode)
+        res = _r.res
+        body = _r.body
       } catch (e) {
         lastErr = e.message || 'OCR 识别请求失败'
         continue
