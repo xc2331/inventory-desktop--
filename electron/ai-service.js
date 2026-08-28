@@ -17,53 +17,39 @@ const { normalizeCategoryKey } = require('./data-utils')
 // 残缺 URL，opencode zen / OpenAI 不认，导致 messages[1].content[1].type 1214。
 // 修法：所有非 data: / http(s): 的输入都先在主进程读文件转 data URL，
 // 保证 image_url.url 永远是一个合法的 base64 data URL。
-// v1.9.3 兜底候选：扫盘符 + 常见位置找 dataDir/photos
-// 背景：用户的数据可能在 D:/family-inventory 或 E:/family-inventory，
-// 而 %APPDATA% 默认是 C:/Users/.../AppData/Roaming，找不到。
+// 兜底：baseDir 拿不到时问 Electron userData，再不行就 INVENTORY_DATA_DIR / APPDATA 默认位
 function findPhotoFallback(relOrAbsPath) {
   const candidates = []
-  // 1. 显式 env 优先
+  // 1. 显式 env
   if (process.env.INVENTORY_DATA_DIR) {
     candidates.push(path.join(process.env.INVENTORY_DATA_DIR, 'photos'))
   }
-  // 2. APPDATA 下两个 app 目录
+  // 2. APPDATA 默认位
   if (process.env.APPDATA) {
     candidates.push(path.join(process.env.APPDATA, 'family-inventory', 'photos'))
     candidates.push(path.join(process.env.APPDATA, 'inventory-desktop', 'photos'))
   }
-  // 3. 盘符根目录的常见数据目录（用户最常用 D:/E:）
-  for (const drive of ['D', 'E', 'F', 'G']) {
-    candidates.push(`${drive}:\\family-inventory\\photos`)
-    candidates.push(`${drive}:\\inventory-desktop\\photos`)
-    candidates.push(`${drive}:\\家庭物资管家\\photos`)
+  // 3. userData（Electron 拿得到就用）
+  const userData = tryAppGetPath()
+  if (userData) {
+    candidates.push(path.join(userData, 'photos'))
   }
-  // 4. 用户主目录下的常见位置
-  if (process.env.USERPROFILE) {
-    candidates.push(path.join(process.env.USERPROFILE, 'family-inventory', 'photos'))
-    candidates.push(path.join(process.env.USERPROFILE, 'Documents', 'family-inventory', 'photos'))
-    candidates.push(path.join(process.env.USERPROFILE, 'Desktop', 'family-inventory', 'photos'))
-  }
-  // 5. cwd
-  candidates.push(path.join(process.cwd(), 'photos'))
 
   for (const dir of candidates) {
     const full = path.isAbsolute(relOrAbsPath) ? relOrAbsPath : path.join(dir, relOrAbsPath)
     if (fs.existsSync(full)) return full
   }
-  // v1.9.3: 最后兜底 — 扫所有候选 dir 看 photos 子目录里有没有同名/相似文件
+  // 兜底再扫一次：photos 子目录里有没有同名文件
   for (const dir of candidates) {
     try {
       if (!fs.existsSync(dir)) continue
-      const photoDir = dir
       const basename = path.basename(relOrAbsPath)
-      // 先尝试同名
-      const sameName = path.join(photoDir, basename)
+      const sameName = path.join(dir, basename)
       if (fs.existsSync(sameName)) return sameName
-      // 再尝试扫所有子目录
-      const subs = fs.readdirSync(photoDir, { withFileTypes: true })
+      const subs = fs.readdirSync(dir, { withFileTypes: true })
       for (const s of subs) {
         if (s.isDirectory()) {
-          const try1 = path.join(photoDir, s.name, basename)
+          const try1 = path.join(dir, s.name, basename)
           if (fs.existsSync(try1)) return try1
         }
       }
@@ -121,71 +107,45 @@ function downloadUrlToDataUrl(urlStr, timeoutMs = 5000) {
   })
 }
 
-function _logResolveDecision(input, resolved, baseDir, extra) {
-  // v1.9.3 诊断日志：写到 userData/ai-image-resolve.log
-  // 用户跑一次后把这段贴回来，定位是 baseDir 没拿到，还是 file:// 解析错，还是真的缺文件
-  try {
-    const logPath = path.join(process.env.APPDATA || process.cwd(), 'family-inventory', 'ai-image-resolve.log')
-    fs.mkdirSync(path.dirname(logPath), { recursive: true })
-    let tag
-    if (extra && extra.noDataDir) tag = 'NO_DATA_DIR'
-    else if (resolved.startsWith('data:')) tag = 'OK_DATA_URL'
-    else if (resolved === input) tag = 'PASSTHROUGH'
-    else tag = 'OTHER'
-    const ex = extra ? ` extra=${JSON.stringify(extra)}` : ''
-    const line = `[${new Date().toISOString()}] ${tag} baseDir=${JSON.stringify(baseDir)} input=${JSON.stringify(input).slice(0, 200)} -> ${JSON.stringify(resolved).slice(0, 120)}${ex}\n`
-    fs.appendFileSync(logPath, line)
-  } catch (_) { /* 日志失败不影响主流程 */ }
-}
-
 function resolveImageInput(image, baseDir) {
   if (!image) return ''
   const s = String(image).trim()
   if (!s) return ''
-  // v1.9.4: baseDir 拿不到时主动用 Electron userData 兜底
-  // 用户日志显示 baseDir 始终 undefined，是 api-server 透传 settings 时漏了字段
-  // 这里直接绕过 settings 链路
+  // baseDir 拿不到时主动用 Electron userData 兜底
   if (!baseDir) {
     const userData = tryAppGetPath()
     if (userData) baseDir = userData
   }
   // 已经是 data URL — 原样返回
-  if (/^data:/i.test(s)) { _logResolveDecision(s, s, baseDir); return s }
-  // v1.9.4: http(s) URL — 主进程先下载转 data URL；下载失败再原样返回
-  // 标记：先放个 PASSTHROUGH 占位，真正走异步在调用方处理
-  if (/^https?:/i.test(s)) { _logResolveDecision(s, s, baseDir, { urlPassthrough: true }); return s }
+  if (/^data:/i.test(s)) return s
+  // http(s) URL — 异步下载在调用方处理，这里先 passthrough
+  if (/^https?:/i.test(s)) return s
   // file:// URL — 还原成磁盘路径
   let absPath = null
   if (/^file:\/\//i.test(s)) {
     absPath = s.replace(/^file:\/\/\/?/, '')
-    // Windows 盘符：file:///C:/foo → C:/foo
     if (/^[a-z]:/i.test(absPath)) absPath = absPath
     else absPath = '/' + absPath
     absPath = path.normalize(absPath)
   } else if (path.isAbsolute(s)) {
     absPath = s
   } else if (baseDir) {
-    // 相对路径：相对 dataDir 解析（photo.save 的产物存的就是相对路径）
+    // 相对路径：相对 dataDir 解析
     absPath = path.resolve(baseDir, s)
   } else {
-    // v1.9.2 兜底：没 baseDir 时尝试常见候选目录
     const guessed = findPhotoFallback(s)
     if (guessed) {
       absPath = guessed
     } else {
-      // 实在找不到 — 写日志并 passthrough（让上游 1214 错误暴露，方便定位）
-      _logResolveDecision(s, s, baseDir)
       return s
     }
   }
   try {
     if (!fs.existsSync(absPath)) {
-      // 文件不存在 — 兜底再试一次（处理 dataDir 实际是 photos 父目录或子目录的情况）
       const guessed = findPhotoFallback(s)
       if (guessed && fs.existsSync(guessed)) {
         absPath = guessed
       } else {
-        _logResolveDecision(s, s, baseDir)
         return s
       }
     }
@@ -200,11 +160,8 @@ function resolveImageInput(image, baseDir) {
       '.bmp': 'image/bmp'
     }
     const mime = mimeMap[ext] || 'image/jpeg'
-    const out = `data:${mime};base64,${buf.toString('base64')}`
-    _logResolveDecision(s, out, baseDir)
-    return out
+    return `data:${mime};base64,${buf.toString('base64')}`
   } catch (e) {
-    _logResolveDecision(s, s, baseDir)
     return s
   }
 }
@@ -421,28 +378,17 @@ async function recognizeImage({ image, db, settings, provider }) {
   if (!image) return { ok: false, error: '缺少图片' }
 
   // 相对路径 / file:// / 绝对路径 → 统一转 data URL（opencode zen / OpenAI 拒收 file:// 残缺 URL，会 1214）
-  // v1.9.3: 同时把 baseDir 拿不到这件事写到日志，方便定位
-  if (!settings || !settings.dataDir) {
-    _logResolveDecision(image, image, settings && settings.dataDir, { noDataDir: true })
-  }
   let dataUrl = resolveImageInput(image, settings?.dataDir)
-  // v1.9.4: 远程 URL 在 resolveImageInput 里走 passthrough（保持函数同步），
+  // 远程 URL 在 resolveImageInput 里走 passthrough（保持函数同步），
   // 这里在主进程先下载成 buffer 再拼 data URL；下载失败才用原始 URL
   if (dataUrl && /^https?:/i.test(dataUrl)) {
     const downloaded = await downloadUrlToDataUrl(dataUrl)
-    if (downloaded) {
-      _logResolveDecision(dataUrl, downloaded, settings && settings.dataDir, { urlDownloaded: true })
-      dataUrl = downloaded
-    } else {
-      _logResolveDecision(dataUrl, dataUrl, settings && settings.dataDir, { urlDownloadFailed: true })
-    }
+    if (downloaded) dataUrl = downloaded
   }
-  // v1.9.3: 硬校验 — 不是 data URL 开头就拒绝，宁可报错也不发残缺 URL 出去触发 1214
   if (!dataUrl) {
     return { ok: false, error: `图片解析失败：输入不是 data URL 也未匹配到本地文件（${String(image).slice(0, 80)}）` }
   }
   if (!dataUrl.startsWith('data:')) {
-    _logResolveDecision(image, dataUrl, settings && settings.dataDir, { rejectNonDataUrl: true })
     return { ok: false, error: `图片路径无法解析为 data URL（${String(image).slice(0, 80)}）` }
   }
 
@@ -464,54 +410,14 @@ async function recognizeImage({ image, db, settings, provider }) {
   }
 
   let lastErr = ''
-  // ===== v1.9.5b: 循环入口 dump — 如果 orderedFmts 为空就解释为啥没进 fetch =====
-  try {
-    const _dumpPath = path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log')
-    fs.appendFileSync(_dumpPath, JSON.stringify({
-      ts: new Date().toISOString(),
-      tag: 'LOOP_ENTRY',
-      orderedFmts,
-      initial,
-      initialResolved,
-      cfgImageFormat: cfg.imageFormat,
-      cfgId: cfg.id || cfg.name,
-      baseUrl,
-      model,
-      dataUrlLen: dataUrl ? dataUrl.length : 0
-    }) + '\n')
-  } catch (_e) { /* ignore */ }
-  // ===== /v1.9.5b =====
   for (const fmt of orderedFmts) {
     if (tried.has(fmt)) continue
     tried.add(fmt)
-    // ===== v1.9.5: 1214 真实触发点 dump =====
-    // 把每个 fmt 分支真正要发出去的 part 完整 JSON 写到日志，
-    // 让用户跑一次后贴回来即可锁定 schema 形态问题
-    try {
-      const _probePart = buildImagePartWithFormat(dataUrl, fmt)
-      const _dumpPath = path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log')
-      const _dumpLine = JSON.stringify({
-        ts: new Date().toISOString(),
-        tag: 'REQUEST_DUMP',
-        fmt,
-        model,
-        baseUrl: cfg?.baseUrl,
-        provider: cfg?.id || cfg?.name,
-        dataUrlLen: dataUrl.length,
-        dataUrlHead: dataUrl.slice(0, 60),
-        dataUrlTail: dataUrl.slice(-30),
-        partType: _probePart && _probePart.type,
-        partKeys: _probePart ? Object.keys(_probePart) : null,
-        partJson: _probePart
-      })
-      fs.appendFileSync(_dumpPath, _dumpLine + '\n')
-    } catch (_e) { /* 忽略 dump 自身的错误，不能影响主流程 */ }
-    // ===== /v1.9.5 =====
     const body = {
       model,
       temperature: 0.3,
       messages: [
-        { role: 'system', content: buildPrompt(categories) },
+        { role: 'system', content: [{ type: 'text', text: buildPrompt(categories) }] },
         {
           role: 'user',
           content: [
@@ -631,36 +537,25 @@ async function recognizeText({ image, settings, provider }) {
 
   // 把相对路径 / file:// URL / 绝对路径都归一为 data URL，
   // 否则 opencode zen / OpenAI 不认 file:// 或残缺路径，触发 1214 schema 错误
-  if (!settings || !settings.dataDir) {
-    _logResolveDecision(image, image, settings && settings.dataDir, { noDataDir: true })
-  }
   let dataUrl = resolveImageInput(image, settings?.dataDir)
-  // v1.9.4: 远程 URL 主进程先下载转 data URL
+  // 远程 URL 主进程先下载转 data URL
   if (dataUrl && /^https?:/i.test(dataUrl)) {
     const downloaded = await downloadUrlToDataUrl(dataUrl)
-    if (downloaded) {
-      _logResolveDecision(dataUrl, downloaded, settings && settings.dataDir, { urlDownloaded: true })
-      dataUrl = downloaded
-    } else {
-      _logResolveDecision(dataUrl, dataUrl, settings && settings.dataDir, { urlDownloadFailed: true })
-    }
+    if (downloaded) dataUrl = downloaded
   }
   if (!dataUrl) {
     return { ok: false, error: `图片解析失败：输入不是 data URL 也未匹配到本地文件（${String(image).slice(0, 80)}）` }
   }
   if (!dataUrl.startsWith('data:')) {
-    _logResolveDecision(image, dataUrl, settings && settings.dataDir, { rejectNonDataUrl: true })
     return { ok: false, error: `图片路径无法解析为 data URL（${String(image).slice(0, 80)}）` }
   }
 
   const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`
 
-  // v1.9.8: 不再赌 schema 顺序，暴力枚举 4 种 image part × 2 种 system 布局 = 8 种组合
-  // 直到拿 200。背景：v1.9.7 仍 1214；dump 没看到，无法精准定位 glm 期望 schema。
-  // 8 种组合：
-  //   image part: data_url / image / image_field / image_url
-  //   system:     array[{type:'text',text}] / 无 system
+  // 暴力枚举 4 种 image part × 2 种 system 布局 = 8 种组合直到拿 200。
   // 同时去掉 temperature 字段（部分模型只支持 0.5/1.0，0 会 400）。
+  // 自学习：成功后把命中 fmt/sysMode 写到 cfg.__learnedFormat/__learnedSysMode，
+  // 下次直接用，不再枚举。
   const _imgFmts = ['data_url', 'image', 'image_field', 'image_url']
   const _sysModes = ['array', 'none']
   const _userText = '请识别这张图片里的所有文字，按原样输出。'
@@ -669,32 +564,8 @@ async function recognizeText({ image, settings, provider }) {
     '保留原始换行和段落结构，不要解释、不要补全、不要翻译、不要总结。' +
     '如果图片中没有任何可识别的文字，仅返回 <EMPTY>。'
 
-  // 把每种 fmt 转成对应的 part（image / image_base64 / image_field 是
-  // buildImagePartWithFormat 已知分支；data_url / image_url 也走同一函数）
   const _partByFmt = {}
   for (const f of _imgFmts) _partByFmt[f] = buildImagePartWithFormat(dataUrl, f)
-
-  // 写盘：把 8 种组合的 sent content types 一次性 dump 出来（用户从日志看更直观）
-  let _dumpPath = ''
-  try {
-    _dumpPath = path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log')
-  } catch (_) { _dumpPath = '' }
-  const _dumpCombos = (label) => {
-    if (!_dumpPath) return
-    try {
-      const lines = []
-      lines.push(`[${new Date().toISOString()}] ${label}  baseUrl=${baseUrl}  model=${model}  provider=${cfg?.id || cfg?.name || ''}`)
-      for (const f of _imgFmts) {
-        for (const s of _sysModes) {
-          const p = _partByFmt[f]
-          const sample = { f, s, part: p }
-          lines.push(JSON.stringify(sample))
-        }
-      }
-      fs.appendFileSync(_dumpPath, lines.join('\n') + '\n')
-    } catch (_) { /* ignore */ }
-  }
-  _dumpCombos('V198_COMBOS')
 
   const _tryOne = async (fmt, sysMode) => {
     const imgPart = _partByFmt[fmt]
@@ -718,68 +589,47 @@ async function recognizeText({ image, settings, provider }) {
       },
       body: JSON.stringify(body)
     })
-    return { res, body, fmt, sysMode }
+    return { res, fmt, sysMode }
+  }
+
+  // 排序：learned 在前，未学习则 8 组合全跑
+  const learnedFmt = cfg.__learnedFormat
+  const learnedSys = cfg.__learnedSysMode
+  const order = []
+  if (learnedFmt && _imgFmts.includes(learnedFmt) &&
+      learnedSys && _sysModes.includes(learnedSys)) {
+    order.push({ fmt: learnedFmt, sysMode: learnedSys })
+  }
+  for (const s of _sysModes) {
+    for (const f of _imgFmts) {
+      if (learnedFmt === f && learnedSys === s) continue
+      order.push({ fmt: f, sysMode: s })
+    }
   }
 
   let lastErr = ''
-  for (const sysMode of _sysModes) {
-    for (const fmt of _imgFmts) {
-      let res, body
-      try {
-        // 注意：_tryOne 返回的 fmt/sysMode 是入参本身，不是新值；这里不需要回写
-        const _r = await _tryOne(fmt, sysMode)
-        res = _r.res
-        body = _r.body
-      } catch (e) {
-        lastErr = e.message || 'OCR 识别请求失败'
-        continue
-      }
-      if (res.ok) {
-        const data = await res.json().catch(() => null)
-        if (!data) { lastErr = `AI 接口返回 ${res.status}: 响应非 JSON`; continue }
-        const content = (data.choices?.[0]?.message?.content || '').trim()
-        // 成功后把成功 schema 记到 cfg，供下次首选
-        try {
-          cfg.__learnedFormat = fmt
-          cfg.__learnedSysMode = sysMode
-        } catch (_) {}
-        if (!content || content === '<EMPTY>') return { ok: true, text: '', imageFormat: fmt }
-        return { ok: true, text: content, imageFormat: fmt }
-      }
-      // 失败：把 status + body 写到 dump，下一次循环还能继续试
-      const text = await res.text().catch(() => '')
-      try {
-        const dump = {
-          tag: 'HTTP_ERROR',
-          ts: new Date().toISOString(),
-          fmt, sysMode,
-          model, baseUrl,
-          providerId: cfg?.id,
-          requestUrl: url,
-          status: res.status,
-          statusText: res.statusText,
-          respHeaders: Object.fromEntries(res.headers.entries ? res.headers.entries() : []),
-          respBody: text.slice(0, 1500),
-          sentContentTypes: body.messages.map(m =>
-            Array.isArray(m.content) ? m.content.map(c => c.type) : [typeof m.content]
-          )
-        }
-        const line = `[${dump.ts}] ${JSON.stringify(dump)}\n`
-        const paths = [
-          path.join(tryAppGetPath() || process.cwd(), 'ai-image-resolve.log'),
-          path.join(process.env.APPDATA || '', 'family-inventory', 'ai-image-resolve.log'),
-          path.join(process.env.APPDATA || '', 'inventory-desktop', 'ai-image-resolve.log'),
-          path.join(require('os').tmpdir(), 'fi-debug.log'),
-          path.join(process.cwd(), 'fi-debug.log')
-        ]
-        for (const p of paths) {
-          try { if (p) fs.appendFileSync(p, line) } catch (_) {}
-        }
-        console.error('[HTTP_ERROR]', line.trim())
-      } catch (_) {}
-      lastErr = `AI 接口返回 ${res.status}: ${text.slice(0, 200)}`
-      // 继续下一种组合
+  for (const { fmt, sysMode } of order) {
+    let res
+    try {
+      const r = await _tryOne(fmt, sysMode)
+      res = r.res
+    } catch (e) {
+      lastErr = e.message || 'OCR 识别请求失败'
+      continue
     }
+    if (res.ok) {
+      const data = await res.json().catch(() => null)
+      if (!data) { lastErr = `AI 接口返回 ${res.status}: 响应非 JSON`; continue }
+      const content = (data.choices?.[0]?.message?.content || '').trim()
+      try {
+        cfg.__learnedFormat = fmt
+        cfg.__learnedSysMode = sysMode
+      } catch (_) {}
+      if (!content || content === '<EMPTY>') return { ok: true, text: '', imageFormat: fmt }
+      return { ok: true, text: content, imageFormat: fmt }
+    }
+    const text = await res.text().catch(() => '')
+    lastErr = `AI 接口返回 ${res.status}: ${text.slice(0, 200)}`
   }
   return { ok: false, error: lastErr || 'OCR 全部格式失败' }
 }

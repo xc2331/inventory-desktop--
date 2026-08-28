@@ -26,3 +26,6 @@ dev-mock-provider.*
 .DS_Store
 .env
 .env.local
+
+.git-credentials
+ai-service.js
