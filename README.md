@@ -314,6 +314,10 @@ inventory-desktop/
 
 ## 最近更新
 
+- **v2.0.6**：彻底修复批量删除报错「Too many parameter values were provided」；根因是 better-sqlite3 把 `?1,?2,?3` 当成 named placeholder，位置绑定时参数数量对不上；改为无编号 `?` 占位符；批量改分类同样修复；新增 electron+sqlite 集成测试防止回归
+- **v2.0.5**：清空搜索按钮加 200ms 锁定，避免 keyword 清空后按钮卸载导致第二次点击落空；批量删除改走专用 `items:batchDelete` IPC
+- **v2.0.4**：修复 v2.0.1~v2.0.3 白屏崩溃，根因 ItemCard 引用未声明变量，Vite minify 后变成 `safeHame not defined`；改为直接字面量兜底；全新 output 目录 + 强清 Vite 缓存出包
+- **v2.0.1**：P11/P12 等 12 项改进一次性上线，详见 [v2.0.1 待办清单](./docs/v200-todo.md)
 - **v1.8.1**：修复 v1.8.0 启动崩溃（`backfillFtsFromMainTables` SQL 字符串外层单引号撞 SQL 空串字面量，改反引号模板字符串）
 - **v1.8.0**：全文搜索 FTS5（`items_fts` / `materials_fts` + AI/AD/AU 触发器 + OCR 子表同步触发器 + 老库回填）；`listItems` / `listMaterials` 的 keyword 改为 FTS5 MATCH（多关键字 `term*` 前缀通配符，零命中回退 LIKE）
 - **v1.7.9j**：标签块 UI（`TagBlock` 组件 + 模糊搜索候选 + 自由新建标签 + 12 色 palette + Enter/Backspace 快捷键）
