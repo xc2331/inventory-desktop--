@@ -47,16 +47,12 @@ const SIDEBAR_CONTAINER_VARIANTS = {
 function Logo({ size = 24 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="1024" height="1024" rx="240" fill="url(#sidebar-logo-gradient)" />
-      <rect x="284" y="424" width="456" height="48" rx="24" fill="currentColor" />
-      <rect x="464" y="400" width="96" height="96" rx="32" fill="currentColor" />
-      <defs>
-        <linearGradient id="sidebar-logo-gradient" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#10b981" />
-          <stop offset="0.55" stopColor="#14b8a6" />
-          <stop offset="1" stopColor="#0d9488" />
-        </linearGradient>
-      </defs>
+      <rect width="1024" height="1024" rx="287" fill="#10b981" />
+      <rect x="184" y="184" width="656" height="656" rx="123" fill="#ffffff" />
+      <rect x="263" y="328" width="197" height="197" rx="43" fill="#10b981" />
+      <polyline points="306,399 346,453 417,366" fill="none" stroke="#ffffff" strokeWidth="26" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="512" y="383" width="313" height="26" rx="13" fill="#cbd5e1" />
+      <rect x="512" y="486" width="313" height="26" rx="13" fill="#cbd5e1" />
     </svg>
   )
 }
