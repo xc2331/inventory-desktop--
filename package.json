@@ -59,7 +59,8 @@
     ],
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**",
-      "build/icon.ico"
+      "build/icon.ico",
+      "build/tray-icon-16.png"
     ],
     "directories": {
       "output": "release-v206",

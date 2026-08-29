@@ -116,4 +116,11 @@ if __name__ == '__main__':
         sizes=[(s, s) for s in SIZES],
         append_images=images[1:]
     )
+    # 输出每个尺寸的 PNG 供检查
+    for size, img in zip(SIZES, images):
+        preview_path = os.path.join(os.path.dirname(OUTPUT), f'icon-preview-{size}.png')
+        img.save(preview_path)
+    # 单独输出 16x16 tray 图标（避免从 256 ico 缩放模糊）
+    tray_path = os.path.join(os.path.dirname(OUTPUT), 'tray-icon-16.png')
+    images[-1].save(tray_path)
     print('Saved', OUTPUT)

@@ -74,6 +74,10 @@ const ICON_PATH = app.isPackaged
   ? path.join(process.resourcesPath, 'app.asar.unpacked', 'build', 'icon.ico')
   : path.join(__dirname, '..', 'build', 'icon.ico')
 
+const TRAY_ICON_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, 'app.asar.unpacked', 'build', 'tray-icon-16.png')
+  : path.join(__dirname, '..', 'build', 'tray-icon-16.png')
+
 let mainWindow = null
 let db = null
 let apiServer = null
@@ -1070,8 +1074,8 @@ function buildMenu(_lang) {
 function createTray() {
   if (tray) return
   try {
-    const icon = nativeImage.createFromPath(ICON_PATH)
-    tray = new Tray(icon.resize({ width: 16, height: 16 }))
+    const icon = nativeImage.createFromPath(TRAY_ICON_PATH)
+    tray = new Tray(icon)
     tray.setToolTip('家庭物资管家')
     const contextMenu = Menu.buildFromTemplate([
       {
