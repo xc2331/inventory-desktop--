@@ -16,7 +16,10 @@ const {
   recognizeText,
   migrateAIConfig,
   getActiveProvider,
-  sanitizeProvider
+  sanitizeProvider,
+  // v2.0.1: OCR 自学习持久化
+  setPersistSettings,
+  loadLearnedFormat
 } = require('./ai-service')
 const { generateItemNo } = require('./item-no')
 // 物品写入 service：UI IPC 与外部 Agent HTTP API 共用的唯一写入路径（消除双写漂移）
@@ -68,7 +71,7 @@ ipcMain.on('app:getDataDirSync', (event) => {
 })
 
 const ICON_PATH = app.isPackaged
-  ? path.join(process.resourcesPath, 'app.asar', 'build', 'icon.ico')
+  ? path.join(process.resourcesPath, 'app.asar.unpacked', 'build', 'icon.ico')
   : path.join(__dirname, '..', 'build', 'icon.ico')
 
 let mainWindow = null
@@ -1393,7 +1396,8 @@ ipcMain.handle('ai:getConfig', () => {
   writeAppSettings(s)
   return {
     providers: s.aiProviders || [],
-    selectedId: s.aiSelectedId || ''
+    selectedId: s.aiSelectedId || '',
+    lastTest: s.aiLastTest || null
   }
 })
 
@@ -1428,12 +1432,14 @@ ipcMain.handle('ai:setConfig', (_event, patch) => {
   writeAppSettings(s)
   return {
     providers: s.aiProviders || [],
-    selectedId: s.aiSelectedId || ''
+    selectedId: s.aiSelectedId || '',
+    lastTest: s.aiLastTest || null
   }
 })
 
 ipcMain.handle('ai:recognize', async (_event, { image }) => {
   const settings = readAppSettings()
+  try { loadLearnedFormat(settings, getActiveProvider(settings)) } catch (_) {}
   return recognizeImage({ image, db, settings })
 })
 
@@ -1466,6 +1472,7 @@ ipcMain.handle('ai:ocrMaterial', async (_event, { id, image } = {}) => {
   const row = db.prepare('SELECT id, photo FROM materials WHERE id = ?').get(id)
   if (!row) return { ok: false, error: 'material not found' }
   const settings = readAppSettings()
+  try { loadLearnedFormat(settings, getActiveProvider(settings)) } catch (_) {}
   const result = await recognizeText({ image: image || row.photo || '', settings })
   if (!result.ok) return { ok: false, error: result.error }
   const now = Date.now()
@@ -1490,7 +1497,18 @@ ipcMain.handle('ai:testConnection', async (_event, { providerId } = {}) => {
     ? settings.aiProviders.find((p) => p.id === providerId)
     : getActiveProvider(settings)
   if (!provider) return { ok: false, error: '未配置 AI 服务' }
-  return testConnection({ settings, provider })
+  const result = await testConnection({ settings, provider })
+  // v2.0.1: 成功后落盘 lastTest（每个 provider 独立记时间戳和 model）
+  if (result && result.ok && provider.id) {
+    settings.aiLastTest = settings.aiLastTest || {}
+    settings.aiLastTest[provider.id] = {
+      ok: true,
+      at: Date.now(),
+      model: provider.model || ''
+    }
+    writeAppSettings(settings)
+  }
+  return result
 })
 
 ipcMain.handle('ai:fetchModels', async (_event, { providerId } = {}) => {
@@ -1631,7 +1649,9 @@ const ALLOWED_BULK_FIELDS = [
 
 ipcMain.handle('items:batchDelete', (_event, { ids }) => {
   if (!ids || ids.length === 0) return { deleted: 0 }
-  const ph = ids.map((_, i) => `?${i + 1}`).join(',')
+  // 用无编号的 ? 占位符：?N 是 named placeholder，不能用 .run(...arr) 位置绑定，
+  // 否则 better-sqlite3 会报 "Too many parameter values were provided"。
+  const ph = ids.map(() => '?').join(',')
   const del = db.prepare(`DELETE FROM items WHERE id IN (${ph})`)
   const tx = db.transaction((arr) => {
     del.run(...arr)
@@ -1644,15 +1664,16 @@ ipcMain.handle('items:batchUpdate', (_event, { ids, field, value }) => {
   if (!ids || ids.length === 0 || !field) return { updated: 0 }
   const safe = ALLOWED_BULK_FIELDS.includes(field) ? field : 'notes'
   const now = Date.now()
-  const ph = ids.map((_, i) => `?${i + 1}`).join(',')
+  // 同上：全部用无编号 ?，避免 better-sqlite3 报 "Too many parameter values were provided"
+  const ph = ids.map(() => '?').join(',')
   const upd = db.prepare(
-    `UPDATE items SET "${safe}" = ?${ids.length + 1}, updated_at = ?${ids.length + 2} WHERE id IN (${ph})`
+    `UPDATE items SET "${safe}" = ?, updated_at = ? WHERE id IN (${ph})`
   )
   const tx = db.transaction((arr) => {
     upd.run(...arr)
     return arr.length
   })
-  return { updated: tx([...ids, value ?? '', now]) }
+  return { updated: tx([value ?? '', now, ...ids]) }
 })
 
 ipcMain.handle('items:batchChangeQty', (_event, { ids, type, value }) => {
@@ -2356,6 +2377,29 @@ ipcMain.handle('file:open', async (_event, { filters }) => {
 })
 
 // ===== 应用生命周期 =====
+// v2.0.1: 立即注入 OCR 自学习持久化（必须在 IPC 注册之前完成）
+// ai-service.js 通过 setPersistSettings(fn) 注册一个会触发 settings 落盘的回调
+// OCR 每次命中 200 时会调这个回调写回 settings.json
+let __appSettingsDirty = false
+let __appSettingsTimer = null
+function __schedulePersistSettings() {
+  __appSettingsDirty = true
+  if (__appSettingsTimer) return
+  __appSettingsTimer = setTimeout(() => {
+    __appSettingsTimer = null
+    if (!__appSettingsDirty) return
+    __appSettingsDirty = false
+    try {
+      // 简单读-改-写：先读当前 settings（已被 ai-service 改过内存对象），再写盘
+      const s = readAppSettings()
+      writeAppSettings(s)
+    } catch (e) {
+      console.error('[main] schedulePersistSettings error:', e)
+    }
+  }, 500)
+}
+setPersistSettings(__schedulePersistSettings)
+
 app.whenReady().then(() => {
   // 启动期错误日志写入文件，便于无 console 环境排查
   const logPath = path.join(app.getPath('userData'), 'startup-error.log')
@@ -2363,6 +2407,51 @@ app.whenReady().then(() => {
     try {
       fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`)
     } catch (_) { /* ignore */ }
+  }
+  // v2.0.4: asar 自检 — 防止装错版本导致白屏
+  try {
+    const asarPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'app.asar')
+      : null
+    if (asarPath && fs.existsSync(asarPath)) {
+      const { listHeader } = require('@electron/asar') // 仅拿 header，不解大文件
+      // 简单读 asar 头部 JSON 找 dist/assets/App-*.js
+      const fd = fs.openSync(asarPath, 'r')
+      const headerBuf = Buffer.alloc(8)
+      fs.readSync(fd, headerBuf, 0, 8, 0)
+      const pickleSize = headerBuf.readUInt32LE(4)
+      const pickleStr = Buffer.alloc(pickleSize)
+      fs.readSync(fd, pickleStr, 0, pickleSize, 8)
+      const header = JSON.parse(pickleStr.toString('utf8'))
+      fs.closeSync(fd)
+      // asar header.files 是平铺，键是相对路径（可能以/或\开头）
+      const appFileKey = Object.keys(header.files || {}).find(k => /App-.*\.js$/.test(k))
+      if (appFileKey) {
+        const fileInfo = header.files[appFileKey]
+        if (fileInfo && fileInfo.offset != null) {
+          const fd2 = fs.openSync(asarPath, 'r')
+          const total = 8 + pickleSize + fileInfo.offset + fileInfo.size
+          // 我们只取前 4KB 看看有没有 safeHame
+          const sample = Math.min(4 * 1024 * 1024, fileInfo.size)
+          const chunk = Buffer.alloc(sample)
+          fs.readSync(fd2, chunk, 0, sample, 8 + pickleSize + fileInfo.offset)
+          fs.closeSync(fd2)
+          // 用 split 简单匹配，避开 433KB 字符串构造
+          if (chunk.indexOf('safeHame') >= 0) {
+            log(`[startup] FATAL asar contains safeHame in ${appFileKey}`)
+            dialog.showErrorBox(
+              '安装包有误',
+              `检测到 v2.0.4 之前版本的安装残留（app.asar 仍含错误变量）。\n\n请：\n1) 控制面板 → 卸载 "Family Inventory"\n2) 删除残留目录: ${app.getPath('userData')}\n3) 重新安装 v2.0.4\n\n受影响文件: ${appFileKey}`
+            )
+            app.quit()
+            return
+          }
+          log(`[startup] asar self-check passed (${appFileKey}, no safeHame)`)
+        }
+      }
+    }
+  } catch (e) {
+    log(`[startup] asar self-check skipped: ${e && e.message || e}`)
   }
   try {
     log(`[startup] whenReady begin, version=${app.getVersion()}`)
