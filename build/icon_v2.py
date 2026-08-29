@@ -1,11 +1,11 @@
 """生成 Family Inventory v2 图标（多尺寸 ICO）
 
 设计风格：
-- 大圆角方形背景
+- 大圆角方形背景（大尺寸）
 - 绿色纯色（emerald-500）
 - 中心白色「清单/复选框」符号
 - 无半透明高光，无外环
-- 小尺寸单独优化，保证 16x16、32x32 清晰可辨
+- 16x16、32x32 使用像素级精确绘制的极简对勾，保证任务栏/托盘清晰
 """
 from PIL import Image, ImageDraw
 import os
@@ -24,7 +24,7 @@ def _draw_check_mark(draw, points, width):
 
 
 def _draw_full_design(size):
-    """完整设计：绿色圆角背景 + 白色清单卡片 + 复选框"""
+    """完整设计：绿色圆角背景 + 白色清单卡片 + 复选框（48x48 及以上）"""
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
@@ -75,7 +75,7 @@ def _draw_full_design(size):
 
 
 def _draw_simple_check(size):
-    """简化设计：绿色圆角背景 + 大白对勾（用于 32x32 以下）"""
+    """简化设计：绿色圆角背景 + 大白对勾（32x32）"""
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
@@ -83,8 +83,8 @@ def _draw_simple_check(size):
     radius = max(size // 3, 2)
     draw.rounded_rectangle([pad, pad, size - pad, size - pad], radius=radius, fill=BG)
 
-    # 对勾占满约 65% 的区域，线条更粗
-    margin = size * 0.18
+    # 对勾占满约 70% 的区域
+    margin = size * 0.15
     left = margin
     bottom = size - margin
     right = size - margin
@@ -95,13 +95,32 @@ def _draw_simple_check(size):
         (left + size * 0.38, bottom - size * 0.12),
         (right - size * 0.05, top + size * 0.12),
     ]
-    line_width = max(2, int(size * 0.13))
+    line_width = max(3, int(size * 0.16))
     _draw_check_mark(draw, points, line_width)
 
     return img
 
 
+def _draw_tiny_check(size):
+    """16x16 专用：像素级精确，最大化对比度"""
+    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # 16x16 用 14x14 背景，1px 边距，2px 圆角
+    draw.rounded_rectangle([1, 1, size - 2, size - 2], radius=2, fill=BG)
+
+    # 对勾坐标按 16x16 像素网格精确放置
+    # 线条宽度 3px，从 (4,8) -> (7,11) -> (12,5)
+    points = [(4, 8), (7, 11), (12, 5)]
+    draw.line([points[0], points[1]], fill=WHITE, width=3)
+    draw.line([points[1], points[2]], fill=WHITE, width=3)
+
+    return img
+
+
 def create_icon(size):
+    if size == 16:
+        return _draw_tiny_check(size)
     if size <= 32:
         return _draw_simple_check(size)
     return _draw_full_design(size)
@@ -120,7 +139,7 @@ if __name__ == '__main__':
     for size, img in zip(SIZES, images):
         preview_path = os.path.join(os.path.dirname(OUTPUT), f'icon-preview-{size}.png')
         img.save(preview_path)
-    # 单独输出 16x16 tray 图标（避免从 256 ico 缩放模糊）
+    # 单独输出 16x16 tray 图标
     tray_path = os.path.join(os.path.dirname(OUTPUT), 'tray-icon-16.png')
     images[-1].save(tray_path)
     print('Saved', OUTPUT)
