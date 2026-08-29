@@ -142,4 +142,7 @@ if __name__ == '__main__':
     # 单独输出 16x16 tray 图标
     tray_path = os.path.join(os.path.dirname(OUTPUT), 'tray-icon-16.png')
     images[-1].save(tray_path)
+    # 输出 256x256 PNG 给 electron-builder 作为 exe 图标源
+    png_path = os.path.join(os.path.dirname(OUTPUT), 'icon.png')
+    images[0].save(png_path)
     print('Saved', OUTPUT)

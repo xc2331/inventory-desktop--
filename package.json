@@ -66,11 +66,10 @@
       "output": "release-v206",
       "buildResources": "build"
     },
-    "icon": "build/icon.ico",
+    "icon": "build/icon.png",
     "win": {
       "target": "portable",
-      "signAndEditExecutable": false,
-      "icon": "build/icon.ico"
+      "icon": "build/icon.png"
     },
     "mac": {
       "target": "dmg",
