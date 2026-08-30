@@ -21,11 +21,21 @@ release-v12/
 release-v12-*/
 release-v*/
 release-temp/
+release-*/
 *.log
 dev-mock-provider.*
 .DS_Store
 .env
 .env.local
 
+# build 调试图标产物
+build/__pycache__/
+build/exe-icon-*.png
+build/icon-test.*
+build/icon-*.png
+build/icon_preview.png
+build/logo-current-render.png
+build/*.py
+/icon-test.png
+
 .git-credentials
-ai-service.js
